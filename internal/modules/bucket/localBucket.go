@@ -56,7 +56,6 @@ func (b *LocalBucket) GetFile(update types.Update, assetPath string) (types.Buck
 		file.Close()
 		return types.BucketFile{}, err
 	}
-
 	return types.BucketFile{
 		Reader:    file,
 		CreatedAt: fileInfo.ModTime(),
