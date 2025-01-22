@@ -17,13 +17,12 @@ func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	vars := mux.Vars(r)
 	environment := vars["ENVIRONMENT"]
-	log.Printf("[RequestID: %s] Handling assets request for environment: %s", requestID, environment)
-
 	if !environments.ValidateEnvironment(environment) {
 		log.Printf("[RequestID: %s] Invalid environment: %s", requestID, environment)
 		http.Error(w, "Invalid environment", http.StatusBadRequest)
 		return
 	}
+	log.Printf("[RequestID: %s] Handling assets request for environment: %s", requestID, environment)
 
 	assetName := r.URL.Query().Get("asset")
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")

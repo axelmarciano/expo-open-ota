@@ -12,7 +12,7 @@ func validateStorageMode(storageMode string) bool {
 	return storageMode == "local" || storageMode == "aws"
 }
 
-func getEnvironmentsList() []string {
+func GetEnvironmentsList() []string {
 	environmentsList := GetEnv("ENVIRONMENTS_LIST")
 	return strings.Split(environmentsList, ",")
 }
@@ -37,7 +37,7 @@ func LoadConfig() {
 	if !validateStorageMode(storageMode) {
 		log.Fatalf("Invalid STORAGE_MODE: %s", storageMode)
 	}
-	environmentsList := getEnvironmentsList()
+	environmentsList := GetEnvironmentsList()
 	if (len(environmentsList)) == 0 {
 		log.Fatalf("No environments configured")
 	}
