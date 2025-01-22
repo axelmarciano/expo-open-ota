@@ -48,3 +48,4 @@ coverage.out
 
 # Temporary backup files
 *~
+updates/**/*

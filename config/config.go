@@ -11,7 +11,7 @@ func LoadConfig() {
 	if err != nil {
 		log.Printf("No .env file found, continuing with runtime environment variables.")
 	}
-	mandatoryEnvVars := []string{"BASE_URL", "UPDATES_BUCKET_NAME"}
+	mandatoryEnvVars := []string{"BASE_URL", "S3_BUCKET_NAME"}
 	for _, envVar := range mandatoryEnvVars {
 		value := GetEnv(envVar)
 		if value == "" {

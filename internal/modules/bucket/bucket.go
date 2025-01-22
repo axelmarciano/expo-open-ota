@@ -2,6 +2,7 @@ package bucket
 
 import (
 	"bytes"
+	"expo-open-ota/config"
 	"expo-open-ota/internal/modules/types"
 	"fmt"
 	"io"
@@ -15,13 +16,37 @@ type Bucket interface {
 type BucketType string
 
 const (
-	S3BucketType BucketType = "s3"
+	S3BucketType    BucketType = "s3"
+	LocalBucketType BucketType = "local"
 )
 
-func GetBucket(bucketType BucketType) (Bucket, error) {
+func ResolveBucketType() BucketType {
+	bucketType := config.GetEnv("STORAGE_MODE")
+	if bucketType == "" || bucketType == "local" {
+		return LocalBucketType
+	}
+	return S3BucketType
+}
+
+func GetBucket() (Bucket, error) {
+	bucketType := ResolveBucketType()
 	switch bucketType {
 	case S3BucketType:
-		return &S3Bucket{}, nil
+		bucketName := config.GetEnv("S3_BUCKET_NAME")
+		if bucketName == "" {
+			return nil, fmt.Errorf("S3_BUCKET_NAME not set in environment")
+		}
+		return &S3Bucket{
+			BucketName: bucketName,
+		}, nil
+	case LocalBucketType:
+		basePath := config.GetEnv("LOCAL_BUCKET_BASE_PATH")
+		if basePath == "" {
+			return nil, fmt.Errorf("LOCAL_BUCKET_BASE_PATH not set in environment")
+		}
+		return &LocalBucket{
+			BasePath: basePath,
+		}, nil
 	default:
 		return nil, fmt.Errorf("unknown bucket type: %s", bucketType)
 	}

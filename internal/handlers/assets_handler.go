@@ -78,7 +78,7 @@ func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 
 	bundle := platformMetadata.Bundle
 
-	resolvedBucket, errResolveBucket := bucket.GetBucket(bucket.S3BucketType)
+	resolvedBucket, errResolveBucket := bucket.GetBucket()
 	if errResolveBucket != nil {
 		log.Printf("[RequestID: %s] Error resolving bucket: %v", requestID, errResolveBucket)
 		http.Error(w, "Error resolving bucket", http.StatusInternalServerError)

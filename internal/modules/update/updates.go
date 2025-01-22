@@ -20,7 +20,7 @@ func sortUpdates(updates []types.Update) []types.Update {
 }
 
 func GetAllUpdatesForRuntimeVersion(environment string, runtimeVersion string) ([]types.Update, error) {
-	resolvedBucket, errResolveBucket := bucket.GetBucket(bucket.S3BucketType)
+	resolvedBucket, errResolveBucket := bucket.GetBucket()
 	if errResolveBucket != nil {
 		return nil, errResolveBucket
 	}
@@ -44,7 +44,7 @@ func GetLatestUpdateBundlePathForRuntimeVersion(environment string, runtimeVersi
 }
 
 func GetUpdateType(update types.Update) types.UpdateType {
-	resolvedBucket, errResolveBucket := bucket.GetBucket(bucket.S3BucketType)
+	resolvedBucket, errResolveBucket := bucket.GetBucket()
 	if errResolveBucket != nil {
 		return types.NormalUpdate
 	}
@@ -57,7 +57,7 @@ func GetUpdateType(update types.Update) types.UpdateType {
 }
 
 func GetExpoConfig(update types.Update) (json.RawMessage, error) {
-	resolvedBucket, errResolveBucket := bucket.GetBucket(bucket.S3BucketType)
+	resolvedBucket, errResolveBucket := bucket.GetBucket()
 	if errResolveBucket != nil {
 		return nil, errResolveBucket
 	}
@@ -75,7 +75,7 @@ func GetExpoConfig(update types.Update) (json.RawMessage, error) {
 }
 
 func GetMetadata(update types.Update) (types.UpdateMetadata, error) {
-	resolvedBucket, errResolveBucket := bucket.GetBucket(bucket.S3BucketType)
+	resolvedBucket, errResolveBucket := bucket.GetBucket()
 	if errResolveBucket != nil {
 		return types.UpdateMetadata{}, errResolveBucket
 	}
@@ -130,7 +130,7 @@ func buildFinalManifestAssetUrlURL(baseURL, environment, assetFilePath, runtimeV
 }
 
 func shapeManifestAsset(update types.Update, asset *types.Asset, isLaunchAsset bool, platform string) (types.ManifestAsset, error) {
-	resolvedBucket, errResolveBucket := bucket.GetBucket(bucket.S3BucketType)
+	resolvedBucket, errResolveBucket := bucket.GetBucket()
 	if errResolveBucket != nil {
 		return types.ManifestAsset{}, errResolveBucket
 	}
@@ -225,7 +225,7 @@ func ComposeUpdateManifest(
 }
 
 func CreateRollbackDirective(update types.Update) (types.RollbackDirective, error) {
-	resolvedBucket, errResolveBucket := bucket.GetBucket(bucket.S3BucketType)
+	resolvedBucket, errResolveBucket := bucket.GetBucket()
 	if errResolveBucket != nil {
 		return types.RollbackDirective{}, errResolveBucket
 	}

@@ -3,7 +3,6 @@ package bucket
 import (
 	"context"
 	"errors"
-	"expo-open-ota/config"
 	"expo-open-ota/internal/modules/types"
 	"expo-open-ota/internal/services"
 	"fmt"
@@ -13,12 +12,13 @@ import (
 	"time"
 )
 
-type S3Bucket struct{}
+type S3Bucket struct {
+	BucketName string
+}
 
 func (b *S3Bucket) GetUpdates(environment string, runtimeVersion string) ([]types.Update, error) {
-	bucketName := config.GetEnv("UPDATES_BUCKET_NAME")
-	if bucketName == "" {
-		return nil, errors.New("UPDATES_BUCKET_NAME not set")
+	if b.BucketName == "" {
+		return nil, errors.New("BucketName not set")
 	}
 	s3Client, errS3 := services.GetS3Client()
 	if errS3 != nil {
@@ -26,7 +26,7 @@ func (b *S3Bucket) GetUpdates(environment string, runtimeVersion string) ([]type
 	}
 	prefix := environment + "/" + runtimeVersion + "/"
 	input := &s3.ListObjectsV2Input{
-		Bucket:    aws.String(bucketName),
+		Bucket:    aws.String(b.BucketName),
 		Prefix:    aws.String(prefix),
 		Delimiter: aws.String("/"),
 	}
@@ -50,21 +50,21 @@ func (b *S3Bucket) GetUpdates(environment string, runtimeVersion string) ([]type
 }
 
 func (b *S3Bucket) GetFile(update types.Update, assetPath string) (types.BucketFile, error) {
-	filePath := update.Environment + "/" + update.RuntimeVersion + "/" + update.UpdateId + "/" + assetPath
-	bucketName := config.GetEnv("UPDATES_BUCKET_NAME")
-	if bucketName == "" {
-		return types.BucketFile{}, errors.New("UPDATES_BUCKET_NAME not set")
+	if b.BucketName == "" {
+		return types.BucketFile{}, errors.New("BucketName not set")
 	}
+	filePath := update.Environment + "/" + update.RuntimeVersion + "/" + update.UpdateId + "/" + assetPath
 	s3Client, errS3 := services.GetS3Client()
 	if errS3 != nil {
 		return types.BucketFile{}, errS3
 	}
 	input := &s3.GetObjectInput{
-		Bucket: aws.String(bucketName),
+		Bucket: aws.String(b.BucketName),
 		Key:    aws.String(filePath),
 	}
 	resp, err := s3Client.GetObject(context.TODO(), input)
 	if err != nil {
+
 		return types.BucketFile{}, fmt.Errorf("GetObject error: %w", err)
 	}
 	return types.BucketFile{
