@@ -1,0 +1,29 @@
+# Start with the official Golang base image
+FROM golang:1.23-alpine
+
+# Install necessary packages
+RUN apk add --no-cache git bash curl unzip
+
+# Install Reflex for hot reloading
+RUN go install github.com/cespare/reflex@latest
+
+# Ensure go binaries and AWS CLI are available in the PATH
+ENV PATH="/go/bin:${PATH}"
+
+# Set the Current Working Directory inside the container
+WORKDIR /app
+
+# Copy go mod and sum files
+COPY go.mod go.sum ./
+
+# Download all dependencies. Dependencies will be cached if the go.mod and go.sum files are not changed
+RUN go mod download
+
+# Copy the source from the current directory to the Working Directory inside the container
+COPY . .
+
+# Install dependencies
+RUN go get ./...
+
+# Command to run the application with Reflex
+CMD ["reflex", "-r", "\\.go", "-s", "--", "sh", "-c", "go run cmd/api/main.go"]
