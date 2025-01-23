@@ -261,3 +261,53 @@ func TestNoUpdatesResponse(t *testing.T) {
 	}
 	assert.Equal(t, directive.Type, "noUpdateAvailable", "noUpdateAvailable")
 }
+
+func TestRollbackResponse(t *testing.T) {
+	projectRoot, err := findProjectRoot()
+	if err != nil {
+		t.Errorf("Error finding project root: %v", err)
+	}
+	os.Setenv("ENVIRONMENTS_LIST", "rollbackenv,staging,production")
+	os.Setenv("PUBLIC_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/public-key-test.pem"))
+	os.Setenv("PRIVATE_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/private-key-test.pem"))
+	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "/test/test-updates"))
+
+	q := "http://localhost:3000/manifest/rollbackenv"
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", q, nil)
+	r.Header.Add("expo-platform", "ios")
+	r.Header.Add("expo-runtime-version", "1")
+	r.Header.Add("expo-protocol-version", "1")
+	r.Header.Add("expo-expect-signature", "true")
+	r.Header.Add("expo-current-update-id", "b15ed6d8-f39b-04ad-a248-fa3b95fd7e0e")
+	r.Header.Add("expo-embedded-update-id", "embedded-update-id")
+	r = mux.SetURLVars(r, map[string]string{
+		"ENVIRONMENT": "rollbackenv",
+	})
+	handlers.ManifestHandler(w, r)
+	assert.Equal(t, 200, w.Code, "Expected status code 200 when manifest is retrieved")
+	parts, err := ParseMultipartMixedResponse(w.Header().Get("Content-Type"), w.Body.Bytes())
+	if err != nil {
+		t.Errorf("Error parsing response: %v", err)
+	}
+	assert.Equal(t, 1, len(parts), "Expected 1 parts in the response")
+
+	manifestPart := parts[0]
+
+	assert.Equal(t, IsMultipartPartWithName(manifestPart, "directive"), true, "Expected a part with name 'manifest'")
+	body := manifestPart.Body
+
+	signature := manifestPart.Headers["Expo-Signature"]
+	assert.NotNil(t, signature, "Expected a signature in the response")
+	assert.NotEqual(t, "", signature, "Expected a signature in the response")
+	validSignature := ValidateSignatureHeader(signature, body)
+	assert.Equal(t, true, validSignature, "Expected a valid signature")
+
+	var directive types.RollbackDirective
+	err = json.Unmarshal([]byte(body), &directive)
+	if err != nil {
+		t.Errorf("Error parsing json body: %v", err)
+	}
+	assert.Equal(t, directive.Type, "rollBackToEmbedded", "rollBackToEmbedded")
+}
