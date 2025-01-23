@@ -52,6 +52,8 @@ var DefaultEnvValues = map[string]string{
 	"STORAGE_MODE":           "local",
 	"BASE_URL":               "http://localhost:3000",
 	"ENVIRONMENTS_LIST":      "staging,production,demo",
+	"PUBLIC_CERT_KEY_PATH":   "./certs/public.pem",
+	"PRIVATE_CERT_KEY_PATH":  "./certs/private.pem",
 }
 
 func GetEnv(key string) string {
