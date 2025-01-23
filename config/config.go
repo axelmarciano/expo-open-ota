@@ -51,9 +51,9 @@ var DefaultEnvValues = map[string]string{
 	"LOCAL_BUCKET_BASE_PATH": "./updates",
 	"STORAGE_MODE":           "local",
 	"BASE_URL":               "http://localhost:3000",
-	"ENVIRONMENTS_LIST":      "staging,production,demo",
-	"PUBLIC_CERT_KEY_PATH":   "./certs/public.pem",
-	"PRIVATE_CERT_KEY_PATH":  "./certs/private.pem",
+	"ENVIRONMENTS_LIST":      "staging,production",
+	"PUBLIC_CERT_KEY_PATH":   "./certs/public-key.pem",
+	"PRIVATE_CERT_KEY_PATH":  "./certs/private-key.pem",
 }
 
 func GetEnv(key string) string {
