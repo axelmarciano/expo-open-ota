@@ -20,7 +20,7 @@ func (b *LocalBucket) GetUpdates(environment string, runtimeVersion string) ([]t
 	dirPath := filepath.Join(b.BasePath, environment, runtimeVersion)
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
-		return nil, err
+		return []types.Update{}, nil
 	}
 	var updates []types.Update
 	for _, entry := range entries {

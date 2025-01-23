@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net/url"
 	"sort"
+	"sync"
 )
 
 func sortUpdates(updates []types.Update) []types.Update {
@@ -35,12 +36,12 @@ func GetAllUpdatesForRuntimeVersion(environment string, runtimeVersion string) (
 func GetLatestUpdateBundlePathForRuntimeVersion(environment string, runtimeVersion string) (*types.Update, error) {
 	updates, err := GetAllUpdatesForRuntimeVersion(environment, runtimeVersion)
 	if err != nil {
-		return &types.Update{}, err
+		return nil, err
 	}
 	if len(updates) > 0 {
 		return &updates[0], nil
 	}
-	return &types.Update{}, nil
+	return nil, nil
 }
 
 func GetUpdateType(update types.Update) types.UpdateType {
@@ -194,14 +195,43 @@ func ComposeUpdateManifest(
 	case "android":
 		platformSpecificMetadata = metadata.MetadataJSON.FileMetadata.Android
 	}
-	var assets []types.ManifestAsset
-	for _, a := range platformSpecificMetadata.Assets {
-		shapedAsset, errShape := shapeManifestAsset(update, &a, false, platform)
-		if errShape != nil {
-			return types.UpdateManifest{}, errShape
+	/*
+		var assets []types.ManifestAsset
+		for _, a := range platformSpecificMetadata.Assets {
+			shapedAsset, errShape := shapeManifestAsset(update, &a, false, platform)
+			if errShape != nil {
+				return types.UpdateManifest{}, errShape
+			}
+			assets = append(assets, shapedAsset)
 		}
-		assets = append(assets, shapedAsset)
+	*/
+	var (
+		assets = make([]types.ManifestAsset, len(platformSpecificMetadata.Assets))
+		errs   = make(chan error, len(platformSpecificMetadata.Assets)) // Buffered channel for errors
+		wg     sync.WaitGroup
+	)
+
+	// Iterate over assets and process them in parallel
+	for i, a := range platformSpecificMetadata.Assets {
+		wg.Add(1)
+		go func(index int, asset types.Asset) {
+			defer wg.Done()
+			shapedAsset, errShape := shapeManifestAsset(update, &asset, false, platform)
+			if errShape != nil {
+				errs <- errShape
+				return
+			}
+			assets[index] = shapedAsset
+		}(i, a)
 	}
+
+	wg.Wait()
+	close(errs)
+
+	if len(errs) > 0 {
+		return types.UpdateManifest{}, <-errs
+	}
+
 	launchAsset, errShape := shapeManifestAsset(update, &types.Asset{
 		Path: platformSpecificMetadata.Bundle,
 		Ext:  "",
