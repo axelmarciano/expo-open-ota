@@ -195,23 +195,12 @@ func ComposeUpdateManifest(
 	case "android":
 		platformSpecificMetadata = metadata.MetadataJSON.FileMetadata.Android
 	}
-	/*
-		var assets []types.ManifestAsset
-		for _, a := range platformSpecificMetadata.Assets {
-			shapedAsset, errShape := shapeManifestAsset(update, &a, false, platform)
-			if errShape != nil {
-				return types.UpdateManifest{}, errShape
-			}
-			assets = append(assets, shapedAsset)
-		}
-	*/
 	var (
 		assets = make([]types.ManifestAsset, len(platformSpecificMetadata.Assets))
-		errs   = make(chan error, len(platformSpecificMetadata.Assets)) // Buffered channel for errors
+		errs   = make(chan error, len(platformSpecificMetadata.Assets))
 		wg     sync.WaitGroup
 	)
 
-	// Iterate over assets and process them in parallel
 	for i, a := range platformSpecificMetadata.Assets {
 		wg.Add(1)
 		go func(index int, asset types.Asset) {
