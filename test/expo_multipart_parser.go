@@ -2,6 +2,14 @@ package test
 
 import (
 	"bytes"
+	"crypto"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
+	"expo-open-ota/internal/modules/certs"
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -71,4 +79,56 @@ func ParseMultipartMixedResponse(contentTypeHeader string, bodyBuffer []byte) ([
 
 func IsMultipartPartWithName(part MultipartPart, name string) bool {
 	return part.Name == name
+}
+
+func ValidateSignatureHeader(signature string, content string) bool {
+	publicCert := certs.GetPublicExpoCert()
+	signatureParts := strings.Split(signature, ",")
+	if len(signatureParts) != 2 {
+		fmt.Println("Invalid signature format")
+		return false
+	}
+	signatureParts[0] = strings.TrimPrefix(signatureParts[0], "sig=")
+	signatureParts[1] = strings.TrimPrefix(signatureParts[1], " keyid=")
+	signatureParts[1] = strings.Trim(signatureParts[1], "\"")
+	signatureParts[0] = strings.Trim(signatureParts[0], "\"")
+	if signatureParts[1] != "main" {
+		fmt.Println("Invalid keyid")
+		return false
+	}
+	decodedSignature, err := base64.StdEncoding.DecodeString(signatureParts[0])
+	if err != nil {
+		fmt.Println("Error decoding signature: ", err)
+		return false
+	}
+
+	block, _ := pem.Decode([]byte(publicCert))
+	if block == nil {
+		fmt.Println("Failed to parse public certificate")
+		return false
+	}
+
+	publicKey, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		fmt.Println("Error parsing public key: ", err)
+		return false
+	}
+
+	rsaPublicKey, ok := publicKey.(*rsa.PublicKey)
+	if !ok {
+		fmt.Println("Public key is not of type RSA")
+		return false
+	}
+
+	hash := sha256.New()
+	hash.Write([]byte(content))
+	hashedData := hash.Sum(nil)
+
+	err = rsa.VerifyPKCS1v15(rsaPublicKey, crypto.SHA256, hashedData, decodedSignature)
+	if err != nil {
+		fmt.Println("Signature verification failed: ", err)
+		return false
+	}
+
+	return true
 }
