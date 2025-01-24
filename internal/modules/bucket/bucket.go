@@ -69,6 +69,11 @@ type FileUploadRequest struct {
 }
 
 func RequestUploadUrlsForFileUpdates(environment string, runtimeVersion string, updateId string, fileNames []string) ([]FileUploadRequest, error) {
+	uniqueFileNames := make(map[string]struct{})
+	for _, fileName := range fileNames {
+		uniqueFileNames[fileName] = struct{}{}
+	}
+
 	bucket, err := GetBucket()
 	if err != nil {
 		return nil, err
@@ -77,10 +82,10 @@ func RequestUploadUrlsForFileUpdates(environment string, runtimeVersion string, 
 	var requests []FileUploadRequest
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	errChan := make(chan error, len(fileNames))
+	errChan := make(chan error, len(uniqueFileNames))
 
-	wg.Add(len(fileNames))
-	for _, fileName := range fileNames {
+	wg.Add(len(uniqueFileNames))
+	for fileName := range uniqueFileNames {
 		go func(fileName string) {
 			defer wg.Done()
 			requestUploadUrl, err := bucket.RequestUploadUrlForFileUpdate(environment, runtimeVersion, updateId, fileName)

@@ -95,7 +95,13 @@ func RequestUploadLocalFileHandler(w http.ResponseWriter, r *http.Request) {
 func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	vars := mux.Vars(r)
+
 	environment := vars["ENVIRONMENT"]
+	if !environments.ValidateEnvironment(environment) {
+		log.Printf("[RequestID: %s] Invalid environment: %s", requestID, environment)
+		http.Error(w, "Invalid environment", http.StatusBadRequest)
+		return
+	}
 	bearerToken, err := helpers.GetBearerToken(r)
 
 	if err != nil {
@@ -106,7 +112,7 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	expoAccount, err := services.FetchExpoUserAccountInformations(bearerToken)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error fetching expo account informations: %v", requestID, err)
-		http.Error(w, "Error fetching expo account informations", http.StatusInternalServerError)
+		http.Error(w, "Error fetching expo account informations", http.StatusUnauthorized)
 		return
 	}
 	if expoAccount == nil {
@@ -123,11 +129,6 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	if bearerToken == "" {
 		log.Printf("[RequestID: %s] No bearer token provided", requestID)
 		http.Error(w, "No bearer token provided", http.StatusUnauthorized)
-		return
-	}
-	if !environments.ValidateEnvironment(environment) {
-		log.Printf("[RequestID: %s] Invalid environment: %s", requestID, environment)
-		http.Error(w, "Invalid environment", http.StatusBadRequest)
 		return
 	}
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")
@@ -158,7 +159,6 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Error requesting upload urls", http.StatusInternalServerError)
 		return
 	}
-	// Write json response (its not in helpers)
 	jsonResponse, err := json.Marshal(updateRequests)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error marshalling response: %v", requestID, err)
