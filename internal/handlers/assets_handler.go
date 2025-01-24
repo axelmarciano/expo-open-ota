@@ -17,8 +17,7 @@ func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 		RequestID:      uuid.New().String(),
 	}
 
-	ctx := r.Context()
-	resp, err := assets.HandleAssets(ctx, req)
+	resp, err := assets.HandleAssets(req)
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
