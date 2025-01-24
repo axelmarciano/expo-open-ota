@@ -18,6 +18,6 @@ func NewRouter() *mux.Router {
 	r.HandleFunc("/manifest/{ENVIRONMENT}", handlers.ManifestHandler).Methods(http.MethodGet)
 	r.HandleFunc("/assets/{ENVIRONMENT}", handlers.AssetsHandler).Methods(http.MethodGet)
 	r.HandleFunc("/requestUploadUrl/{ENVIRONMENT}", handlers.RequestUploadUrlHandler).Methods(http.MethodPost)
-	r.HandleFunc("uploadLocalFile", handlers.RequestUploadLocalFileHandler).Methods(http.MethodPut)
+	r.HandleFunc("/uploadLocalFile", handlers.RequestUploadLocalFileHandler).Methods(http.MethodPut)
 	return r
 }

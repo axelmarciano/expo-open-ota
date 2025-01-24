@@ -12,9 +12,13 @@ import (
 	"github.com/gorilla/mux"
 	"log"
 	"net/http"
-	"strings"
+	"path/filepath"
 	"time"
 )
+
+type FileNamesRequest struct {
+	FileNames []string `json:"fileNames"`
+}
 
 func RequestUploadLocalFileHandler(w http.ResponseWriter, r *http.Request) {
 	bucketType := bucket.ResolveBucketType()
@@ -52,13 +56,29 @@ func RequestUploadLocalFileHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No token provided", http.StatusBadRequest)
 		return
 	}
-	dirPath, err := bucket.ValidateUploadTokenAndResolveDirPath(token)
+	filePath, err := bucket.ValidateUploadTokenAndResolveFilePath(token)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating upload token: %v", requestID, err)
 		http.Error(w, "Error validating upload token", http.StatusBadRequest)
 		return
 	}
-	success, err := bucket.HandleUploadFile(dirPath, r.Body)
+	if r.Body == nil {
+		log.Printf("[RequestID: %s] Empty request body", requestID)
+		http.Error(w, "Empty request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	fileName := filepath.Base(filePath)
+
+	file, _, err := r.FormFile(fileName)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error retrieving file from form: %v", requestID, err)
+		http.Error(w, "Error retrieving file from form", http.StatusBadRequest)
+		return
+	}
+
+	success, err := bucket.HandleUploadFile(filePath, file)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error handling upload file: %v", requestID, err)
 		http.Error(w, "Error handling upload file", http.StatusInternalServerError)
@@ -116,25 +136,19 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No runtime version provided", http.StatusBadRequest)
 		return
 	}
-	body := make([]byte, r.ContentLength)
-	_, err = r.Body.Read(body)
+	var request FileNamesRequest
+	err = json.NewDecoder(r.Body).Decode(&request)
 	if err != nil {
-		log.Printf("[RequestID: %s] Error reading request body: %v", requestID, err)
-		http.Error(w, "Error reading request body", http.StatusInternalServerError)
+		log.Printf("[RequestID: %s] Error decoding JSON body: %v", requestID, err)
+		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
 		return
 	}
-	fileNames := string(body)
-	if fileNames == "" {
+	if len(request.FileNames) == 0 {
 		log.Printf("[RequestID: %s] No file names provided", requestID)
 		http.Error(w, "No file names provided", http.StatusBadRequest)
 		return
 	}
-	fileNamesArray := strings.Split(fileNames, ",")
-	if len(fileNamesArray) == 0 {
-		log.Printf("[RequestID: %s] No file names provided", requestID)
-		http.Error(w, "No file names provided", http.StatusBadRequest)
-		return
-	}
+	fileNamesArray := request.FileNames
 	updateId := time.Now().UnixNano() / int64(time.Millisecond)
 	fmt.Println("currentTimeMs", updateId)
 	w.Header().Set("Content-Type", "application/json")

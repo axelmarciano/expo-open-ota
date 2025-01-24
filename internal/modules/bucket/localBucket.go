@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/golang-jwt/jwt/v5"
 	"io"
+	"mime/multipart"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -23,16 +24,16 @@ func (b *LocalBucket) RequestUploadUrlForFileUpdate(environment string, runtimeV
 	if b.BasePath == "" {
 		return "", errors.New("BasePath not set")
 	}
-	dirPath := filepath.Join(b.BasePath, environment, runtimeVersion, updateId, fileName)
+	dirPath := filepath.Join(b.BasePath, environment, runtimeVersion, updateId)
 	err := os.MkdirAll(dirPath, os.ModePerm)
 	if err != nil {
 		return "", err
 	}
 	token, err := services.GenerateJWTToken(config.GetEnv("JWT_SECRET"), jwt.MapClaims{
-		"sub":     config.GetEnv("EXPO_USERNAME"),
-		"exp":     time.Now().Add(time.Minute * 10).Unix(),
-		"dirPath": dirPath,
-		"action":  "uploadLocalFile",
+		"sub":      config.GetEnv("EXPO_USERNAME"),
+		"exp":      time.Now().Add(time.Minute * 10).Unix(),
+		"filePath": filepath.Join(dirPath, fileName),
+		"action":   "uploadLocalFile",
 	})
 	if err != nil {
 		return "", err
@@ -100,7 +101,7 @@ func (b *LocalBucket) GetFile(update types.Update, assetPath string) (types.Buck
 	}, nil
 }
 
-func ValidateUploadTokenAndResolveDirPath(token string) (string, error) {
+func ValidateUploadTokenAndResolveFilePath(token string) (string, error) {
 	claims := jwt.MapClaims{}
 	decodedToken, err := services.DecodeAndExtractJWTToken(config.GetEnv("JWT_SECRET"), token, claims)
 	if err != nil {
@@ -110,7 +111,7 @@ func ValidateUploadTokenAndResolveDirPath(token string) (string, error) {
 		return "", errors.New("invalid token")
 	}
 	action := claims["action"].(string)
-	dirPath := claims["dirPath"].(string)
+	filePath := claims["filePath"].(string)
 	sub := claims["sub"].(string)
 	if sub != config.GetEnv("EXPO_USERNAME") {
 		return "", errors.New("invalid token sub")
@@ -118,12 +119,17 @@ func ValidateUploadTokenAndResolveDirPath(token string) (string, error) {
 	if action != "uploadLocalFile" {
 		return "", errors.New("invalid token action")
 	}
-	return dirPath, nil
+	return filePath, nil
 }
 
-func HandleUploadFile(dirPath string, body io.ReadCloser) (bool, error) {
-	file, err := os.Create(dirPath)
+func HandleUploadFile(filePath string, body multipart.File) (bool, error) {
+	err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm)
 	if err != nil {
+		return false, err
+	}
+	file, err := os.Create(filePath)
+	if err != nil {
+		fmt.Println(filePath)
 		return false, err
 	}
 	defer file.Close()
