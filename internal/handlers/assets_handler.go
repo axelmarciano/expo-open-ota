@@ -107,14 +107,16 @@ func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var contentType string
+
 	if isLaunchAsset {
-		w.Header().Set("Content-Type", "application/javascript")
+		contentType = "application/javascript"
 	} else {
-		w.Header().Set("Content-Type", mime.TypeByExtension("."+string(assetMetadata.Ext)))
+		contentType = mime.TypeByExtension("." + string(assetMetadata.Ext))
 	}
 	w.Header().Set("expo-protocol-version", "1")
 	w.Header().Set("expo-sfv-version", "0")
 	w.Header().Set("Cache-Control", "public, max-age=31536000")
 	log.Printf("[RequestID: %s] Serving asset: %s", requestID, assetName)
-	compression.ServeCompressedAsset(w, r, buffer, w.Header().Get("Content-Type"), requestID)
+	compression.ServeCompressedAsset(w, r, buffer, contentType, requestID)
 }
