@@ -12,7 +12,6 @@ type LocalCertsStorage struct {
 }
 
 func retrieveFileContent(path string) string {
-	// Open the file
 	file, err := os.Open(path)
 	if err != nil {
 		fmt.Println("Error opening file:", err)
@@ -20,7 +19,6 @@ func retrieveFileContent(path string) string {
 	}
 	defer file.Close()
 
-	// Read the file content fully
 	content, err := io.ReadAll(file)
 	if err != nil {
 		fmt.Println("Error reading file:", err)
