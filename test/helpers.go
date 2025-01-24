@@ -28,20 +28,17 @@ func findProjectRoot() (string, error) {
 }
 
 func ComputeUploadRequestsInput(dirPath string) handlers.FileNamesRequest {
-	// Retrieve metadata.json file
 	metadataFilePath := filepath.Join(dirPath, "metadata.json")
 	metadataFile, err := os.Open(metadataFilePath)
 	if err != nil {
 		panic(err)
 	}
 	defer metadataFile.Close()
-	// Cast metadataFile as types.MetadataObject
 	var metadataObject types.MetadataObject
 	err = json.NewDecoder(metadataFile).Decode(&metadataObject)
 	if err != nil {
 		panic(err)
 	}
-	// Retrieve all file names from metadataObject
 	fileNames := make([]string, 0)
 	for _, asset := range metadataObject.FileMetadata.IOS.Assets {
 		fileNames = append(fileNames, asset.Path)
