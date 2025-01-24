@@ -311,3 +311,53 @@ func TestRollbackResponseforManifest(t *testing.T) {
 	}
 	assert.Equal(t, directive.Type, "rollBackToEmbedded", "rollBackToEmbedded")
 }
+
+func TestValidRequestForProductionManifest(t *testing.T) {
+	projectRoot, err := findProjectRoot()
+	if err != nil {
+		t.Errorf("Error finding project root: %v", err)
+	}
+	os.Setenv("ENVIRONMENTS_LIST", "staging,production")
+	os.Setenv("PUBLIC_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/public-key-test.pem"))
+	os.Setenv("PRIVATE_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/private-key-test.pem"))
+	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "/test/test-updates"))
+
+	q := "http://localhost:3000/manifest/production"
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", q, nil)
+	r.Header.Add("expo-platform", "ios")
+	r.Header.Add("expo-runtime-version", "1")
+	r.Header.Add("expo-protocol-version", "1")
+	r.Header.Add("expo-expect-signature", "true")
+	r = mux.SetURLVars(r, map[string]string{
+		"ENVIRONMENT": "production",
+	})
+	handlers.ManifestHandler(w, r)
+	assert.Equal(t, 200, w.Code, "Expected status code 200 when manifest is retrieved")
+	parts, err := ParseMultipartMixedResponse(w.Header().Get("Content-Type"), w.Body.Bytes())
+	if err != nil {
+		t.Errorf("Error parsing response: %v", err)
+	}
+	assert.Equal(t, 1, len(parts), "Expected 1 parts in the response")
+
+	manifestPart := parts[0]
+
+	assert.Equal(t, IsMultipartPartWithName(manifestPart, "manifest"), true, "Expected a part with name 'manifest'")
+	body := manifestPart.Body
+
+	signature := manifestPart.Headers["Expo-Signature"]
+	assert.NotNil(t, signature, "Expected a signature in the response")
+	assert.NotEqual(t, "", signature, "Expected a signature in the response")
+	validSignature := ValidateSignatureHeader(signature, body)
+	assert.Equal(t, true, validSignature, "Expected a valid signature")
+	var updateManifest types.UpdateManifest
+	err = json.Unmarshal([]byte(body), &updateManifest)
+	if err != nil {
+		t.Errorf("Error parsing json body: %v", err)
+	}
+	assert.Equal(t, updateManifest.CreatedAt, "2025-01-21T11:32:14.206Z", "Expected a specific created at date")
+	assert.Equal(t, updateManifest.RunTimeVersion, "1", "Expected a specific runtime version")
+	assert.Equal(t, updateManifest.Metadata, json.RawMessage("{}"), "Expected empty metadata")
+	assert.Equal(t, body, "{\"id\":\"291580ca-a34f-73c4-fd82-7902c4129dda\",\"createdAt\":\"2025-01-21T11:32:14.206Z\",\"runtimeVersion\":\"1\",\"metadata\":{},\"assets\":[{\"hash\":\"JCcs2u_4LMX6zazNmCpvBbYMRQRwS7-UwZpjiGWYgLs\",\"key\":\"4f1cb2cac2370cd5050681232e8575a8\",\"fileExtension\":\".png\",\"contentType\":\"application/javascript\",\"url\":\"http://localhost:3000/assets/production?asset=assets%2F4f1cb2cac2370cd5050681232e8575a8\\u0026platform=ios\\u0026runtimeVersion=1\"}],\"launchAsset\":{\"hash\":\"vH93RoNbdzk_2emr38L0ZVYJVBTPcspX5-5DXLUkiQ8\",\"key\":\"e44a25e2b1df198470a04adc1dd82e4e\",\"fileExtension\":\".bundle\",\"contentType\":\"\",\"url\":\"http://localhost:3000/assets/production?asset=_expo%2Fstatic%2Fjs%2Fios%2FAppEntry-546b83fc2035b34c5f2dbd9bb04a2478.hbc\\u0026platform=ios\\u0026runtimeVersion=1\"},\"extra\":{\"expoClient\":{\"name\":\"expo-updates-client\",\"slug\":\"expo-updates-client\",\"owner\":\"anonymous\",\"version\":\"1.0.0\",\"orientation\":\"portrait\",\"icon\":\"./assets/icon.png\",\"splash\":{\"image\":\"./assets/splash.png\",\"resizeMode\":\"contain\",\"backgroundColor\":\"#ffffff\"},\"runtimeVersion\":\"1\",\"updates\":{\"url\":\"http://localhost:3000/api/manifest\",\"enabled\":true,\"fallbackToCacheTimeout\":30000},\"assetBundlePatterns\":[\"**/*\"],\"ios\":{\"supportsTablet\":true,\"bundleIdentifier\":\"com.test.expo-updates-client\"},\"android\":{\"adaptiveIcon\":{\"foregroundImage\":\"./assets/adaptive-icon.png\",\"backgroundColor\":\"#FFFFFF\"},\"package\":\"com.test.expoupdatesclient\"},\"web\":{\"favicon\":\"./assets/favicon.png\"},\"plugins\":[[\"expo-build-properties\",{\"android\":{\"usesCleartextTraffic\":true},\"ios\":{}}]],\"sdkVersion\":\"52.0.0\",\"platforms\":[\"ios\",\"android\"],\"currentFullName\":\"@anonymous/expo-updates-client\",\"originalFullName\":\"@anonymous/expo-updates-client\"}}}")
+}
