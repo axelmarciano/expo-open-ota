@@ -25,7 +25,6 @@ import (
 func cleanTest(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
-		// Delete all folders in DO_NOT_USE (just keep .keep)
 		projectRoot, err := findProjectRoot()
 		if err != nil {
 			t.Errorf("Error finding project root: %v", err)
@@ -97,7 +96,6 @@ func TestRequestUploadUrlWithBadEnvironment(t *testing.T) {
 		"ENVIRONMENT": "DO_NOT_USE",
 	})
 	r.Header.Set("Authorization", "Bearer expo_test_token")
-	// Add query runtimeVersion
 	r.URL.RawQuery = "runtimeVersion=1.0.0"
 	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/staging/1/1674170951")
 	uploadRequestsInput := ComputeUploadRequestsInput(sampleUpdatePath)
@@ -417,7 +415,6 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 	for err := range errs {
 		assert.Nil(t, err, "Expected no errors")
 	}
-	// Check that all files are uploaded
 	for _, w := range ws {
 		assert.Equal(t, w.Code, 200, "Expected status code 200")
 		_, err := os.Open(projectRoot + "/updates/DO_NOT_USE/1/" + updateId + "/" + fileUploadRequests[0].FilePath)
