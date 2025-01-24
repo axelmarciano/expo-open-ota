@@ -110,7 +110,7 @@ func GetMetadata(update types.Update) (types.UpdateMetadata, error) {
 	return metadata, nil
 }
 
-func buildFinalManifestAssetUrlURL(baseURL, environment, assetFilePath, runtimeVersion, platform string) (string, error) {
+func BuildFinalManifestAssetUrlURL(baseURL, environment, assetFilePath, runtimeVersion, platform string) (string, error) {
 	parsedURL, err := url.Parse(baseURL)
 	if err != nil {
 		return "", fmt.Errorf("invalid base URL: %w", err)
@@ -165,7 +165,7 @@ func shapeManifestAsset(update types.Update, asset *types.Asset, isLaunchAsset b
 	if isLaunchAsset {
 		contentType = mime.TypeByExtension(asset.Ext)
 	}
-	finalUrl, errUrl := buildFinalManifestAssetUrlURL(config.GetEnv("BASE_URL"), update.Environment, assetFilePath, update.RuntimeVersion, platform)
+	finalUrl, errUrl := BuildFinalManifestAssetUrlURL(config.GetEnv("BASE_URL"), update.Environment, assetFilePath, update.RuntimeVersion, platform)
 	if errUrl != nil {
 		return types.ManifestAsset{}, errUrl
 	}

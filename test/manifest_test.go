@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-func TestNotValidEnvironment(t *testing.T) {
+func TestNotValidEnvironmentForManifest(t *testing.T) {
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Errorf("Error finding project root: %v", err)
@@ -36,7 +36,7 @@ func TestNotValidEnvironment(t *testing.T) {
 	assert.Equal(t, "Invalid environment\n", w.Body.String(), "Expected 'Invalid environment' message")
 }
 
-func TestNotValidProtocolVersion(t *testing.T) {
+func TestNotValidProtocolVersionsForManifest(t *testing.T) {
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Errorf("Error finding project root: %v", err)
@@ -61,7 +61,7 @@ func TestNotValidProtocolVersion(t *testing.T) {
 	assert.Equal(t, "Invalid protocol version\n", w.Body.String(), "Expected 'Invalid protocol version' message")
 }
 
-func TestNotValidPlatform(t *testing.T) {
+func TestNotValidPlatformForManifest(t *testing.T) {
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Errorf("Error finding project root: %v", err)
@@ -86,7 +86,7 @@ func TestNotValidPlatform(t *testing.T) {
 	assert.Equal(t, "Invalid platform\n", w.Body.String(), "Expected 'IInvalid platform' message")
 }
 
-func TestNotValidRuntimeVersion(t *testing.T) {
+func TestNotValidRuntimeVersionForManifest(t *testing.T) {
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Errorf("Error finding project root: %v", err)
@@ -110,7 +110,7 @@ func TestNotValidRuntimeVersion(t *testing.T) {
 	assert.Equal(t, "No runtime version provided\n", w.Body.String(), "Expected 'No runtime version provided' message")
 }
 
-func TestNotValidCertificates(t *testing.T) {
+func TestNotValidCertificatesForManifest(t *testing.T) {
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Errorf("Error finding project root: %v", err)
@@ -137,7 +137,7 @@ func TestNotValidCertificates(t *testing.T) {
 	assert.Equal(t, "Error signing content\n", w.Body.String(), "Expected 'Error signing content' message")
 }
 
-func TestNoUpdates(t *testing.T) {
+func TestNoUpdatesForManifest(t *testing.T) {
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Errorf("Error finding project root: %v", err)
@@ -213,7 +213,7 @@ func TestValidRequestForStagingManifest(t *testing.T) {
 	assert.Equal(t, body, "{\"id\":\"b15ed6d8-f39b-04ad-a248-fa3b95fd7e0e\",\"createdAt\":\"2025-01-21T00:07:00.912Z\",\"runtimeVersion\":\"1\",\"metadata\":{},\"assets\":[{\"hash\":\"JCcs2u_4LMX6zazNmCpvBbYMRQRwS7-UwZpjiGWYgLs\",\"key\":\"4f1cb2cac2370cd5050681232e8575a8\",\"fileExtension\":\".png\",\"contentType\":\"application/javascript\",\"url\":\"http://localhost:3000/assets/staging?asset=assets%2F4f1cb2cac2370cd5050681232e8575a8\\u0026platform=ios\\u0026runtimeVersion=1\"}],\"launchAsset\":{\"hash\":\"4nGjshgRoD62YxnJAnZBWllEzCBrQR2zQ_2ei8glL6s\",\"key\":\"9d01842d6ee1224f7188971c5d397115\",\"fileExtension\":\".bundle\",\"contentType\":\"\",\"url\":\"http://localhost:3000/assets/staging?asset=bundles%2Fios-9d01842d6ee1224f7188971c5d397115.js\\u0026platform=ios\\u0026runtimeVersion=1\"},\"extra\":{\"expoClient\":{\"name\":\"expo-updates-client\",\"slug\":\"expo-updates-client\",\"owner\":\"anonymous\",\"version\":\"1.0.0\",\"orientation\":\"portrait\",\"icon\":\"./assets/icon.png\",\"splash\":{\"image\":\"./assets/splash.png\",\"resizeMode\":\"contain\",\"backgroundColor\":\"#ffffff\"},\"runtimeVersion\":\"1\",\"updates\":{\"url\":\"http://localhost:3000/api/manifest\",\"enabled\":true,\"fallbackToCacheTimeout\":30000},\"assetBundlePatterns\":[\"**/*\"],\"ios\":{\"supportsTablet\":true,\"bundleIdentifier\":\"com.test.expo-updates-client\"},\"android\":{\"adaptiveIcon\":{\"foregroundImage\":\"./assets/adaptive-icon.png\",\"backgroundColor\":\"#FFFFFF\"},\"package\":\"com.test.expoupdatesclient\"},\"web\":{\"favicon\":\"./assets/favicon.png\"},\"sdkVersion\":\"47.0.0\",\"platforms\":[\"ios\",\"android\",\"web\"],\"currentFullName\":\"@anonymous/expo-updates-client\",\"originalFullName\":\"@anonymous/expo-updates-client\"}}}")
 }
 
-func TestNoUpdatesResponse(t *testing.T) {
+func TestNoUpdatesResponseForManifest(t *testing.T) {
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Errorf("Error finding project root: %v", err)
@@ -262,7 +262,7 @@ func TestNoUpdatesResponse(t *testing.T) {
 	assert.Equal(t, directive.Type, "noUpdateAvailable", "noUpdateAvailable")
 }
 
-func TestRollbackResponse(t *testing.T) {
+func TestRollbackResponseforManifest(t *testing.T) {
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Errorf("Error finding project root: %v", err)
