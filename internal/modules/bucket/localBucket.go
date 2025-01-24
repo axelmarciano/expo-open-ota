@@ -2,7 +2,13 @@ package bucket
 
 import (
 	"errors"
+	"expo-open-ota/config"
 	"expo-open-ota/internal/modules/types"
+	"expo-open-ota/internal/services"
+	"fmt"
+	"github.com/golang-jwt/jwt/v5"
+	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,6 +17,38 @@ import (
 
 type LocalBucket struct {
 	BasePath string
+}
+
+func (b *LocalBucket) RequestUploadUrlForFileUpdate(environment string, runtimeVersion string, updateId string, fileName string) (string, error) {
+	if b.BasePath == "" {
+		return "", errors.New("BasePath not set")
+	}
+	dirPath := filepath.Join(b.BasePath, environment, runtimeVersion, updateId, fileName)
+	err := os.MkdirAll(dirPath, os.ModePerm)
+	if err != nil {
+		return "", err
+	}
+	token, err := services.GenerateJWTToken(config.GetEnv("JWT_SECRET"), jwt.MapClaims{
+		"sub":     config.GetEnv("EXPO_USERNAME"),
+		"exp":     time.Now().Add(time.Minute * 10).Unix(),
+		"dirPath": dirPath,
+		"action":  "uploadLocalFile",
+	})
+	if err != nil {
+		return "", err
+	}
+	parsedURL, err := url.Parse(config.GetEnv("BASE_URL"))
+	if err != nil {
+		return "", fmt.Errorf("invalid base URL: %w", err)
+	}
+	parsedURL.Path, err = url.JoinPath(parsedURL.Path, "uploadLocalFile")
+	if err != nil {
+		return "", fmt.Errorf("error joining path: %w", err)
+	}
+	query := url.Values{}
+	query.Set("token", token)
+	parsedURL.RawQuery = query.Encode()
+	return parsedURL.String(), nil
 }
 
 func (b *LocalBucket) GetUpdates(environment string, runtimeVersion string) ([]types.Update, error) {
@@ -60,4 +98,38 @@ func (b *LocalBucket) GetFile(update types.Update, assetPath string) (types.Buck
 		Reader:    file,
 		CreatedAt: fileInfo.ModTime(),
 	}, nil
+}
+
+func ValidateUploadTokenAndResolveDirPath(token string) (string, error) {
+	claims := jwt.MapClaims{}
+	decodedToken, err := services.DecodeAndExtractJWTToken(config.GetEnv("JWT_SECRET"), token, claims)
+	if err != nil {
+		return "", err
+	}
+	if !decodedToken.Valid {
+		return "", errors.New("invalid token")
+	}
+	action := claims["action"].(string)
+	dirPath := claims["dirPath"].(string)
+	sub := claims["sub"].(string)
+	if sub != config.GetEnv("EXPO_USERNAME") {
+		return "", errors.New("invalid token sub")
+	}
+	if action != "uploadLocalFile" {
+		return "", errors.New("invalid token action")
+	}
+	return dirPath, nil
+}
+
+func HandleUploadFile(dirPath string, body io.ReadCloser) (bool, error) {
+	file, err := os.Create(dirPath)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+	_, err = io.Copy(file, body)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }

@@ -72,3 +72,32 @@ func (b *S3Bucket) GetFile(update types.Update, assetPath string) (types.BucketF
 		CreatedAt: *resp.LastModified,
 	}, nil
 }
+
+func (b *S3Bucket) RequestUploadUrlForFileUpdate(environment string, runtimeVersion string, updateId string, fileName string) (string, error) {
+	if b.BucketName == "" {
+		return "", errors.New("BucketName not set")
+	}
+
+	s3Client, err := services.GetS3Client()
+	if err != nil {
+		return "", fmt.Errorf("error getting S3 client: %w", err)
+	}
+
+	presignClient := s3.NewPresignClient(s3Client)
+
+	key := fmt.Sprintf("%s/%s/%s/upload/%s", environment, runtimeVersion, updateId, fileName)
+
+	input := &s3.PutObjectInput{
+		Bucket: aws.String(b.BucketName),
+		Key:    aws.String(key),
+	}
+
+	presignResult, err := presignClient.PresignPutObject(context.TODO(), input, func(opt *s3.PresignOptions) {
+		opt.Expires = 15 * time.Minute
+	})
+	if err != nil {
+		return "", fmt.Errorf("error presigning URL: %w", err)
+	}
+
+	return presignResult.URL, nil
+}

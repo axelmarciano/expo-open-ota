@@ -26,13 +26,6 @@ func LoadConfig() {
 	if err != nil {
 		log.Printf("No .env file found, continuing with runtime environment variables.")
 	}
-	mandatoryEnvVars := []string{"BASE_URL", "S3_BUCKET_NAME"}
-	for _, envVar := range mandatoryEnvVars {
-		value := GetEnv(envVar)
-		if value == "" {
-			log.Fatalf("Environment variable %s not set", envVar)
-		}
-	}
 	storageMode := GetEnv("STORAGE_MODE")
 	if !validateStorageMode(storageMode) {
 		log.Fatalf("Invalid STORAGE_MODE: %s", storageMode)
@@ -45,6 +38,17 @@ func LoadConfig() {
 	if !validateBaseUrl(baseUrl) {
 		log.Fatalf("Invalid BASE_URL: %s", baseUrl)
 	}
+	expoToken := GetEnv("EXPO_USERNAME")
+	if expoToken == "" {
+		log.Fatalf("EXPO_USERNAME not set")
+	}
+	if expoToken == "<EXPO_DEFAULT_USERNAME>" {
+		log.Printf("EXPO_USERNAME is set to the default value, please replace it with a valid token")
+	}
+	jwtSecret := GetEnv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatalf("JWT_SECRET not set")
+	}
 }
 
 var DefaultEnvValues = map[string]string{
@@ -55,6 +59,8 @@ var DefaultEnvValues = map[string]string{
 	"PUBLIC_CERT_KEY_PATH":   "./certs/public-key.pem",
 	"PRIVATE_CERT_KEY_PATH":  "./certs/private-key.pem",
 	"CERTS_STORAGE_TYPE":     "local",
+	"EXPO_USERNAME":          "<EXPO_DEFAULT_USERNAME>",
+	"JWT_SECRET":             "",
 }
 
 func GetEnv(key string) string {
