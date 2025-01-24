@@ -19,6 +19,29 @@ import (
 	"testing"
 )
 
+func cleanTest(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() {
+		// Delete all folders in DO_NOT_USE (just keep .keep)
+		projectRoot, err := findProjectRoot()
+		if err != nil {
+			t.Errorf("Error finding project root: %v", err)
+		}
+		updatesPath := filepath.Join(projectRoot, "./updates/DO_NOT_USE")
+		updates, err := os.ReadDir(updatesPath)
+		if err != nil {
+			t.Errorf("Error reading updates directory: %v", err)
+		}
+		for _, update := range updates {
+			if update.IsDir() {
+				err = os.RemoveAll(filepath.Join(updatesPath, update.Name()))
+				if err != nil {
+					t.Errorf("Error removing update directory: %v", err)
+				}
+			}
+		}
+	})
+}
 func mockExpoResponse() {
 	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
 		func(req *http.Request) (*http.Response, error) {
@@ -50,6 +73,7 @@ func mockExpoResponse() {
 }
 
 func TestRequestUploadUrlWithBadEnvironment(t *testing.T) {
+	cleanTest(t)
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 	mockExpoResponse()
@@ -85,6 +109,7 @@ func TestRequestUploadUrlWithBadEnvironment(t *testing.T) {
 }
 
 func TestRequestUploadUrlWithoutBearer(t *testing.T) {
+	cleanTest(t)
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 	mockExpoResponse()
@@ -117,6 +142,7 @@ func TestRequestUploadUrlWithoutBearer(t *testing.T) {
 }
 
 func TestRequestUploadUrlWithBadBearer(t *testing.T) {
+	cleanTest(t)
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 	mockExpoResponse()
@@ -150,6 +176,7 @@ func TestRequestUploadUrlWithBadBearer(t *testing.T) {
 }
 
 func TestRequestUploadUrlWithMismatchingExpoAccounts(t *testing.T) {
+	cleanTest(t)
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 	mockExpoResponse()
@@ -183,6 +210,7 @@ func TestRequestUploadUrlWithMismatchingExpoAccounts(t *testing.T) {
 }
 
 func TestRequestUploadUrlWithoutRuntimeVersion(t *testing.T) {
+	cleanTest(t)
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 	mockExpoResponse()
@@ -216,6 +244,7 @@ func TestRequestUploadUrlWithoutRuntimeVersion(t *testing.T) {
 }
 
 func TestRequestUploadUrlWithBadRequestBody(t *testing.T) {
+	cleanTest(t)
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 	mockExpoResponse()
@@ -249,6 +278,7 @@ func TestRequestUploadUrlWithBadRequestBody(t *testing.T) {
 }
 
 func TestRequestUploadUrlWithBadFilenamesType(t *testing.T) {
+	cleanTest(t)
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 	mockExpoResponse()
@@ -282,6 +312,7 @@ func TestRequestUploadUrlWithBadFilenamesType(t *testing.T) {
 }
 
 func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
+	cleanTest(t)
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 	mockExpoResponse()
