@@ -16,7 +16,7 @@ import (
 	"strings"
 )
 
-// This a reimplementation of the @expo/multipart-body-parser[https://www.npmjs.com/package/@expo/multipart-body-parser] in golang to test manifest response
+// This is a reimplementation of the @expo/multipart-body-parser[https://www.npmjs.com/package/@expo/multipart-body-parser] in Go to test manifest response
 
 type MultipartPart struct {
 	Body        string
