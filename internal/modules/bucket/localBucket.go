@@ -24,7 +24,14 @@ func (b *LocalBucket) RequestUploadUrlForFileUpdate(environment string, runtimeV
 	if b.BasePath == "" {
 		return "", errors.New("BasePath not set")
 	}
+	fmt.Println("BasePath", b.BasePath)
+	fmt.Println("environment", environment)
+	fmt.Println("runtimeVersion", runtimeVersion)
+	fmt.Println("updateId", updateId)
 	dirPath := filepath.Join(b.BasePath, environment, runtimeVersion, updateId)
+	fmt.Println("dirPath", dirPath)
+	fmt.Println("fileName", fileName)
+	fmt.Println("composed", filepath.Join(dirPath, fileName))
 	err := os.MkdirAll(dirPath, os.ModePerm)
 	if err != nil {
 		return "", err

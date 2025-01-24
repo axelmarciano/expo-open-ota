@@ -151,7 +151,6 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	fileNamesArray := request.FileNames
 	updateId := time.Now().UnixNano() / int64(time.Millisecond)
-	fmt.Println("currentTimeMs", updateId)
 	w.Header().Set("Content-Type", "application/json")
 	updateRequests, err := bucket.RequestUploadUrlsForFileUpdates(environment, runtimeVersion, fmt.Sprintf("%d", updateId), fileNamesArray)
 	if err != nil {
@@ -165,6 +164,7 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Error marshalling response", http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("expo-update-id", fmt.Sprintf("%d", updateId))
 	w.WriteHeader(http.StatusOK)
 	_, errWrite := w.Write(jsonResponse)
 	if errWrite != nil {

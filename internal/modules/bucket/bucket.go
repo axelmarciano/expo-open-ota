@@ -6,6 +6,7 @@ import (
 	"expo-open-ota/internal/modules/types"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sync"
 )
 
@@ -66,6 +67,7 @@ func ConvertReadCloserToBytes(rc io.ReadCloser) ([]byte, error) {
 type FileUploadRequest struct {
 	RequestUploadUrl string `json:"requestUploadUrl"`
 	FileName         string `json:"fileName"`
+	FilePath         string `json:"filePath"`
 }
 
 func RequestUploadUrlsForFileUpdates(environment string, runtimeVersion string, updateId string, fileNames []string) ([]FileUploadRequest, error) {
@@ -96,7 +98,8 @@ func RequestUploadUrlsForFileUpdates(environment string, runtimeVersion string, 
 			mu.Lock()
 			requests = append(requests, FileUploadRequest{
 				RequestUploadUrl: requestUploadUrl,
-				FileName:         fileName,
+				FileName:         filepath.Base(fileName),
+				FilePath:         fileName,
 			})
 			mu.Unlock()
 		}(fileName)

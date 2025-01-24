@@ -6,16 +6,19 @@ import (
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/modules/bucket"
 	"expo-open-ota/internal/services"
+	"fmt"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	"github.com/jarcoal/httpmock"
 	"github.com/stretchr/testify/assert"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -84,7 +87,7 @@ func TestRequestUploadUrlWithBadEnvironment(t *testing.T) {
 	os.Setenv("ENVIRONMENTS_LIST", "staging,production")
 	os.Setenv("PUBLIC_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/public-key-test.pem"))
 	os.Setenv("PRIVATE_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/private-key-test.pem"))
-	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates/DO_NOT_USE"))
+	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates"))
 	os.Setenv("EXPO_USERNAME", "test_username")
 	os.Setenv("JWT_SECRET", "test_jwt_secret")
 	q := "http://localhost:3000/requestUploadUrl/DO_NOT_USE?runtimeVersion=1"
@@ -120,7 +123,7 @@ func TestRequestUploadUrlWithoutBearer(t *testing.T) {
 	os.Setenv("ENVIRONMENTS_LIST", "DO_NOT_USE, staging,production")
 	os.Setenv("PUBLIC_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/public-key-test.pem"))
 	os.Setenv("PRIVATE_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/private-key-test.pem"))
-	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates/DO_NOT_USE"))
+	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates"))
 	os.Setenv("EXPO_USERNAME", "test_username")
 	os.Setenv("JWT_SECRET", "test_jwt_secret")
 	q := "http://localhost:3000/requestUploadUrl/DO_NOT_USE?runtimeVersion=1"
@@ -153,7 +156,7 @@ func TestRequestUploadUrlWithBadBearer(t *testing.T) {
 	os.Setenv("ENVIRONMENTS_LIST", "DO_NOT_USE, staging,production")
 	os.Setenv("PUBLIC_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/public-key-test.pem"))
 	os.Setenv("PRIVATE_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/private-key-test.pem"))
-	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates/DO_NOT_USE"))
+	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates"))
 	os.Setenv("EXPO_USERNAME", "test_username")
 	os.Setenv("JWT_SECRET", "test_jwt_secret")
 	q := "http://localhost:3000/requestUploadUrl/DO_NOT_USE?runtimeVersion=1"
@@ -187,7 +190,7 @@ func TestRequestUploadUrlWithMismatchingExpoAccounts(t *testing.T) {
 	os.Setenv("ENVIRONMENTS_LIST", "DO_NOT_USE, staging,production")
 	os.Setenv("PUBLIC_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/public-key-test.pem"))
 	os.Setenv("PRIVATE_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/private-key-test.pem"))
-	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates/DO_NOT_USE"))
+	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates"))
 	os.Setenv("EXPO_USERNAME", "test_username")
 	os.Setenv("JWT_SECRET", "test_jwt_secret")
 	q := "http://localhost:3000/requestUploadUrl/DO_NOT_USE?runtimeVersion=1"
@@ -221,7 +224,7 @@ func TestRequestUploadUrlWithoutRuntimeVersion(t *testing.T) {
 	os.Setenv("ENVIRONMENTS_LIST", "DO_NOT_USE, staging,production")
 	os.Setenv("PUBLIC_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/public-key-test.pem"))
 	os.Setenv("PRIVATE_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/private-key-test.pem"))
-	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates/DO_NOT_USE"))
+	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates"))
 	os.Setenv("EXPO_USERNAME", "test_username")
 	os.Setenv("JWT_SECRET", "test_jwt_secret")
 	q := "http://localhost:3000/requestUploadUrl/DO_NOT_USE"
@@ -255,7 +258,7 @@ func TestRequestUploadUrlWithBadRequestBody(t *testing.T) {
 	os.Setenv("ENVIRONMENTS_LIST", "DO_NOT_USE, staging,production")
 	os.Setenv("PUBLIC_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/public-key-test.pem"))
 	os.Setenv("PRIVATE_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/private-key-test.pem"))
-	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates/DO_NOT_USE"))
+	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates"))
 	os.Setenv("EXPO_USERNAME", "test_username")
 	os.Setenv("JWT_SECRET", "test_jwt_secret")
 	q := "http://localhost:3000/requestUploadUrl/DO_NOT_USE?runtimeVersion=1"
@@ -289,7 +292,7 @@ func TestRequestUploadUrlWithBadFilenamesType(t *testing.T) {
 	os.Setenv("ENVIRONMENTS_LIST", "DO_NOT_USE, staging,production")
 	os.Setenv("PUBLIC_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/public-key-test.pem"))
 	os.Setenv("PRIVATE_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/private-key-test.pem"))
-	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates/DO_NOT_USE"))
+	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates"))
 	os.Setenv("EXPO_USERNAME", "test_username")
 	os.Setenv("JWT_SECRET", "test_jwt_secret")
 	q := "http://localhost:3000/requestUploadUrl/DO_NOT_USE?runtimeVersion=1"
@@ -323,7 +326,7 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 	os.Setenv("ENVIRONMENTS_LIST", "DO_NOT_USE, staging,production")
 	os.Setenv("PUBLIC_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/public-key-test.pem"))
 	os.Setenv("PRIVATE_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/private-key-test.pem"))
-	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates/DO_NOT_USE"))
+	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates"))
 	os.Setenv("EXPO_USERNAME", "test_username")
 	os.Setenv("JWT_SECRET", "test_jwt_secret")
 	q := "http://localhost:3000/requestUploadUrl/DO_NOT_USE?runtimeVersion=1"
@@ -345,6 +348,8 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 	var fileUploadRequests []bucket.FileUploadRequest
 	err = json.NewDecoder(w.Body).Decode(&fileUploadRequests)
 	assert.Len(t, fileUploadRequests, 3, "Expected 3 file upload requests (1 is duplicated)")
+	updateId := w.Header().Get("expo-update-id")
+	assert.NotEmpty(t, updateId, "Expected non-empty update ID")
 	for _, uploadRequest := range fileUploadRequests {
 		requestUploadUrl := uploadRequest.RequestUploadUrl
 		parsedUrl, err := url.Parse(requestUploadUrl)
@@ -364,5 +369,58 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 		assert.NotEmpty(t, filePath, "Expected non-empty file path")
 		sub := claims["sub"].(string)
 		assert.Equal(t, sub, "test_username", "Expected test_username sub")
+	}
+	// Now we can upload the files with goroutines
+	var (
+		ws   = make([]*httptest.ResponseRecorder, len(fileUploadRequests))
+		errs = make(chan error, len(fileUploadRequests))
+		wg   sync.WaitGroup
+	)
+	for i, uploadRequest := range fileUploadRequests {
+		wg.Add(1)
+		go func(index int, request bucket.FileUploadRequest) {
+			defer wg.Done()
+			ws[index] = httptest.NewRecorder()
+			body := &bytes.Buffer{}
+			writer := multipart.NewWriter(body)
+			fileBuffer, err := os.Open(projectRoot + "/test/test-updates/staging/1/1674170951/" + request.FilePath)
+			if err != nil {
+				fmt.Println(err)
+				errs <- err
+				return
+			}
+			part, err := writer.CreateFormFile(request.FileName, request.FileName)
+			if err != nil {
+				errs <- err
+				return
+			}
+			_, err = io.Copy(part, fileBuffer)
+			if err != nil {
+				errs <- err
+				return
+			}
+			err = writer.Close()
+			parsedUrl, err := url.Parse(uploadRequest.RequestUploadUrl)
+			token := parsedUrl.Query().Get("token")
+			r := httptest.NewRequest("PUT", "/uploadLocalFile?token="+token, body)
+			r.Header.Set("Content-Type", writer.FormDataContentType())
+			r.Header.Set("Authorization", "Bearer expo_test_token")
+			handlers.RequestUploadLocalFileHandler(ws[index], r)
+			if ws[index].Code != 200 {
+				errs <- assert.AnError
+			}
+
+		}(i, uploadRequest)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		assert.Nil(t, err, "Expected no errors")
+	}
+	// Check that all files are uploaded
+	for _, w := range ws {
+		assert.Equal(t, w.Code, 200, "Expected status code 200")
+		_, err := os.Open(projectRoot + "/updates/DO_NOT_USE/1/" + updateId + "/" + fileUploadRequests[0].FilePath)
+		assert.Nil(t, err, "Expected no errors")
 	}
 }
