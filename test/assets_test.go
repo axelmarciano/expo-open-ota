@@ -383,7 +383,6 @@ func TestToRetrievePNGFromLambda(t *testing.T) {
 	os.Setenv("PRIVATE_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/private-key-test.pem"))
 	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "/test/test-updates"))
 	os.Setenv("CLOUDFRONT_DOMAIN", "https://cdn.expoopenota.com")
-
 	request := events.APIGatewayProxyRequest{
 		Headers: map[string]string{
 			"Accept-Encoding": "gzip",
@@ -404,4 +403,42 @@ func TestToRetrievePNGFromLambda(t *testing.T) {
 	assert.Equal(t, "image/png", res.Headers["Content-Type"], "Expected 'image/png' content type")
 	assert.Equal(t, "1", res.Headers["expo-protocol-version"], "Expected protocol version 1")
 	assert.Equal(t, "0", res.Headers["expo-sfv-version"], "Expected SFV version 0")
+	assert.NotContains(t, res.Headers, "Set-Cookie", "Expected no signed cookies")
+}
+
+func TestToRetrievePNGFromLambdaWithSignedCookies(t *testing.T) {
+	projectRoot, err := findProjectRoot()
+	if err != nil {
+		t.Errorf("Error finding project root: %v", err)
+	}
+	os.Setenv("ENVIRONMENTS_LIST", "emptyruntime,staging,production")
+	os.Setenv("PUBLIC_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/public-key-test.pem"))
+	os.Setenv("PRIVATE_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/private-key-test.pem"))
+	os.Setenv("PRIVATE_CLOUDFRONT_CERT_KEY_PATH", filepath.Join(projectRoot, "/test/certs/private-key-test.pem"))
+	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "/test/test-updates"))
+	os.Setenv("CLOUDFRONT_DOMAIN", "https://cdn.expoopenota.com")
+	os.Setenv("CLOUDFRONT_KEY_PAIR_ID", "test")
+	request := events.APIGatewayProxyRequest{
+		Headers: map[string]string{
+			"Accept-Encoding": "gzip",
+		},
+		PathParameters: map[string]string{
+			"environment": "staging",
+		},
+		QueryStringParameters: map[string]string{
+			"asset":          "assets/4f1cb2cac2370cd5050681232e8575a8",
+			"runtimeVersion": "1",
+			"platform":       "ios",
+		},
+	}
+	res, err := handlers.LambdaAssetsHandler(request)
+	assert.Nil(t, err, "Expected no error")
+	assert.Equal(t, 302, res.StatusCode, "Expected status code 200")
+	assert.Equal(t, "https://cdn.expoopenota.com/staging/assets/4f1cb2cac2370cd5050681232e8575a8", res.Headers["Location"], "Expected location to be 'https://cdn.expoopenota.com'")
+	assert.Equal(t, "image/png", res.Headers["Content-Type"], "Expected 'image/png' content type")
+	assert.Equal(t, "1", res.Headers["expo-protocol-version"], "Expected protocol version 1")
+	assert.Equal(t, "0", res.Headers["expo-sfv-version"], "Expected SFV version 0")
+	assert.Contains(t, res.Headers, "Set-Cookie", "Expected signed cookies")
+	cookies := res.Headers["Set-Cookie"]
+	assert.Contains(t, cookies, "CloudFront-Policy", "Expected CloudFront-Policy cookie")
 }

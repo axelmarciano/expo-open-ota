@@ -64,7 +64,7 @@ func FetchSecret(secretName string) string {
 func GenerateSignedCookies(resource string, cloudFrontPrivateKey string) (string, error) {
 	keyPairID := config.GetEnv("CLOUDFRONT_KEY_PAIR_ID")
 	if keyPairID == "" {
-		return "", nil
+		return "", errors.New("CLOUDFRONT_KEY_PAIR_ID not set in environment")
 	}
 
 	block, _ := pem.Decode([]byte(cloudFrontPrivateKey))
