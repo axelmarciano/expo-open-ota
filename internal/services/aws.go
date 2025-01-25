@@ -2,13 +2,19 @@ package services
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
+	"expo-open-ota/config"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/aws/aws-sdk-go/service/cloudfront/sign"
 	"log"
 	"sync"
+	"time"
 )
 
 var (
@@ -53,4 +59,44 @@ func FetchSecret(secretName string) string {
 	}
 
 	return *resp.SecretString
+}
+
+func GenerateSignedCookies(resource string, cloudFrontPrivateKey string) (string, error) {
+	keyPairID := config.GetEnv("CLOUDFRONT_KEY_PAIR_ID")
+	if keyPairID == "" {
+		return "", nil
+	}
+
+	block, _ := pem.Decode([]byte(cloudFrontPrivateKey))
+	if block == nil || block.Type != "RSA PRIVATE KEY" {
+		return "", errors.New("failed to decode PEM block containing private key")
+	}
+	privateKeyRSA, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse private key: %w", err)
+	}
+
+	policy := &sign.Policy{
+		Statements: []sign.Statement{
+			{
+				Resource: resource,
+				Condition: sign.Condition{
+					DateLessThan: &sign.AWSEpochTime{Time: time.Now().Add(1 * time.Hour)}, // Expiration
+				},
+			},
+		},
+	}
+
+	cookieSigner := sign.NewCookieSigner(keyPairID, privateKeyRSA)
+	signedCookies, err := cookieSigner.SignWithPolicy(policy)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign cookies: %w", err)
+	}
+
+	cookies := ""
+	for _, cookie := range signedCookies {
+		cookies += fmt.Sprintf("%s=%s; ", cookie.Name, cookie.Value)
+	}
+
+	return cookies, nil
 }

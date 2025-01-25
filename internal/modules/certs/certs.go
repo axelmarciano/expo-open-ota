@@ -15,6 +15,7 @@ const (
 type CertsStorage interface {
 	GetPublicExpoCert() string
 	GetPrivateExpoCert() string
+	GetPrivateCloudfrontCert() string
 }
 
 func getStorage() (CertsStorage, error) {
@@ -29,22 +30,26 @@ func getStorage() (CertsStorage, error) {
 	case AWSSecretsManager:
 		publicKeySecretID := config.GetEnv("AWS_CERTS_PUBLIC_KEY_SECRET_ID")
 		privateKeySecretID := config.GetEnv("AWS_CERTS_PRIVATE_KEY_SECRET_ID")
+		privateCloudfrontKeySecretID := config.GetEnv("AWS_CERTS_PRIVATE_CLOUDFRONT_KEY_SECRET_ID")
 		if publicKeySecretID == "" || privateKeySecretID == "" {
-			return nil, fmt.Errorf("PUBLIC_KEY_SECRET_ID and PRIVATE_KEY_SECRET_ID must be set in environment")
+			return nil, fmt.Errorf("PUBLIC_KEY_SECRET_ID, PRIVATE_KEY_SECRET_ID must be set in environment")
 		}
 		return &AWSSMCertsStorage{
-			publicKeySecretID:  publicKeySecretID,
-			privateKeySecretID: privateKeySecretID,
+			publicKeySecretID:            publicKeySecretID,
+			privateKeySecretID:           privateKeySecretID,
+			privateCloudfrontKeySecretID: privateCloudfrontKeySecretID,
 		}, nil
 	case LocalFiles:
 		publicKeyPath := config.GetEnv("PUBLIC_CERT_KEY_PATH")
 		privateKeyPath := config.GetEnv("PRIVATE_CERT_KEY_PATH")
+		privateCloudfrontKeyPath := config.GetEnv("PRIVATE_CLOUDFRONT_CERT_KEY_PATH")
 		if publicKeyPath == "" || privateKeyPath == "" {
 			return nil, fmt.Errorf("PUBLIC_KEY_PATH and PRIVATE_KEY_PATH must be set in environment")
 		}
 		return &LocalCertsStorage{
-			publicKeyPath:  publicKeyPath,
-			privateKeyPath: privateKeyPath,
+			publicKeyPath:            publicKeyPath,
+			privateKeyPath:           privateKeyPath,
+			privateCloudfrontKeyPath: privateCloudfrontKeyPath,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown certs storage type: %s", storageType)
@@ -65,4 +70,12 @@ func GetPrivateExpoCert() string {
 		return ""
 	}
 	return storage.GetPrivateExpoCert()
+}
+
+func GetPrivateCloudfrontCert() string {
+	storage, err := getStorage()
+	if err != nil {
+		return ""
+	}
+	return storage.GetPrivateCloudfrontCert()
 }

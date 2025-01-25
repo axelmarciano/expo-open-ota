@@ -7,8 +7,9 @@ import (
 )
 
 type LocalCertsStorage struct {
-	privateKeyPath string
-	publicKeyPath  string
+	privateKeyPath           string
+	publicKeyPath            string
+	privateCloudfrontKeyPath string
 }
 
 func retrieveFileContent(path string) string {
@@ -40,4 +41,11 @@ func (c *LocalCertsStorage) GetPrivateExpoCert() string {
 	}
 	private := retrieveFileContent(c.privateKeyPath)
 	return private
+}
+
+func (c *LocalCertsStorage) GetPrivateCloudfrontCert() string {
+	if c.privateCloudfrontKeyPath == "" {
+		return ""
+	}
+	return retrieveFileContent(c.privateCloudfrontKeyPath)
 }

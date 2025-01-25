@@ -3,8 +3,9 @@ package certs
 import "expo-open-ota/internal/services"
 
 type AWSSMCertsStorage struct {
-	publicKeySecretID  string
-	privateKeySecretID string
+	publicKeySecretID            string
+	privateKeySecretID           string
+	privateCloudfrontKeySecretID string
 }
 
 func (c *AWSSMCertsStorage) GetPublicExpoCert() string {
@@ -19,4 +20,11 @@ func (c *AWSSMCertsStorage) GetPrivateExpoCert() string {
 		return ""
 	}
 	return services.FetchSecret(c.privateKeySecretID)
+}
+
+func (c *AWSSMCertsStorage) GetPrivateCloudfrontCert() string {
+	if c.privateCloudfrontKeySecretID == "" {
+		return ""
+	}
+	return services.FetchSecret(c.privateCloudfrontKeySecretID)
 }

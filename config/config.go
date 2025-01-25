@@ -70,7 +70,7 @@ func GetEnv(key string) string {
 		if defaultValue != "" {
 			return defaultValue
 		}
-		log.Fatalf("Environment variable %s not set", key)
+		return ""
 	}
 	return value
 }
