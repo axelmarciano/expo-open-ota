@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"expo-open-ota/internal/crypto"
+	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/keyStore"
 	"expo-open-ota/internal/metrics"
 	"expo-open-ota/internal/services"
@@ -107,6 +108,10 @@ func putUpdateInResponse(w http.ResponseWriter, r *http.Request, lastUpdate type
 		http.Error(w, "Error composing manifest", http.StatusInternalServerError)
 		return
 	}
+	channelOverride := helpers.GetChannelOverride(r.Header)
+	if channelOverride != "" {
+		update.AppendChannelOverrideToAsset(&manifest, channelOverride)
+	}
 	metrics.TrackUpdateDownload(platform, lastUpdate.RuntimeVersion, lastUpdate.Branch, metadata.ID, "update")
 	putResponse(w, r, manifest, "manifest", lastUpdate.RuntimeVersion, protocolVersion, requestID)
 }
@@ -148,7 +153,7 @@ func putNoUpdateAvailableInResponse(w http.ResponseWriter, r *http.Request, runt
 func ManifestHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 
-	channelName := r.Header.Get("expo-channel-name")
+	channelName := helpers.ResolveExpoChannel(r.Header)
 	if channelName == "" {
 		log.Printf("[RequestID: %s] No channel name provided", requestID)
 		http.Error(w, "No channel name provided", http.StatusBadRequest)

@@ -4,6 +4,7 @@ import (
 	"expo-open-ota/internal/assets"
 	cdn2 "expo-open-ota/internal/cdn"
 	"expo-open-ota/internal/compression"
+	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/services"
 	"github.com/google/uuid"
 	"log"
@@ -11,16 +12,21 @@ import (
 )
 
 func AssetsHandler(w http.ResponseWriter, r *http.Request) {
-	channelName := r.Header.Get("expo-channel-name")
+	requestID := uuid.New().String()
+	channelName := helpers.ResolveExpoChannel(r.Header)
+	expoChannelOverride := r.URL.Query().Get("ow-expo-channel")
+	if expoChannelOverride != "" {
+		channelName = expoChannelOverride
+	}
 	preventCDNRedirection := r.Header.Get("prevent-cdn-redirection") == "true"
 	branchMap, err := services.FetchExpoChannelMapping(channelName)
 	if err != nil {
-		log.Printf("[RequestID: %s] Error fetching channel mapping: %v", uuid.New().String(), err)
+		log.Printf("[RequestID: %s] Error fetching channel mapping: %v", requestID, err)
 		http.Error(w, "Error fetching channel mapping", http.StatusInternalServerError)
 		return
 	}
 	if branchMap == nil {
-		log.Printf("[RequestID: %s] No branch mapping found for channel: %s", uuid.New().String(), channelName)
+		log.Printf("[RequestID: %s] No branch mapping found for channel: %s", requestID, channelName)
 		http.Error(w, "No branch mapping found", http.StatusNotFound)
 		return
 	}
@@ -30,7 +36,7 @@ func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 		AssetName:      r.URL.Query().Get("asset"),
 		RuntimeVersion: r.URL.Query().Get("runtimeVersion"),
 		Platform:       r.URL.Query().Get("platform"),
-		RequestID:      uuid.New().String(),
+		RequestID:      requestID,
 	}
 
 	cdn := cdn2.GetCDN()
