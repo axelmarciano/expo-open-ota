@@ -1,6 +1,7 @@
 package bucket
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -385,29 +386,42 @@ func (b *S3Bucket) RetrieveMigrationHistory() ([]string, error) {
 	if b.BucketName == "" {
 		return nil, errors.New("BucketName not set")
 	}
-	s3Client, errS3 := services.GetS3Client()
-	if errS3 != nil {
-		return nil, errS3
-	}
-	input := &s3.GetObjectInput{
-		Bucket: aws.String(b.BucketName),
-		Key:    aws.String(".migrationhistory"),
-	}
-	resp, err := s3Client.GetObject(context.TODO(), input)
+	ctx := context.TODO()
+	s3Client, err := services.GetS3Client()
 	if err != nil {
+		return nil, err
+	}
+	const key = ".migrationhistory"
+	resp, err := s3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(b.BucketName),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		var noSuchKey *s3types.NoSuchKey
+		if errors.As(err, &noSuchKey) {
+			_, err = s3Client.PutObject(ctx, &s3.PutObjectInput{
+				Bucket: aws.String(b.BucketName),
+				Key:    aws.String(key),
+				Body:   bytes.NewReader([]byte{}),
+			})
+			if err != nil {
+				return nil, fmt.Errorf("PutObject error: %w", err)
+			}
+			return []string{}, nil
+		}
 		return nil, fmt.Errorf("GetObject error: %w", err)
 	}
 	defer resp.Body.Close()
-	var migrationHistory []string
-	for {
-		var line string
-		_, err := fmt.Fscanln(resp.Body, &line)
-		if err != nil {
-			break
-		}
-		migrationHistory = append(migrationHistory, line)
+
+	var history []string
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		history = append(history, scanner.Text())
 	}
-	return migrationHistory, nil
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan error: %w", err)
+	}
+	return history, nil
 }
 
 func (b *S3Bucket) ApplyMigration(migrationId string) error {
