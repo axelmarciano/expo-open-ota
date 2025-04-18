@@ -34,14 +34,18 @@ type Bucket interface {
 type BucketType string
 
 const (
-	S3BucketType    BucketType = "s3"
-	LocalBucketType BucketType = "local"
+	S3BucketType       BucketType = "s3"
+	LocalBucketType    BucketType = "local"
+	FirebaseBucketType BucketType = "firebase"
 )
 
 func ResolveBucketType() BucketType {
 	bucketType := config.GetEnv("STORAGE_MODE")
 	if bucketType == "" || bucketType == "local" {
 		return LocalBucketType
+	}
+	if bucketType == "firebase" {
+		return FirebaseBucketType
 	}
 	return S3BucketType
 }
