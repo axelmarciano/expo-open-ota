@@ -38,8 +38,10 @@ You can set these variables in a `.env` file for local development or in your de
 ### 📦 **Storage Configuration**
 | Name | Required | Description | Example | Reference |
 | --- | --- | --- | --- | --- |
-| `STORAGE_MODE` | ✅ | `local` or `s3` | `local` | [Ref](/docs/storage) |
+| `STORAGE_MODE` | ✅ | `local`, `s3` or `gcs` | `local` | [Ref](/docs/storage) |
 | `S3_BUCKET_NAME` | ✅ if STORAGE_MODE = `s3` | S3 bucket name | `my-bucket` | [Ref](/docs/storage?storage=s3) |
+| `GCS_BUCKET_NAME` | ✅ if STORAGE_MODE = `gcs` | GCS bucket name | `my-bucket` | [Ref](/docs/storage?storage=gcs) |
+| `GOOGLE_APPLICATION_CREDENTIALS` | ✅ if STORAGE_MODE = `gcs` (for signed URLs) | Path to service account JSON | `/var/secrets/creds.json` | [Ref](/docs/storage?storage=gcs) |
 | `LOCAL_BUCKET_BASE_PATH` | ✅ if STORAGE_MODE = `local` | Path to store assets | `/path/to/assets` | [Ref](/docs/storage?storage=local) |
 
 ### 🔐 **Key store Configuration**

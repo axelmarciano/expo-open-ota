@@ -36,14 +36,21 @@ type BucketType string
 const (
 	S3BucketType    BucketType = "s3"
 	LocalBucketType BucketType = "local"
+	GCSBucketType   BucketType = "gcs"
 )
 
 func ResolveBucketType() BucketType {
-	bucketType := config.GetEnv("STORAGE_MODE")
-	if bucketType == "" || bucketType == "local" {
+	storageMode := config.GetEnv("STORAGE_MODE")
+	switch storageMode {
+	case "local", "":
+		return LocalBucketType
+	case "s3":
+		return S3BucketType
+	case "gcs":
+		return GCSBucketType
+	default:
 		return LocalBucketType
 	}
-	return S3BucketType
 }
 
 var (
@@ -59,6 +66,11 @@ func GetBucket() Bucket {
 			case S3BucketType:
 				bucketName := config.GetEnv("S3_BUCKET_NAME")
 				bucketInstance = &S3Bucket{
+					BucketName: bucketName,
+				}
+			case GCSBucketType:
+				bucketName := config.GetEnv("GCS_BUCKET_NAME")
+				bucketInstance = &GCSBucket{
 					BucketName: bucketName,
 				}
 			case LocalBucketType:

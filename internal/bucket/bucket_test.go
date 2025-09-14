@@ -23,6 +23,15 @@ func TestResolveLocalBucketType(t *testing2.T) {
 	assert.Equal(t, LocalBucketType, bucketType)
 }
 
+
+
+func TestResolveGCSBucketType(t *testing2.T) {
+    teardown := setup(t)
+    defer teardown()
+    os.Setenv("STORAGE_MODE", "gcs")
+    bucketType := ResolveBucketType()
+    assert.Equal(t, GCSBucketType, bucketType)
+}
 func TestResolveS3BucketType(t *testing2.T) {
 	teardown := setup(t)
 	defer teardown()
@@ -84,4 +93,14 @@ func TestGetLocalBucket(t *testing2.T) {
 	os.Setenv("LOCAL_BUCKET_BASE_PATH", "test")
 	bucket := GetBucket()
 	assert.IsType(t, &LocalBucket{}, bucket)
+}
+
+
+func TestGetGCSBucket(t *testing2.T) {
+    teardown := setup(t)
+    defer teardown()
+    os.Setenv("STORAGE_MODE", "gcs")
+    os.Setenv("GCS_BUCKET_NAME", "test-bucket")
+    bucket := GetBucket()
+    assert.IsType(t, &GCSBucket{}, bucket)
 }

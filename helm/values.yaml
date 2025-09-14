@@ -72,6 +72,16 @@ environment:
     key: "storageMode"
     required: true
     computed: true
+  - name: "GCS_BUCKET_NAME"
+    value: ""
+    required:
+      - key: "storageMode"
+        is: "gcs"
+  - name: "GOOGLE_APPLICATION_CREDENTIALS"
+    value: "/var/secrets/google-application-credentials.json"
+    required:
+      - key: "storageMode"
+        is: "gcs"
   - name: "AWS_ACCESS_KEY_ID"
     value: ""
     required:
