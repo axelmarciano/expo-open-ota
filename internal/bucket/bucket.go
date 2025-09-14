@@ -36,14 +36,21 @@ type BucketType string
 const (
 	S3BucketType    BucketType = "s3"
 	LocalBucketType BucketType = "local"
+	GCSBucketType   BucketType = "gcs"
 )
 
 func ResolveBucketType() BucketType {
-	bucketType := config.GetEnv("STORAGE_MODE")
-	if bucketType == "" || bucketType == "local" {
+	storageMode := config.GetEnv("STORAGE_MODE")
+	switch storageMode {
+	case "local", "":
+		return LocalBucketType
+	case "s3":
+		return S3BucketType
+	case "gcs":
+		return GCSBucketType
+	default:
 		return LocalBucketType
 	}
-	return S3BucketType
 }
 
 var (
@@ -56,16 +63,21 @@ func GetBucket() Bucket {
 		if bucketInstance == nil {
 			bucketType := ResolveBucketType()
 			switch bucketType {
-		case S3BucketType:
-			bucketName := config.GetEnv("S3_BUCKET_NAME")
-			keyPrefix := config.GetEnv("S3_KEY_PREFIX")
-			if keyPrefix != "" && keyPrefix[len(keyPrefix)-1] != '/' {
-				keyPrefix += "/"
-			}
-			bucketInstance = &S3Bucket{
-				BucketName: bucketName,
-				KeyPrefix:  keyPrefix,
-			}
+			case S3BucketType:
+				bucketName := config.GetEnv("S3_BUCKET_NAME")
+				keyPrefix := config.GetEnv("S3_KEY_PREFIX")
+				if keyPrefix != "" && keyPrefix[len(keyPrefix)-1] != '/' {
+					keyPrefix += "/"
+				}
+				bucketInstance = &S3Bucket{
+					BucketName: bucketName,
+					KeyPrefix:  keyPrefix,
+				}
+			case GCSBucketType:
+				bucketName := config.GetEnv("GCS_BUCKET_NAME")
+				bucketInstance = &GCSBucket{
+					BucketName: bucketName,
+				}
 			case LocalBucketType:
 				basePath := config.GetEnv("LOCAL_BUCKET_BASE_PATH")
 				bucketInstance = &LocalBucket{

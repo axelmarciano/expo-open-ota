@@ -5,7 +5,7 @@ id: storage
 
 # Storage
 
-**Expo Open OTA** supports two storage solutions for hosting your update assets: **Local File System** and **Amazon S3**. This guide will help you set up your storage solution and configure your server to use it.
+**Expo Open OTA** supports multiple storage solutions for hosting your update assets: **Amazon S3**, **Google Cloud Storage (GCS)** and **Local File System**. This guide will help you set up your storage solution and configure your server to use it.
 
 :::note
 The environment variables required for each storage solution are listed below, you can set them in a `.env` file in the root of the project or keep them in a safe place to prepare for deployment.
@@ -68,5 +68,19 @@ import TabItem from '@theme/TabItem';
     :::note
     A trailing slash is automatically added if omitted (`myapp` → `myapp/`).
     :::
+  </TabItem>
+  <TabItem value="gcs" label="Google Cloud Storage">
+    To enable Google Cloud Storage as your storage solution, set the following environment variables:
+    ```bash title=".env"
+    STORAGE_MODE=gcs
+    GCS_BUCKET_NAME=your-bucket-name
+    ```
+
+    To generate signed URLs for uploads and asset redirects, provide your service account credentials as a base64-encoded JSON:
+    ```bash title=".env"
+    GOOGLE_APPLICATION_CREDENTIALS_B64=<base64-encoded service account JSON>
+    ```
+
+    The service account must have at minimum `storage.objectCreator` and `storage.objectAdmin` permissions on your bucket. You don't need to make objects public — the server generates short-lived signed URLs for all file access.
   </TabItem>
 </Tabs>
