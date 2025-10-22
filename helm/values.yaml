@@ -77,8 +77,8 @@ environment:
     required:
       - key: "storageMode"
         is: "gcs"
-  - name: "GOOGLE_APPLICATION_CREDENTIALS"
-    value: "/var/secrets/google-application-credentials.json"
+  - name: "GOOGLE_APPLICATION_CREDENTIALS_B64"
+    value: ""
     required:
       - key: "storageMode"
         is: "gcs"
