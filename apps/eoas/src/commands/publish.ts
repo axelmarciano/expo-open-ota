@@ -195,7 +195,8 @@ export default class Publish extends Command {
     }
     const exportSpinner = ora('📦 Exporting project files...').start();
     try {
-      const { stdout } = await spawnAsync('npx', ['expo', 'export', '--output-dir', outputDir], {
+      const specifiedPlatform = platform === RequestedPlatform.All ? [] : ['--platform', platform];
+      const { stdout } = await spawnAsync('npx', ['expo', 'export', '--output-dir', outputDir, ...specifiedPlatform], {
         cwd: projectDir,
         env: {
           ...process.env,
