@@ -186,7 +186,7 @@ export default class Publish extends Command {
     runtimeSpinner.succeed('✅ Runtime versions resolved');
     const cleaningSpinner = ora(`🗑️ Cleaning up ${outputDir} directory...`).start();
     try {
-      await spawnAsync('rm', ['-rf', outputDir], { cwd: projectDir });
+      await fs.remove(path.join(projectDir, outputDir));
       cleaningSpinner.succeed('✅ Cleanup completed');
     } catch (e) {
       cleaningSpinner.fail('❌ Failed to clean up the output directory');
@@ -195,7 +195,6 @@ export default class Publish extends Command {
     }
     const exportSpinner = ora('📦 Exporting project files...').start();
     try {
-      await spawnAsync('rm', ['-rf', outputDir], { cwd: projectDir });
       const { stdout } = await spawnAsync('npx', ['expo', 'export', '--output-dir', outputDir], {
         cwd: projectDir,
         env: {
