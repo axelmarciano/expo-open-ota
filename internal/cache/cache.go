@@ -56,7 +56,10 @@ func GetCache() Cache {
 			password := config.GetEnv("REDIS_PASSWORD")
 			port := config.GetEnv("REDIS_PORT")
 			useTLS := config.GetEnv("REDIS_USE_TLS") == "true"
-			cacheInstance = NewRedisCache(host, password, port, useTLS)
+			// ACL and TLS configuration
+			username := config.GetEnv("REDIS_USERNAME")
+			caCertB64 := config.GetEnv("REDIS_CA_CERT_B64")
+			cacheInstance = NewRedisCache(host, password, port, useTLS, username, caCertB64)
 		default:
 			panic("Unknown cache type")
 		}
