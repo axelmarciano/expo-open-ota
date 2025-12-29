@@ -33,7 +33,9 @@ You can set these variables in a `.env` file for local development or in your de
 | `REDIS_HOST` | ✅ if CACHE_MODE = `redis` | Redis host | `127.0.0.1` | [Ref](/docs/cache?cache=redis) |
 | `REDIS_PORT` | ✅ if CACHE_MODE = `redis` | Redis port | `6379` | [Ref](/docs/cache?cache=redis) |
 | `REDIS_PASSWORD` | ✅ if CACHE_MODE = `redis` | Redis password | `password` | [Ref](/docs/cache?cache=redis) |
-
+| `REDIS_USE_TLS`     | ❌ | Enable TLS/SSL connection             | `true`          | [Ref](/docs/cache?cache=redis) |
+| `REDIS_USERNAME`    | ❌ | Redis username for ACL authentication | `myuser`        | [Ref](/docs/cache?cache=redis) |
+| `REDIS_CA_CERT_B64` | ❌ | Base64-encoded CA certificate for TLS | `Base64 string` | [Ref](/docs/cache?cache=redis) |
 
 ### 📦 **Storage Configuration**
 | Name | Required | Description | Example | Reference |

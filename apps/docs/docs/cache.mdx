@@ -12,6 +12,7 @@ The **Expo Open OTA server** uses a cache to improve performance and reduce serv
 The cache is primarily used for:
 
 1. **Storing the computed `lastUpdateId` for a given platform and runtime version**
+
    - This prevents the need to recompute the last update for every request, significantly speeding up responses.
 
 2. **Caching the computed manifest**
@@ -22,19 +23,20 @@ The cache is primarily used for:
 The environment variables required for each storage solution are listed below, you can set them in a `.env` file in the root of the project or keep them in a safe place to prepare for deployment.
 :::
 
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
 
 <Tabs queryString="cache" defaultValue="local">
   <TabItem value="local" label="Local cache" default>
   :::warning
 
-  This cache solution is not recommended for production use. It is intended for development and testing purposes only.
-  If you really want to use it in production, make sure to not have multiple instances of the server running, as the cache is stored locally and not shared between instances.
+This cache solution is not recommended for production use. It is intended for development and testing purposes only.
+If you really want to use it in production, make sure to not have multiple instances of the server running, as the cache is stored locally and not shared between instances.
 
-  :::
-   Local cache is the default cache solution used by the server. It stores the cache in memory and is not shared between instances of the server. This means that the cache is lost when the server is restarted.
-   No additional configuration is required to use the local cache.
+:::
+Local cache is the default cache solution used by the server. It stores the cache in memory and is not shared between instances of the server. This means that the cache is lost when the server is restarted.
+No additional configuration is required to use the local cache.
+
   </TabItem>
   <TabItem value="redis" label="Redis">
     To use Redis as your cache solution, you need to set the following environment variables:
@@ -43,6 +45,26 @@ import TabItem from '@theme/TabItem';
     REDIS_PORT=your-redis-port
     REDIS_PASSWORD=your-redis-password
     REDIS_USE_TLS=true // optional if you are using a TLS connection
+    REDIS_USERNAME=your-redis-username // optional for ACL authentication
+    REDIS_CA_CERT_B64=base64-encoded-ca-certificate // optional for TLS with custom CA
     ```
+
+    :::tip TLS/SSL Configuration
+
+    If you're using Redis with TLS/SSL and a custom CA certificate:
+    - Set `REDIS_USE_TLS=true`
+    - Set `REDIS_CA_CERT_B64` to your base64-encoded PEM certificate
+    - To encode your certificate: `cat certificate.pem | base64 -w 0`
+
+    :::
+
+    :::info ACL Authentication
+
+    If your Redis server uses ACL (Access Control Lists):
+    - Set `REDIS_USERNAME` to your Redis username
+    - Ensure `REDIS_PASSWORD` is set to the corresponding password
+
+    :::
+
   </TabItem>
 </Tabs>
