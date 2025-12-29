@@ -48,22 +48,23 @@ No additional configuration is required to use the local cache.
     REDIS_USERNAME=your-redis-username // optional for ACL authentication
     REDIS_CA_CERT_B64=base64-encoded-ca-certificate // optional for TLS with custom CA
     ```
-    
+
     :::tip TLS/SSL Configuration
-    
+
     If you're using Redis with TLS/SSL and a custom CA certificate:
     - Set `REDIS_USE_TLS=true`
     - Set `REDIS_CA_CERT_B64` to your base64-encoded PEM certificate
     - To encode your certificate: `cat certificate.pem | base64 -w 0`
-    
+
     :::
-    
+
     :::info ACL Authentication
-    
+
     If your Redis server uses ACL (Access Control Lists):
     - Set `REDIS_USERNAME` to your Redis username
     - Ensure `REDIS_PASSWORD` is set to the corresponding password
-    
+
     :::
+
   </TabItem>
 </Tabs>

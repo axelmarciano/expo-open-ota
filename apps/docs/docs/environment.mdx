@@ -9,100 +9,88 @@ You can set these variables in a `.env` file for local development or in your de
 
 ## Supported Environment Variables
 
-### 🌍 **API Configuration**
 
-| Name       | Required | Description             | Example                  | Reference                           |
-| ---------- | -------- | ----------------------- | ------------------------ | ----------------------------------- |
-| `BASE_URL` | ✅       | Root URL of your server | `https://ota.mysite.com` | [Ref](/docs/prerequisites#base-url) |
+### 🌍 **API Configuration**
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
+| `BASE_URL` | ✅ | Root URL of your server | `https://ota.mysite.com` | [Ref](/docs/prerequisites#base-url) |
 
 ### 🔑 **Authentication & Security**
-
-| Name         | Required | Description                            | Example         | Reference                             |
-| ------------ | -------- | -------------------------------------- | --------------- | ------------------------------------- |
-| `JWT_SECRET` | ✅       | JWT secret used to sign some endpoints | `Random string` | [Ref](/docs/prerequisites#jwt-secret) |
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
+| `JWT_SECRET` | ✅ | JWT secret used to sign some endpoints | `Random string` | [Ref](/docs/prerequisites#jwt-secret) |
 
 ### 📱 **Expo Configuration**
-
-| Name                | Required | Description                | Example         | Reference                                             |
-| ------------------- | -------- | -------------------------- | --------------- | ----------------------------------------------------- |
-| `EXPO_APP_ID`       | ✅       | The ID of the Expo project | `Random string` | [Ref](/docs/prerequisites#how-to-get-your-project-id) |
-| `EXPO_ACCESS_TOKEN` | ✅       | Expo access token          | `Random string` | [Ref](/docs/prerequisites#how-to-get-your-expo-token) |
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
+| `EXPO_APP_ID` | ✅ | The ID of the Expo project | `Random string` | [Ref](/docs/prerequisites#how-to-get-your-project-id) |
+| `EXPO_ACCESS_TOKEN` | ✅ | Expo access token | `Random string` | [Ref](/docs/prerequisites#how-to-get-your-expo-token) |
 
 ### ⚡ **Cache Configuration**
-
-| Name                | Required                   | Description                           | Example         | Reference                      |
-| ------------------- | -------------------------- | ------------------------------------- | --------------- | ------------------------------ |
-| `CACHE_MODE`        | ✅                         | `local` or `redis`                    | `local`         | [Ref](/docs/cache)             |
-| `REDIS_HOST`        | ✅ if CACHE_MODE = `redis` | Redis host                            | `127.0.0.1`     | [Ref](/docs/cache?cache=redis) |
-| `REDIS_PORT`        | ✅ if CACHE_MODE = `redis` | Redis port                            | `6379`          | [Ref](/docs/cache?cache=redis) |
-| `REDIS_PASSWORD`    | ✅ if CACHE_MODE = `redis` | Redis password                        | `password`      | [Ref](/docs/cache?cache=redis) |
-| `REDIS_USE_TLS`     | ❌                         | Enable TLS/SSL connection             | `true`          | [Ref](/docs/cache?cache=redis) |
-| `REDIS_USERNAME`    | ❌                         | Redis username for ACL authentication | `myuser`        | [Ref](/docs/cache?cache=redis) |
-| `REDIS_CA_CERT_B64` | ❌                         | Base64-encoded CA certificate for TLS | `Base64 string` | [Ref](/docs/cache?cache=redis) |
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
+| `CACHE_MODE` | ✅ | `local` or `redis` | `local` | [Ref](/docs/cache) |
+| `REDIS_HOST` | ✅ if CACHE_MODE = `redis` | Redis host | `127.0.0.1` | [Ref](/docs/cache?cache=redis) |
+| `REDIS_PORT` | ✅ if CACHE_MODE = `redis` | Redis port | `6379` | [Ref](/docs/cache?cache=redis) |
+| `REDIS_PASSWORD` | ✅ if CACHE_MODE = `redis` | Redis password | `password` | [Ref](/docs/cache?cache=redis) |
+| `REDIS_USE_TLS`     | ❌ | Enable TLS/SSL connection             | `true`          | [Ref](/docs/cache?cache=redis) |
+| `REDIS_USERNAME`    | ❌ | Redis username for ACL authentication | `myuser`        | [Ref](/docs/cache?cache=redis) |
+| `REDIS_CA_CERT_B64` | ❌ | Base64-encoded CA certificate for TLS | `Base64 string` | [Ref](/docs/cache?cache=redis) |
 
 ### 📦 **Storage Configuration**
-
-| Name                     | Required                     | Description          | Example           | Reference                          |
-| ------------------------ | ---------------------------- | -------------------- | ----------------- | ---------------------------------- |
-| `STORAGE_MODE`           | ✅                           | `local` or `s3`      | `local`           | [Ref](/docs/storage)               |
-| `S3_BUCKET_NAME`         | ✅ if STORAGE_MODE = `s3`    | S3 bucket name       | `my-bucket`       | [Ref](/docs/storage?storage=s3)    |
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
+| `STORAGE_MODE` | ✅ | `local` or `s3` | `local` | [Ref](/docs/storage) |
+| `S3_BUCKET_NAME` | ✅ if STORAGE_MODE = `s3` | S3 bucket name | `my-bucket` | [Ref](/docs/storage?storage=s3) |
 | `LOCAL_BUCKET_BASE_PATH` | ✅ if STORAGE_MODE = `local` | Path to store assets | `/path/to/assets` | [Ref](/docs/storage?storage=local) |
 
 ### 🔐 **Key store Configuration**
-
-| Name                | Required | Description                                      | Example       | Reference              |
-| ------------------- | -------- | ------------------------------------------------ | ------------- | ---------------------- |
-| `KEYS_STORAGE_TYPE` | ✅       | `environment`, `aws-secrets-manager`, or `local` | `environment` | [Ref](/docs/key-store) |
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
+| `KEYS_STORAGE_TYPE` | ✅ | `environment`, `aws-secrets-manager`, or `local` | `environment` | [Ref](/docs/key-store) |
 
 #### **AWS Secrets Manager Key Store**
-
-| Name                               | Required                                        | Description                         | Example               | Reference                                       |
-| ---------------------------------- | ----------------------------------------------- | ----------------------------------- | --------------------- | ----------------------------------------------- |
-| `AWSSM_EXPO_PUBLIC_KEY_SECRET_ID`  | ✅ if KEYS_STORAGE_TYPE = `aws-secrets-manager` | Expo public key secret name in AWS  | `my-expo-public-key`  | [Ref](/docs/key-store#expo-signing-certificate) |
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
+| `AWSSM_EXPO_PUBLIC_KEY_SECRET_ID` | ✅ if KEYS_STORAGE_TYPE = `aws-secrets-manager` | Expo public key secret name in AWS | `my-expo-public-key` | [Ref](/docs/key-store#expo-signing-certificate) |
 | `AWSSM_EXPO_PRIVATE_KEY_SECRET_ID` | ✅ if KEYS_STORAGE_TYPE = `aws-secrets-manager` | Expo private key secret name in AWS | `my-expo-private-key` | [Ref](/docs/key-store#expo-signing-certificate) |
 
 #### **Environment-Based Key Store**
-
-| Name                   | Required                                | Description                     | Example         | Reference                                       |
-| ---------------------- | --------------------------------------- | ------------------------------- | --------------- | ----------------------------------------------- |
-| `PUBLIC_EXPO_KEY_B64`  | ✅ if KEYS_STORAGE_TYPE = `environment` | Base64-encoded Expo public key  | `Base64 string` | [Ref](/docs/key-store#expo-signing-certificate) |
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
+| `PUBLIC_EXPO_KEY_B64` | ✅ if KEYS_STORAGE_TYPE = `environment` | Base64-encoded Expo public key | `Base64 string` | [Ref](/docs/key-store#expo-signing-certificate) |
 | `PRIVATE_EXPO_KEY_B64` | ✅ if KEYS_STORAGE_TYPE = `environment` | Base64-encoded Expo private key | `Base64 string` | [Ref](/docs/key-store#expo-signing-certificate) |
 
 #### **Local Key Store**
-
-| Name                          | Required                          | Description                  | Example                    | Reference                                       |
-| ----------------------------- | --------------------------------- | ---------------------------- | -------------------------- | ----------------------------------------------- |
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
 | `PRIVATE_LOCAL_EXPO_KEY_PATH` | ✅ if KEYS_STORAGE_TYPE = `local` | Path to the Expo private key | `/path/to/private-key.pem` | [Ref](/docs/key-store#expo-signing-certificate) |
-| `PUBLIC_LOCAL_EXPO_KEY_PATH`  | ✅ if KEYS_STORAGE_TYPE = `local` | Path to the Expo public key  | `/path/to/public-key.pem`  | [Ref](/docs/key-store#expo-signing-certificate) |
+| `PUBLIC_LOCAL_EXPO_KEY_PATH` | ✅ if KEYS_STORAGE_TYPE = `local` | Path to the Expo public key | `/path/to/public-key.pem` | [Ref](/docs/key-store#expo-signing-certificate) |
 
 ### ☁️ **AWS & CloudFront Configuration**
-
-| Name                    | Required                                                    | Description                                                  | Example                                       | Reference                                                                                                        |
-| ----------------------- | ----------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `AWS_REGION`            | ✅ if using `aws-secrets-manager` or `s3`                   | AWS Region                                                   | `us-east-1`                                   | [Ref](/docs/key-store?keyStore=aws-secrets-manager#key-store-configuration), [Storage](/docs/storage?storage=s3) |
-| `AWS_BASE_ENDPOINT`     | ❌                                                          | Custom S3-compatible endpoint for alternative object storage | `https://account-id.r2.cloudflarestorage.com` | [Storage](/docs/storage?storage=s3)                                                                              |
-| `AWS_ACCESS_KEY_ID`     | ✅ if using `aws-secrets-manager` or `s3` without IAM roles | AWS Access Key ID                                            | `ACCESSKEYID`                                 | [Ref](/docs/key-store?keyStore=aws-secrets-manager#key-store-configuration), [Storage](/docs/storage?storage=s3) |
-| `AWS_SECRET_ACCESS_KEY` | ✅ if using `aws-secrets-manager` or `s3` without IAM roles | AWS Secret Access Key                                        | `SECRETACCESSKEY`                             | [Ref](/docs/key-store?keyStore=aws-secrets-manager#key-store-configuration), [Storage](/docs/storage?storage=s3) |
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
+| `AWS_REGION` | ✅ if using `aws-secrets-manager` or `s3` | AWS Region | `us-east-1` | [Ref](/docs/key-store?keyStore=aws-secrets-manager#key-store-configuration), [Storage](/docs/storage?storage=s3) |
+| `AWS_BASE_ENDPOINT` | ❌ | Custom S3-compatible endpoint for alternative object storage | `https://account-id.r2.cloudflarestorage.com` | [Storage](/docs/storage?storage=s3) |
+| `AWS_ACCESS_KEY_ID` | ✅ if using `aws-secrets-manager` or `s3` without IAM roles | AWS Access Key ID | `ACCESSKEYID` | [Ref](/docs/key-store?keyStore=aws-secrets-manager#key-store-configuration), [Storage](/docs/storage?storage=s3) |
+| `AWS_SECRET_ACCESS_KEY` | ✅ if using `aws-secrets-manager` or `s3` without IAM roles | AWS Secret Access Key | `SECRETACCESSKEY` | [Ref](/docs/key-store?keyStore=aws-secrets-manager#key-store-configuration), [Storage](/docs/storage?storage=s3) |
 
 #### **CloudFront Settings**
-
-| Name                                     | Required                                                     | Description                                   | Example                               | Reference                   |
-| ---------------------------------------- | ------------------------------------------------------------ | --------------------------------------------- | ------------------------------------- | --------------------------- |
-| `CLOUDFRONT_DOMAIN`                      | ❌                                                           | CloudFront domain                             | `https://XXX.cloudfront.net`          | [Ref](/docs/cdn/cloudfront) |
-| `CLOUDFRONT_KEY_PAIR_ID`                 | ✅ if CLOUDFRONT_DOMAIN is set                               | CloudFront key pair ID                        | `Random string`                       | [Ref](/docs/cdn/cloudfront) |
-| `CLOUDFRONT_PRIVATE_KEY_B64`             | ✅ if using `environment` & CLOUDFRONT_DOMAIN is set         | Base64 CloudFront private key                 | `Base64 string`                       | [Ref](/docs/cdn/cloudfront) |
-| `AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID` | ✅ if using `aws-secrets-manager` & CLOUDFRONT_DOMAIN is set | CloudFront private key in AWS Secrets Manager | `my-cloudfront-private-key`           | [Ref](/docs/cdn/cloudfront) |
-| `PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH`      | ✅ if using `local` & CLOUDFRONT_DOMAIN is set               | Path to CloudFront private key                | `/path/to/cloudfront-private-key.pem` | [Ref](/docs/cdn/cloudfront) |
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
+| `CLOUDFRONT_DOMAIN` | ❌ | CloudFront domain | `https://XXX.cloudfront.net` | [Ref](/docs/cdn/cloudfront) |
+| `CLOUDFRONT_KEY_PAIR_ID` | ✅ if CLOUDFRONT_DOMAIN is set | CloudFront key pair ID | `Random string` | [Ref](/docs/cdn/cloudfront) |
+| `CLOUDFRONT_PRIVATE_KEY_B64` | ✅ if using `environment` & CLOUDFRONT_DOMAIN is set | Base64 CloudFront private key | `Base64 string` | [Ref](/docs/cdn/cloudfront) |
+| `AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID` | ✅ if using `aws-secrets-manager` & CLOUDFRONT_DOMAIN is set | CloudFront private key in AWS Secrets Manager | `my-cloudfront-private-key` | [Ref](/docs/cdn/cloudfront) |
+| `PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH` | ✅ if using `local` & CLOUDFRONT_DOMAIN is set | Path to CloudFront private key | `/path/to/cloudfront-private-key.pem` | [Ref](/docs/cdn/cloudfront) |
 
 #### **Prometheus Configuration**
-
-| Name                 | Required       | Description                                                                                                                              | Example | Reference |
-| -------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------- | --------- |
-| `PROMETHEUS_ENABLED` | ❌ (Automatic) | Automatically set to `true` if `prometheus.io/scrape: "true"` is present in `podAnnotations`, otherwise must be explicitly set to `true` | `true`  |           |
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
+| `PROMETHEUS_ENABLED` | ❌ (Automatic) | Automatically set to `true` if `prometheus.io/scrape: "true"` is present in `podAnnotations`, otherwise must be explicitly set to `true` | `true` | |
 
 #### **Dashboard Configuration**
-
-| Name             | Required                   | Description          | Example         | Reference              |
-| ---------------- | -------------------------- | -------------------- | --------------- | ---------------------- |
-| `USE_DASHBOARD`  | ❌                         | Enable the dashboard | `true`          | [Ref](/docs/dashboard) |
-| `ADMIN_PASSWORD` | ✅ if USE_DASHBOARD is set | Admin password       | `Random string` | [Ref](/docs/dashboard) |
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
+| `USE_DASHBOARD` | ❌ | Enable the dashboard | `true` | [Ref](/docs/dashboard) |
+| `ADMIN_PASSWORD` | ✅ if USE_DASHBOARD is set | Admin password | `Random string` | [Ref](/docs/dashboard) |
