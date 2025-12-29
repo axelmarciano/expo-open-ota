@@ -68,6 +68,12 @@ environment:
     required:
       - key: "cacheMode"
         is: "redis"
+  - name: "REDIS_USERNAME"
+    value: ""
+    required: false
+  - name: "REDIS_CA_CERT_B64"
+    value: ""
+    required: false
   - name: "STORAGE_MODE"
     key: "storageMode"
     required: true
