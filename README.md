@@ -7,19 +7,6 @@
 
 > **Not affiliated with [Expo](https://expo.dev/).** This is an independent open-source project.
 
-## Why Expo Open OTA?
-
-| | Expo Open OTA | Expo EAS Updates |
-| --- | --- | --- |
-| **Infrastructure** | Single container, no database | Managed service |
-| **Storage** | S3 / local volume — your choice | Expo-managed |
-| **Pricing** | Free forever (you pay only for your own infra) | Per MAU pricing |
-| **Network control** | Full control — VPN, proxy, air-gapped | Internet required |
-| **CDN** | Bring your own (CloudFront, etc.) | Expo CDN |
-| **Code signing** | Built-in | Built-in |
-| **Dashboard** | Included | Expo dashboard |
-
-**Zero database.** Updates are stored directly on S3 or a local volume. No Postgres, no Redis required (Redis is optional for caching). One container, one storage backend — that's it.
 
 ## Quick Start
 
@@ -46,7 +33,7 @@ docker run -p 3000:3000 \
   ghcr.io/axelmarciano/expo-open-ota:latest
 ```
 
-Your server is now running at `http://localhost:3000` with the dashboard enabled.
+Your server is now running at `http://localhost:3000` with the dashboard enabled (`http://localhost:3000/dashboard`)
 
 > **Need your credentials?** See [Prerequisites](https://axelmarciano.github.io/expo-open-ota/docs/prerequisites) to get your `EXPO_ACCESS_TOKEN` and `EXPO_APP_ID`.
 
