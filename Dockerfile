@@ -19,6 +19,7 @@ RUN GOOS=linux GOARCH=${TARGETARCH} go build -o main ./cmd/api
 
 FROM alpine:latest
 RUN apk add --no-cache bash
+WORKDIR /app
 COPY --from=builder /app/main /app/main
 COPY --from=dashboard-builder /app/apps/dashboard/dist /app/apps/dashboard/dist
 EXPOSE 3000
