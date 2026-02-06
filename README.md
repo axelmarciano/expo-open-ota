@@ -1,7 +1,7 @@
 # Expo Open OTA
 ![Expo Open OTA Deployment](apps/docs/static/img/social_card.png)
 
-[![Push workflow](https://github.com/axelmarciano/expo-open-ota/actions/workflows/push.yml/badge.svg)](https://github.com/axelmarciano/expo-open-ota/actions/workflows/push.yml)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/template/MGW3k1?referralCode=OEHlEK)
 
 🚀 **An open-source Go implementation of the Expo Updates protocol, designed for production with support for cloud storage like S3 and CDN integration, delivering fast and reliable OTA updates for React Native apps.**
 
