@@ -7,7 +7,7 @@ import BrowserWindow from '@site/src/components/BrowserWindow';
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 
-The cloudfront CDN feature requires your storage mode to be set to `s3`. You can follow the [storage guide](/docs/storage) to set up your storage solution.
+The cloudfront CDN feature requires your storage mode to be set to `s3`. You can follow the [storage guide](/docs/server-configuration/storage) to set up your storage solution.
 
 :::note
 The environment variables required for each cdn are listed below, you can set them in a `.env` file in the root of the project or keep them in a safe place to prepare for deployment.
@@ -44,7 +44,7 @@ CLOUDFRONT_KEY_PAIR_ID=your-public-key-id
 + Go to the [Cloudfront Distributions page](https://us-east-1.console.aws.amazon.com/cloudfront/v4/home#/distributions)
 + Click on the **Create distribution** button.
 ### Origin
-+ Select the S3 bucket you created in the [storage guide](/docs/storage) as the origin.
++ Select the S3 bucket you created in the [storage guide](/docs/server-configuration/storage) as the origin.
 + Leave Origin Path empty.
 + In Origin access check "Origin access control settings (recommended)"
 + In Origin access control select the OAC you created in the previous step.
@@ -70,7 +70,7 @@ CLOUDFRONT_DOMAIN=your-cloudfront-domain
 <BrowserWindow url="https://us-east-1.console.aws.amazon.com/s3/home">
 ## Setup Bucket Policy
 + Go to the [S3 Buckets page](https://us-east-1.console.aws.amazon.com/s3/home)
-+ Click on the bucket you created in the [storage guide](/docs/storage)
++ Click on the bucket you created in the [storage guide](/docs/server-configuration/storage)
 + Go to the **Permissions** tab
 + Click on the **Bucket Policy** button
 + Add the following policy to the bucket policy editor:
@@ -107,7 +107,7 @@ CLOUDFRONT_DOMAIN=your-cloudfront-domain
 ```
 
 ### Keys Storage Environment Variables
-You will need to setup the private key in the server environment variables. You can follow the [keys storage guide](/docs/key-store) to set up your keys storage solution.
+You will need to setup the private key in the server environment variables. You can follow the [keys storage guide](/docs/server-configuration/key-store) to set up your keys storage solution.
 
 <Tabs defaultValue="environment" groupId="keys-storage" values={[{label: 'Environment Variables', value: 'environment'}, {label: 'AWS Secrets Manager', value: 'aws-secrets-manager'}, {label: 'Local Key Store', value: 'local'}]}>
 <TabItem value="environment">

@@ -1,11 +1,11 @@
 ---
-sidebar_position: 3
+sidebar_position: 1
 id: storage
 ---
 
 # Storage
 
-**Expo Open OTA** supports two storage solutions for hosting your update assets: **Amazon S3** and **Local File System**. This guide will help you set up your storage solution and configure your server to use it.
+**Expo Open OTA** supports two storage solutions for hosting your update assets: **Local File System** and **Amazon S3**. This guide will help you set up your storage solution and configure your server to use it.
 
 :::note
 The environment variables required for each storage solution are listed below, you can set them in a `.env` file in the root of the project or keep them in a safe place to prepare for deployment.
@@ -14,33 +14,8 @@ The environment variables required for each storage solution are listed below, y
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 
-<Tabs queryString="storage" defaultValue="s3">
-  <TabItem value="s3" label="Amazon S3" default>
-    To enable Amazon S3 as your storage solution, you need to set the following environment variables:
-    ```bash title=".env"
-    STORAGE_MODE=s3
-    AWS_REGION=your-region
-    S3_BUCKET_NAME=your-bucket-name
-    ```
-    
-    **For S3-compatible object storage (e.g., Cloudflare R2, MinIO, DigitalOcean Spaces):**
-    ```bash title=".env"
-    STORAGE_MODE=s3
-    AWS_REGION=auto
-    AWS_BASE_ENDPOINT=https://account-id.r2.cloudflarestorage.com
-    S3_BUCKET_NAME=your-bucket-name
-    ```
-    
-    If your are not using AWS IAM roles, you also need to set the following environment variables:
-    ```bash title=".env"
-    AWS_ACCESS_KEY_ID=your-access-key-id
-    AWS_SECRET_ACCESS_KEY=your-secret-access-key
-    ```
-
-    You don't need to allow public read access to the assets, as the server will generate pre-signed URLs for the assets for CDN if configured.
-    If CDN is not configured, the server will return the asset directly.
-  </TabItem>
-  <TabItem value="local" label="Local File System">
+<Tabs queryString="storage" defaultValue="local">
+  <TabItem value="local" label="Local File System" default>
     :::warning
 
     This storage solution is not recommended for production use. It is intended for development and testing purposes only.
@@ -54,5 +29,30 @@ import TabItem from '@theme/TabItem';
     STORAGE_MODE=local
     LOCAL_BUCKET_BASE_PATH=/path/to/your/assets
     ```
+  </TabItem>
+  <TabItem value="s3" label="Amazon S3">
+    To enable Amazon S3 as your storage solution, you need to set the following environment variables:
+    ```bash title=".env"
+    STORAGE_MODE=s3
+    AWS_REGION=your-region
+    S3_BUCKET_NAME=your-bucket-name
+    ```
+
+    **For S3-compatible object storage (e.g., Cloudflare R2, MinIO, DigitalOcean Spaces):**
+    ```bash title=".env"
+    STORAGE_MODE=s3
+    AWS_REGION=auto
+    AWS_BASE_ENDPOINT=https://account-id.r2.cloudflarestorage.com
+    S3_BUCKET_NAME=your-bucket-name
+    ```
+
+    If your are not using AWS IAM roles, you also need to set the following environment variables:
+    ```bash title=".env"
+    AWS_ACCESS_KEY_ID=your-access-key-id
+    AWS_SECRET_ACCESS_KEY=your-secret-access-key
+    ```
+
+    You don't need to allow public read access to the assets, as the server will generate pre-signed URLs for the assets for CDN if configured.
+    If CDN is not configured, the server will return the asset directly.
   </TabItem>
 </Tabs>

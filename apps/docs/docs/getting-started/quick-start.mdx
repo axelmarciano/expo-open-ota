@@ -1,0 +1,101 @@
+---
+sidebar_position: 3
+---
+
+# Quick Start
+
+Get your first OTA update running in minutes with a minimal local setup.
+
+:::tip
+This guide uses **local storage, local keys, and local cache** — the simplest configuration possible. For production setups (S3, Redis, CloudFront), see [Server Configuration](/docs/category/server-configuration).
+:::
+
+## 1. Get your Expo credentials
+
+You need two things from Expo:
+
+- **Access Token**: Create one at [expo.dev/settings/access-tokens](https://expo.dev/settings/access-tokens)
+- **Project ID**: Run `eas project:info` in your Expo project, or find it in your [Expo dashboard](https://expo.dev)
+
+## 2. Generate signing certificates
+
+In your Expo project directory, generate the signing key pair:
+
+```bash title="cd ./my-expo-project"
+npx eoas generate-certs
+```
+
+This creates three files in `certs/`:
+- `private-key.pem` and `public-key.pem` — used by the server to sign and verify updates
+- `certificate.pem` — commit this to your Expo project (used by the client to verify updates)
+
+## 3. Start the server
+
+Pull and run the Docker image with a minimal configuration:
+
+```bash
+docker run --rm -it \
+  -p 3000:3000 \
+  -e BASE_URL=http://localhost:3000 \
+  -e EXPO_ACCESS_TOKEN=your-expo-token \
+  -e EXPO_APP_ID=your-project-id \
+  -e JWT_SECRET=$(openssl rand -base64 32) \
+  -e STORAGE_MODE=local \
+  -e KEYS_STORAGE_TYPE=local \
+  -e PUBLIC_LOCAL_EXPO_KEY_PATH=/keys/public-key.pem \
+  -e PRIVATE_LOCAL_EXPO_KEY_PATH=/keys/private-key.pem \
+  -e CACHE_MODE=local \
+  -e USE_DASHBOARD=true \
+  -e ADMIN_PASSWORD=admin \
+  -v $(pwd)/certs:/keys:ro \
+  -v ./updates:/updates \
+  ghcr.io/axelmarciano/expo-open-ota:latest
+```
+
+The server is now running on `http://localhost:3000`. You can verify with:
+
+```bash
+curl http://localhost:3000/hc
+```
+
+## 4. Configure your Expo app
+
+In your Expo project, point your app to your local server:
+
+```bash title="cd ./my-expo-project"
+npx eoas init
+```
+
+Follow the prompts — it will update your `app.config.js` to use your Expo Open OTA server.
+
+:::warning
+After running `eoas init`, you need to create a **new build** of your app for the configuration to take effect. See [EAS Build guide](https://docs.expo.dev/build/introduction/).
+:::
+
+## 5. Create a release channel
+
+Your app uses a **release channel** to know which branch to pull updates from. The server queries Expo for this channel→branch mapping when your app checks for updates.
+
+Go to your [Expo dashboard](https://expo.dev), navigate to your project under **Over-the-air-updates → Channels**, and create a channel (e.g. `production`) pointing to the branch you'll publish to (e.g. `production`).
+
+:::info
+Branches are created automatically when you publish. Channels must be created manually on [expo.dev](https://expo.dev).
+If you have the EAS CLI installed, you can also run `eas channel:create production`.
+:::
+
+## 6. Publish your first update
+
+```bash title="cd ./my-expo-project"
+npx eoas publish --branch production
+```
+
+That's it! Your app will now receive OTA updates from your self-hosted server.
+
+## Next steps
+
+You now have a working local setup. To move to production:
+
+- **[Configure Your App](/docs/eoas/intro)** — Learn about publishing, rollback, and republishing updates
+- **[Deployment](/docs/category/deployment)** — Deploy on Railway, Docker, or Kubernetes
+- **[Server Configuration](/docs/category/server-configuration)** — Switch to S3 storage, Redis cache, and CloudFront CDN
+- **[Dashboard](/docs/dashboard)** — Enable the web UI to monitor your updates

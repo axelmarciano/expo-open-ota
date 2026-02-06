@@ -1,0 +1,9 @@
+{
+  "label": "Server Configuration",
+  "position": 4,
+  "link": {
+    "type": "generated-index",
+    "title": "Server Configuration",
+    "description": "Configure storage, key management, caching, and CDN for your Expo Open OTA server."
+  }
+}

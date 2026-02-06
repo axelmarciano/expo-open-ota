@@ -1,8 +1,8 @@
 {
-  "label": "EOAS",
-  "position": 10,
+  "label": "Configure Your App",
+  "position": 2,
   "link": {
     "type": "doc",
-    "id": "intro"
+    "id": "eoas/intro"
   }
 }

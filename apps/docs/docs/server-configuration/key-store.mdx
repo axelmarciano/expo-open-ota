@@ -1,5 +1,5 @@
 ---
-sidebar_position: 4
+sidebar_position: 2
 ---
 
 # Key Store
@@ -14,8 +14,8 @@ The **Key store** is a module that manages how these keys are accessed by the se
 
 You can use 3 different key stores:
 1. **Local Key Store**: Keys are stored in a directory on the server as *.pem files.
-2. **AWS Secrets Manager**: Keys are stored in AWS Secrets Manager and securely accessed by the server.
-3. **Environment Variables**: Keys are stored as environment variables in base64 format.
+2. **Environment Variables**: Keys are stored as environment variables in base64 format.
+3. **AWS Secrets Manager**: Keys are stored in AWS Secrets Manager and securely accessed by the server.
 
 :::note
 The environment variables required for key store configuration are listed below. You can set them in a `.env` file in the root of the project or keep them in a safe place to prepare for deployment.
@@ -49,12 +49,27 @@ Those two keys are used by the server to sign and verify the updates.
 :::note
 This key is only required if you are using Cloudfront as your CDN.
 :::
-Please refer to this [section](/docs/cdn/cloudfront#generate-key-pair) on how to generate a Cloudfront private key.
+Please refer to this [section](/docs/server-configuration/cdn/cloudfront#generate-key-pair) on how to generate a Cloudfront private key.
 
 ## Key Store Configuration
 
-<Tabs queryString="keyStore" defaultValue="environment">
-    <TabItem value="environment" label="Environment Variables" default>
+<Tabs queryString="keyStore" defaultValue="local">
+    <TabItem value="local" label="Local Key Store" default>
+    :::warning
+    This key store is not recommended for production use. It is intended for development and testing purposes only.
+    :::
+
+    To use local key store you will need to set the following environment variables:
+
+    ```bash title=".env"
+    KEYS_STORAGE_TYPE=local
+    PUBLIC_LOCAL_EXPO_KEY_PATH=/path/to/public-key.pem
+    PRIVATE_LOCAL_EXPO_KEY_PATH=/path/to/private-key.pem
+    PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH=/path/to/cloudfront-private-key.pem
+    ```
+
+    </TabItem>
+    <TabItem value="environment" label="Environment Variables">
     You will have to encode the keys in base64 format and set the following environment variables:
 
     ```bash title="Encode keys"
@@ -93,23 +108,7 @@ Please refer to this [section](/docs/cdn/cloudfront#generate-key-pair) on how to
     ```
 
     :::info
-        The server use the same AWS credentials for [S3 Storage](/docs/storage?storage=s3) and AWS Secrets Manager. Please ensure to setup the correct ACLs and permissions for the keys.
+        The server use the same AWS credentials for [S3 Storage](/docs/server-configuration/storage?storage=s3) and AWS Secrets Manager. Please ensure to setup the correct ACLs and permissions for the keys.
     :::
-    </TabItem>
-    <TabItem value="local" label="Local Key Store">
-    :::warning
-    This key store is not recommended for production use. It is intended for development and testing purposes only.
-    :::
-
-    To use local key store you will need to set the following environment variables:
-
-    ```bash title=".env"
-    KEYS_STORAGE_TYPE=local
-    PUBLIC_LOCAL_EXPO_KEY_PATH=/path/to/public-key.pem
-    PRIVATE_LOCAL_EXPO_KEY_PATH=/path/to/private-key.pem
-    PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH=/path/to/cloudfront-private-key.pem
-    ```
-
     </TabItem>
 </Tabs>
-

@@ -29,6 +29,7 @@ vendor/
 
 # GoLand plugin files
 *.local
+.claude
 
 # MacOS specific files
 .DS_Store

@@ -1,5 +1,5 @@
 ---
-sidebar_position: 8
+sidebar_position: 5
 ---
 import useBaseUrl from '@docusaurus/useBaseUrl';
 
@@ -9,11 +9,23 @@ The **Expo-Open-OTA Dashboard** is a web interface that allows you to:
 - 🔍 View and manage your **Expo branches**
 - 🔄 Track **runtime versions**
 - 📦 Monitor and manage **OTA updates**
+- 🔀 **Switch channel-to-branch mappings in one click** — useful for instant rollbacks, A/B testing, or promoting a staging branch to production without republishing
 
+## Features
 
-<img src={useBaseUrl('/img/dashboard.png')} />
+### Updates
+Browse your branches, drill down into runtime versions, and inspect individual OTA updates with their metadata.
 
-## 🎛 How to Enable the Dashboard
+### Channels
+View all your release channels and **change which branch a channel points to** with a single click. This is especially useful for:
+- **Instant rollback**: Point a production channel back to a previous branch
+- **Testing**: Temporarily route a channel to a test branch
+- **Promotion**: Switch a channel from staging to production without rebuilding
+
+### Settings
+View the current server configuration at a glance.
+
+## How to Enable the Dashboard
 To activate the dashboard, configure the following environment variables:
 
 ### **1️⃣ Enable the Dashboard**
