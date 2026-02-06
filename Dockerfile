@@ -6,6 +6,7 @@ COPY apps/dashboard ./
 RUN npm run build
 
 FROM golang:1.23-alpine AS builder
+ARG TARGETARCH
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
@@ -14,7 +15,7 @@ COPY internal ./internal
 COPY keys ./keys
 COPY config ./config
 COPY updates ./updates
-RUN GOOS=linux GOARCH=amd64 go build -o main ./cmd/api
+RUN GOOS=linux GOARCH=${TARGETARCH} go build -o main ./cmd/api
 
 FROM alpine:latest
 RUN apk add --no-cache bash

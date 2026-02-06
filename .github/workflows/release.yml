@@ -26,35 +26,45 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Log in to GitHub Container Registry
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Build and tag Docker image
+      - name: Build and push multi-platform Docker image
         run: |
           IMAGE_TAG="${GITHUB_REF#refs/tags/}"
           REPO="ghcr.io/${{ github.repository_owner }}/expo-open-ota"
 
           echo "🔨 Building Docker image with tag: $IMAGE_TAG"
-          docker build -t "$REPO:$IMAGE_TAG" .
-          docker push "$REPO:$IMAGE_TAG"
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            -t "$REPO:$IMAGE_TAG" \
+            --push .
 
       - name: Check latest version and update latest tag
         env:
           IMAGE_TAG: ${{ github.ref_name }}
         run: |
           REPO="ghcr.io/${{ github.repository_owner }}/expo-open-ota"
-          
+
           echo "📡 Fetching the latest version tag from GHCR..."
           LATEST_TAG=$(gh api "https://api.github.com/users/${{ github.repository_owner }}/packages/container/expo-open-ota/versions?per_page=100" \
             --jq '[.[].metadata.container.tags[]] | map(select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))) | sort_by(ltrimstr("v") | split(".") | map(tonumber)) | last' | tr -d '"')
           
           echo "🔍 Latest found version: $LATEST_TAG"
           echo "🏷️ Current version: $IMAGE_TAG"
-          
+
           if [ "$LATEST_TAG" = "$IMAGE_TAG" ]; then
             echo "✅ $IMAGE_TAG is the latest version. Updating latest tag..."
-            docker tag "$REPO:$IMAGE_TAG" "$REPO:latest"
-            docker push "$REPO:latest"
+            docker buildx build \
+              --platform linux/amd64,linux/arm64 \
+              -t "$REPO:latest" \
+              --push .
           else
             echo "ℹ️ $IMAGE_TAG is not the latest version. Skipping latest tag update."
           fi
