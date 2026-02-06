@@ -61,10 +61,7 @@ jobs:
 
           if [ "$LATEST_TAG" = "$IMAGE_TAG" ]; then
             echo "✅ $IMAGE_TAG is the latest version. Updating latest tag..."
-            docker buildx build \
-              --platform linux/amd64,linux/arm64 \
-              -t "$REPO:latest" \
-              --push .
+            docker buildx imagetools create -t "$REPO:latest" "$REPO:$IMAGE_TAG"
           else
             echo "ℹ️ $IMAGE_TAG is not the latest version. Skipping latest tag update."
           fi
