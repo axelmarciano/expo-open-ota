@@ -45,8 +45,8 @@ jobs:
           REPO="ghcr.io/${{ github.repository_owner }}/expo-open-ota"
           
           echo "📡 Fetching the latest version tag from GHCR..."
-          LATEST_TAG=$(gh api "https://api.github.com/users/${{ github.repository_owner }}/packages/container/expo-open-ota/versions" \
-            --jq '[.[].metadata.container.tags[]] | map(select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))) | sort_by(.) | last' | tr -d '"')
+          LATEST_TAG=$(gh api "https://api.github.com/users/${{ github.repository_owner }}/packages/container/expo-open-ota/versions?per_page=100" \
+            --jq '[.[].metadata.container.tags[]] | map(select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))) | sort_by(ltrimstr("v") | split(".") | map(tonumber)) | last' | tr -d '"')
           
           echo "🔍 Latest found version: $LATEST_TAG"
           echo "🏷️ Current version: $IMAGE_TAG"
