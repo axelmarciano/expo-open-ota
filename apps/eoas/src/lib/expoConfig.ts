@@ -9,6 +9,7 @@ import path from 'path';
 
 import Log from './log';
 import { isExpoInstalled } from './package';
+import { resolvePackageRunner } from './packageRunner';
 
 export enum RequestedPlatform {
   Android = 'android',
@@ -29,6 +30,7 @@ export interface ExpoConfigOptions {
   env?: Env;
   skipSDKVersionRequirement?: boolean;
   skipPlugins?: boolean;
+  packageRunner?: string;
 }
 
 interface ExpoConfigOptionsInternal extends ExpoConfigOptions {
@@ -50,9 +52,10 @@ async function getExpoConfigInternalAsync(
 
     let exp: ExpoConfig;
     if (isExpoInstalled(projectDir)) {
+      const runner = resolvePackageRunner(opts.packageRunner, projectDir);
       try {
         const { stdout } = await spawnAsync(
-          'npx',
+          runner,
           ['expo', 'config', '--json', ...(opts.isPublicConfig ? ['--type', 'public'] : [])],
 
           {
@@ -68,7 +71,7 @@ async function getExpoConfigInternalAsync(
       } catch (err: any) {
         if (!wasExpoConfigWarnPrinted) {
           Log.warn(
-            `Failed to read the app config from the project using "npx expo config" command: ${err.message}.`
+            `Failed to read the app config from the project using "${runner} expo config" command: ${err.message}.`
           );
           Log.warn('Falling back to the version of "@expo/config" shipped with the EAS CLI.');
           wasExpoConfigWarnPrinted = true;

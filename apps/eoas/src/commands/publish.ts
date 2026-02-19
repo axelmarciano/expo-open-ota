@@ -18,6 +18,7 @@ import { fetchWithRetries } from '../lib/fetch';
 import Log from '../lib/log';
 import { ora } from '../lib/ora';
 import { isExpoInstalled } from '../lib/package';
+import { resolvePackageRunner } from '../lib/packageRunner';
 import { confirmAsync } from '../lib/prompts';
 import { ensureRepoIsCleanAsync } from '../lib/repo';
 import { resolveRuntimeVersionAsync } from '../lib/runtimeVersion';
@@ -61,6 +62,11 @@ export default class Publish extends Command {
         "Where to write build output. You can override the default dist output directory if it's being used by something else",
       default: 'dist',
     }),
+    packageRunner: Flags.string({
+      description:
+        'Package runner to use for spawning Expo CLI commands (e.g. npx, bunx, pnpx). Can also be set via EOAS_PACKAGE_RUNNER env var. Defaults to npx.',
+      required: false,
+    }),
   };
   private sanitizeFlags(flags: any): {
     platform: RequestedPlatform;
@@ -68,6 +74,7 @@ export default class Publish extends Command {
     nonInteractive: boolean;
     disableRepositoryCheck: boolean;
     outputDir: string;
+    packageRunner: string;
     providedDeprecatedChannel?: string;
   } {
     return {
@@ -76,6 +83,7 @@ export default class Publish extends Command {
       branch: flags.branch,
       nonInteractive: flags.nonInteractive,
       outputDir: flags.outputDir,
+      packageRunner: resolvePackageRunner(flags.packageRunner, process.cwd()),
       providedDeprecatedChannel: flags.channel,
     };
   }
@@ -92,6 +100,7 @@ export default class Publish extends Command {
       nonInteractive,
       branch,
       outputDir,
+      packageRunner,
       providedDeprecatedChannel,
       disableRepositoryCheck,
     } = this.sanitizeFlags(flags);
@@ -114,6 +123,7 @@ export default class Publish extends Command {
         ...(process.env as Env),
         ...(providedDeprecatedChannel ? { RELEASE_CHANNEL: providedDeprecatedChannel } : {}),
       },
+      packageRunner,
     });
     const serverUrl = await resolveServerUrl(config).catch(e => {
       Log.error(e.message);
@@ -196,7 +206,7 @@ export default class Publish extends Command {
     const exportSpinner = ora('📦 Exporting project files...').start();
     try {
       const specifiedPlatform = platform === RequestedPlatform.All ? [] : ['--platform', platform];
-      const { stdout } = await spawnAsync('npx', ['expo', 'export', '--output-dir', outputDir, ...specifiedPlatform], {
+      const { stdout } = await spawnAsync(packageRunner, ['expo', 'export', '--output-dir', outputDir, ...specifiedPlatform], {
         cwd: projectDir,
         env: {
           ...process.env,
@@ -211,6 +221,7 @@ export default class Publish extends Command {
     }
     const publicConfig = await getPublicExpoConfigAsync(projectDir, {
       skipSDKVersionRequirement: true,
+      packageRunner,
     });
     if (!publicConfig) {
       Log.error(
