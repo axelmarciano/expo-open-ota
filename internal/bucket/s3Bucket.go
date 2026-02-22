@@ -21,6 +21,11 @@ import (
 
 type S3Bucket struct {
 	BucketName string
+	KeyPrefix  string
+}
+
+func (b *S3Bucket) prefixedKey(key string) string {
+	return b.KeyPrefix + key
 }
 
 func (b *S3Bucket) DeleteUpdateFolder(branch, runtimeVersion, updateId string) error {
@@ -33,7 +38,7 @@ func (b *S3Bucket) DeleteUpdateFolder(branch, runtimeVersion, updateId string) e
 		return fmt.Errorf("error getting S3 client: %w", err)
 	}
 
-	prefix := fmt.Sprintf("%s/%s/%s/", branch, runtimeVersion, updateId)
+	prefix := b.prefixedKey(fmt.Sprintf("%s/%s/%s/", branch, runtimeVersion, updateId))
 
 	listInput := &s3.ListObjectsV2Input{
 		Bucket: aws.String(b.BucketName),
@@ -95,7 +100,7 @@ func (b *S3Bucket) GetRuntimeVersions(branch string) ([]RuntimeVersionWithStats,
 
 	input := &s3.ListObjectsV2Input{
 		Bucket:    aws.String(b.BucketName),
-		Prefix:    aws.String(branch + "/"),
+		Prefix:    aws.String(b.prefixedKey(branch + "/")),
 		Delimiter: aws.String("/"),
 	}
 	resp, err := s3Client.ListObjectsV2(context.TODO(), input)
@@ -104,7 +109,7 @@ func (b *S3Bucket) GetRuntimeVersions(branch string) ([]RuntimeVersionWithStats,
 	}
 
 	var runtimeVersions []RuntimeVersionWithStats
-	prefixLen := len(branch) + 1
+	prefixLen := len(b.KeyPrefix) + len(branch) + 1
 
 	for _, commonPrefix := range resp.CommonPrefixes {
 		runtimeVersion := (*commonPrefix.Prefix)[prefixLen : len(*commonPrefix.Prefix)-1]
@@ -156,6 +161,7 @@ func (b *S3Bucket) GetBranches() ([]string, error) {
 	}
 	input := &s3.ListObjectsV2Input{
 		Bucket:    aws.String(b.BucketName),
+		Prefix:    aws.String(b.KeyPrefix),
 		Delimiter: aws.String("/"),
 	}
 	resp, err := s3Client.ListObjectsV2(context.TODO(), input)
@@ -165,7 +171,8 @@ func (b *S3Bucket) GetBranches() ([]string, error) {
 	var branches []string
 	for _, commonPrefix := range resp.CommonPrefixes {
 		prefix := *commonPrefix.Prefix
-		branches = append(branches, prefix[:len(prefix)-1])
+		branch := strings.TrimPrefix(prefix[:len(prefix)-1], b.KeyPrefix)
+		branches = append(branches, branch)
 	}
 	return branches, nil
 }
@@ -178,7 +185,7 @@ func (b *S3Bucket) GetUpdates(branch string, runtimeVersion string) ([]types.Upd
 	if errS3 != nil {
 		return nil, errS3
 	}
-	prefix := branch + "/" + runtimeVersion + "/"
+	prefix := b.prefixedKey(branch + "/" + runtimeVersion + "/")
 	input := &s3.ListObjectsV2Input{
 		Bucket:    aws.String(b.BucketName),
 		Prefix:    aws.String(prefix),
@@ -207,7 +214,7 @@ func (b *S3Bucket) GetFile(update types.Update, assetPath string) (*types.Bucket
 	if b.BucketName == "" {
 		return nil, errors.New("BucketName not set")
 	}
-	key := update.Branch + "/" + update.RuntimeVersion + "/" + update.UpdateId + "/" + assetPath
+	key := b.prefixedKey(update.Branch + "/" + update.RuntimeVersion + "/" + update.UpdateId + "/" + assetPath)
 
 	s3Client, err := services.GetS3Client()
 	if err != nil {
@@ -245,7 +252,7 @@ func (b *S3Bucket) RequestUploadUrlForFileUpdate(branch string, runtimeVersion s
 
 	presignClient := s3.NewPresignClient(s3Client)
 
-	key := fmt.Sprintf("%s/%s/%s/%s", branch, runtimeVersion, updateId, fileName)
+	key := b.prefixedKey(fmt.Sprintf("%s/%s/%s/%s", branch, runtimeVersion, updateId, fileName))
 
 	input := &s3.PutObjectInput{
 		Bucket: aws.String(b.BucketName),
@@ -270,7 +277,7 @@ func (b *S3Bucket) UploadFileIntoUpdate(update types.Update, fileName string, fi
 	if err != nil {
 		return err
 	}
-	key := fmt.Sprintf("%s/%s/%s/%s", update.Branch, update.RuntimeVersion, update.UpdateId, fileName)
+	key := b.prefixedKey(fmt.Sprintf("%s/%s/%s/%s", update.Branch, update.RuntimeVersion, update.UpdateId, fileName))
 	input := &s3.PutObjectInput{
 		Bucket: aws.String(b.BucketName),
 		Key:    aws.String(key),
@@ -302,8 +309,8 @@ func (b *S3Bucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId st
 		return nil, fmt.Errorf("error getting S3 client: %w", err)
 	}
 
-	sourcePrefix := fmt.Sprintf("%s/%s/%s/", previousUpdate.Branch, previousUpdate.RuntimeVersion, previousUpdate.UpdateId)
-	targetPrefix := fmt.Sprintf("%s/%s/%s/", previousUpdate.Branch, previousUpdate.RuntimeVersion, newUpdateId)
+	sourcePrefix := b.prefixedKey(fmt.Sprintf("%s/%s/%s/", previousUpdate.Branch, previousUpdate.RuntimeVersion, previousUpdate.UpdateId))
+	targetPrefix := b.prefixedKey(fmt.Sprintf("%s/%s/%s/", previousUpdate.Branch, previousUpdate.RuntimeVersion, newUpdateId))
 
 	paginator := s3.NewListObjectsV2Paginator(s3Client, &s3.ListObjectsV2Input{
 		Bucket: aws.String(b.BucketName),
@@ -391,7 +398,7 @@ func (b *S3Bucket) RetrieveMigrationHistory() ([]string, error) {
 	}
 	input := &s3.GetObjectInput{
 		Bucket: aws.String(b.BucketName),
-		Key:    aws.String(".migrationhistory"),
+		Key:    aws.String(b.prefixedKey(".migrationhistory")),
 	}
 	resp, err := s3Client.GetObject(context.TODO(), input)
 	if err != nil {
@@ -443,7 +450,7 @@ func (b *S3Bucket) ApplyMigration(migrationId string) error {
 	var currentContent []byte
 	obj, err := s3Client.GetObject(context.TODO(), &s3.GetObjectInput{
 		Bucket: aws.String(b.BucketName),
-		Key:    aws.String(".migrationhistory"),
+		Key:    aws.String(b.prefixedKey(".migrationhistory")),
 	})
 	if err == nil {
 		defer obj.Body.Close()
@@ -454,7 +461,7 @@ func (b *S3Bucket) ApplyMigration(migrationId string) error {
 
 	_, err = s3Client.PutObject(context.TODO(), &s3.PutObjectInput{
 		Bucket: aws.String(b.BucketName),
-		Key:    aws.String(".migrationhistory"),
+		Key:    aws.String(b.prefixedKey(".migrationhistory")),
 		Body:   bytes.NewReader(newContent),
 	})
 	if err != nil {
@@ -499,7 +506,7 @@ func (b *S3Bucket) RemoveMigrationFromHistory(migrationId string) error {
 
 	_, err = s3Client.PutObject(context.TODO(), &s3.PutObjectInput{
 		Bucket: aws.String(b.BucketName),
-		Key:    aws.String(".migrationhistory"),
+		Key:    aws.String(b.prefixedKey(".migrationhistory")),
 		Body:   bytes.NewReader(newContent),
 	})
 	if err != nil {

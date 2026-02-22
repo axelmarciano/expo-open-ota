@@ -56,11 +56,16 @@ func GetBucket() Bucket {
 		if bucketInstance == nil {
 			bucketType := ResolveBucketType()
 			switch bucketType {
-			case S3BucketType:
-				bucketName := config.GetEnv("S3_BUCKET_NAME")
-				bucketInstance = &S3Bucket{
-					BucketName: bucketName,
-				}
+		case S3BucketType:
+			bucketName := config.GetEnv("S3_BUCKET_NAME")
+			keyPrefix := config.GetEnv("S3_KEY_PREFIX")
+			if keyPrefix != "" && keyPrefix[len(keyPrefix)-1] != '/' {
+				keyPrefix += "/"
+			}
+			bucketInstance = &S3Bucket{
+				BucketName: bucketName,
+				KeyPrefix:  keyPrefix,
+			}
 			case LocalBucketType:
 				basePath := config.GetEnv("LOCAL_BUCKET_BASE_PATH")
 				bucketInstance = &LocalBucket{
