@@ -1,11 +1,11 @@
-FROM node:18-alpine AS dashboard-builder
+FROM --platform=$BUILDPLATFORM node:24-alpine AS dashboard-builder
 WORKDIR /app/apps/dashboard
 COPY apps/dashboard/package.json apps/dashboard/package-lock.json ./
 RUN npm ci
 COPY apps/dashboard ./
 RUN npm run build
 
-FROM golang:1.23-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
 ARG TARGETARCH
 WORKDIR /app
 COPY go.mod go.sum ./
