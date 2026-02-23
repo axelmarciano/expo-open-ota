@@ -188,7 +188,7 @@ func AreUpdatesIdentical(update1, update2 types.Update) (bool, error) {
 
 func GetLatestUpdateBundlePathForRuntimeVersion(branch string, runtimeVersion string, platform string) (*types.Update, error) {
 	cache := cache2.GetCache()
-	cacheKey := fmt.Sprintf(ComputeLastUpdateCacheKey(branch, runtimeVersion, platform))
+	cacheKey := ComputeLastUpdateCacheKey(branch, runtimeVersion, platform)
 	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
 		var update types.Update
 		err := json.Unmarshal([]byte(cachedValue), &update)
