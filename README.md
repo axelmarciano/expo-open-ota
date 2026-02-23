@@ -3,14 +3,8 @@
   <img src="apps/docs/static/img/dashboard_screenshot.png" alt="Expo Open OTA - Dashboard" />
 </p>
 
-<p align="center">
-  <a href="https://github.com/axelmarciano/expo-open-ota/stargazers"><img src="https://img.shields.io/github/stars/axelmarciano/expo-open-ota?style=flat-square" alt="GitHub Stars" /></a>
-  <a href="https://github.com/axelmarciano/expo-open-ota/blob/main/LICENSE.md"><img src="https://img.shields.io/github/license/axelmarciano/expo-open-ota?style=flat-square" alt="License" /></a>
-  <a href="https://github.com/axelmarciano/expo-open-ota/releases"><img src="https://img.shields.io/github/v/release/axelmarciano/expo-open-ota?style=flat-square" alt="Release" /></a>
-  <a href="https://hub.docker.com/r/axelmarciano/expo-open-ota"><img src="https://img.shields.io/docker/pulls/axelmarciano/expo-open-ota?style=flat-square" alt="Docker Pulls" /></a>
-</p>
 
-<h3 align="center">Self-hosted OTA updates for React Native — multi-cloud, production-ready.</h3>
+<h3 align="center">Self-hosted OTA updates for Expo — multi-cloud, production-ready.</h3>
 
 <p align="center">
   An open-source Go server implementing the <a href="https://docs.expo.dev/technical-specs/expo-updates-1/">Expo Updates protocol</a>.<br/>
