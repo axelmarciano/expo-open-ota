@@ -14,12 +14,11 @@ import (
 
 var (
 	s3Client     *s3.Client
+	s3ClientErr  error
 	initS3Client sync.Once
 )
 
 func GetS3Client() (*s3.Client, error) {
-	var err error
-
 	initS3Client.Do(func() {
 		var cfg aws.Config
 		opts := []func(*awsconfig.LoadOptions) error{
@@ -38,23 +37,22 @@ func GetS3Client() (*s3.Client, error) {
 			))
 		}
 
-		cfg, err = awsconfig.LoadDefaultConfig(context.TODO(), opts...)
-		if err == nil {
-			baseEndpoint := config.GetEnv("AWS_BASE_ENDPOINT")
-			if baseEndpoint != "" {
-				s3Client = s3.NewFromConfig(cfg, func(o *s3.Options) {
-					o.BaseEndpoint = aws.String(baseEndpoint)
-				})
-			} else {
-				s3Client = s3.NewFromConfig(cfg)
-			}
+		cfg, s3ClientErr = awsconfig.LoadDefaultConfig(context.TODO(), opts...)
+		if s3ClientErr != nil {
+			s3ClientErr = fmt.Errorf("error loading AWS configuration: %w", s3ClientErr)
+			return
+		}
+		baseEndpoint := config.GetEnv("AWS_BASE_ENDPOINT")
+		if baseEndpoint != "" {
+			s3Client = s3.NewFromConfig(cfg, func(o *s3.Options) {
+				o.BaseEndpoint = aws.String(baseEndpoint)
+			})
+		} else {
+			s3Client = s3.NewFromConfig(cfg)
 		}
 	})
 
-	if err != nil {
-		return nil, fmt.Errorf("error loading AWS configuration: %w", err)
-	}
-	return s3Client, nil
+	return s3Client, s3ClientErr
 }
 
 func FetchSecret(secretName string) string {

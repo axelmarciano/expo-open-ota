@@ -10,7 +10,7 @@ import (
 )
 
 func validateStorageMode(storageMode string) bool {
-	return storageMode == "local" || storageMode == "s3"
+	return storageMode == "local" || storageMode == "s3" || storageMode == "gcs"
 }
 
 func GetPort() string {
@@ -32,6 +32,12 @@ func validateBucketParams(storageMode string) bool {
 		region := GetEnv("AWS_REGION")
 		if region == "" {
 			log.Printf("AWS_REGION not set")
+			return false
+		}
+	case "gcs":
+		bucketName := GetEnv("GCS_BUCKET_NAME")
+		if bucketName == "" {
+			log.Printf("GCS_BUCKET_NAME not set")
 			return false
 		}
 	case "local":
