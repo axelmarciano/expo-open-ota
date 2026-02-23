@@ -40,17 +40,7 @@
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/MGW3k1?referralCode=OEHlEK&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
-Or with Docker:
-
-```bash
-docker run -p 3000:3000 \
-  -e STORAGE_MODE=s3 \
-  -e S3_BUCKET_NAME=my-bucket \
-  -e AWS_REGION=us-east-1 \
-  axelmarciano/expo-open-ota
-```
-
-Then configure your Expo app to point to your server — see the [full documentation](https://axelmarciano.github.io/expo-open-ota/).
+And follow the [Quick Start guide](https://axelmarciano.github.io/expo-open-ota/docs/getting-started/quick-start) to get up and running in minutes.
 
 ## Storage Options
 
