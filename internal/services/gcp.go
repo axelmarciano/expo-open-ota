@@ -1,32 +1,33 @@
 package services
 
 import (
-	"cloud.google.com/go/storage"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"expo-open-ota/config"
 	"fmt"
-	"os"
 	"sync"
 	"time"
+
+	"cloud.google.com/go/storage"
 )
 
 var (
 	gcsClient     *storage.Client
+	gcsClientErr  error
 	initGCSClient sync.Once
 )
 
 func GetGCSClient() (*storage.Client, error) {
-	var err error
 	initGCSClient.Do(func() {
 		ctx := context.Background()
-		gcsClient, err = storage.NewClient(ctx)
+		gcsClient, gcsClientErr = storage.NewClient(ctx)
+		if gcsClientErr != nil {
+			gcsClientErr = fmt.Errorf("error initializing GCS client: %w", gcsClientErr)
+		}
 	})
-	if err != nil {
-		return nil, fmt.Errorf("error initializing GCS client: %w", err)
-	}
-	return gcsClient, nil
+	return gcsClient, gcsClientErr
 }
 
 type googleCreds struct {
@@ -35,7 +36,7 @@ type googleCreds struct {
 }
 
 func loadGoogleCreds() (*googleCreds, error) {
-	b64Creds := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS_B64")
+	b64Creds := config.GetEnv("GOOGLE_APPLICATION_CREDENTIALS_B64")
 	if b64Creds == "" {
 		return nil, errors.New("GOOGLE_APPLICATION_CREDENTIALS_B64 not set")
 	}
