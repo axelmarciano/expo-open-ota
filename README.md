@@ -1,7 +1,3 @@
-<<<<<<< Updated upstream
-# Expo Open OTA
-![Expo Open OTA Deployment](apps/docs/static/img/social_card.png)
-=======
 <p align="center">
   <img src="apps/docs/static/img/social_card.png" alt="Expo Open OTA" />
   <img src="apps/docs/static/img/dashboard_screenshot.png" alt="Expo Open OTA - Dashboard" />
@@ -47,7 +43,6 @@
 | **Helm chart** | Ready for Kubernetes deployments |
 
 ## Quick Start
->>>>>>> Stashed changes
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/MGW3k1?referralCode=OEHlEK&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
