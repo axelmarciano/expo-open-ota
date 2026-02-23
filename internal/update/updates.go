@@ -104,6 +104,7 @@ func IsUpdateValid(Update types.Update) bool {
 	// Search for .check file in the update
 	file, _ := resolvedBucket.GetFile(Update, ".check")
 	if file != nil {
+		file.Reader.Close()
 		return true
 	}
 	return false
@@ -149,9 +150,12 @@ func VerifyUploadedUpdate(update types.Update) error {
 
 	resolvedBucket := bucket.GetBucket()
 	for _, file := range files {
-		_, err := resolvedBucket.GetFile(update, file)
+		f, err := resolvedBucket.GetFile(update, file)
 		if err != nil {
 			return fmt.Errorf("missing file: %s in update", file)
+		}
+		if f != nil {
+			f.Reader.Close()
 		}
 	}
 	return nil
@@ -184,7 +188,7 @@ func AreUpdatesIdentical(update1, update2 types.Update) (bool, error) {
 
 func GetLatestUpdateBundlePathForRuntimeVersion(branch string, runtimeVersion string, platform string) (*types.Update, error) {
 	cache := cache2.GetCache()
-	cacheKey := fmt.Sprintf(ComputeLastUpdateCacheKey(branch, runtimeVersion, platform))
+	cacheKey := ComputeLastUpdateCacheKey(branch, runtimeVersion, platform)
 	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
 		var update types.Update
 		err := json.Unmarshal([]byte(cachedValue), &update)
@@ -219,6 +223,7 @@ func GetUpdateType(update types.Update) types.UpdateType {
 	resolvedBucket := bucket.GetBucket()
 	file, _ := resolvedBucket.GetFile(update, "rollback")
 	if file != nil {
+		file.Reader.Close()
 		return types.Rollback
 	}
 	return types.NormalUpdate

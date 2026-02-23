@@ -11,20 +11,13 @@ permissions:
   packages: write
 
 jobs:
-  checkout:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
   docker:
     runs-on: ubuntu-latest
-    needs: checkout
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -40,7 +33,7 @@ jobs:
           IMAGE_TAG="${GITHUB_REF#refs/tags/}"
           REPO="ghcr.io/${{ github.repository_owner }}/expo-open-ota"
 
-          echo "🔨 Building Docker image with tag: $IMAGE_TAG"
+          echo "Building Docker image with tag: $IMAGE_TAG"
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             -t "$REPO:$IMAGE_TAG" \
@@ -52,18 +45,18 @@ jobs:
         run: |
           REPO="ghcr.io/${{ github.repository_owner }}/expo-open-ota"
 
-          echo "📡 Fetching the latest version tag from GHCR..."
+          echo "Fetching the latest version tag from GHCR..."
           LATEST_TAG=$(gh api "https://api.github.com/users/${{ github.repository_owner }}/packages/container/expo-open-ota/versions?per_page=100" \
             --jq '[.[].metadata.container.tags[]] | map(select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))) | sort_by(ltrimstr("v") | split(".") | map(tonumber)) | last' | tr -d '"')
-          
-          echo "🔍 Latest found version: $LATEST_TAG"
-          echo "🏷️ Current version: $IMAGE_TAG"
+
+          echo "Latest found version: $LATEST_TAG"
+          echo "Current version: $IMAGE_TAG"
 
           if [ "$LATEST_TAG" = "$IMAGE_TAG" ]; then
-            echo "✅ $IMAGE_TAG is the latest version. Updating latest tag..."
+            echo "$IMAGE_TAG is the latest version. Updating latest tag..."
             docker buildx imagetools create -t "$REPO:latest" "$REPO:$IMAGE_TAG"
           else
-            echo "ℹ️ $IMAGE_TAG is not the latest version. Skipping latest tag update."
+            echo "$IMAGE_TAG is not the latest version. Skipping latest tag update."
           fi
 
   helm:
@@ -71,7 +64,7 @@ jobs:
     needs: docker
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Update Helm values.yaml
         run: |
@@ -88,12 +81,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20.x"
+          node-version: "24.x"
           registry-url: "https://registry.npmjs.org"
 
       - name: Publish NPM package
@@ -103,21 +96,27 @@ jobs:
           npm ci
           npm run build
           npm version "$VERSION" --no-git-tag-version
-          npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+          if echo "$VERSION" | grep -qE '\-(alpha|beta|rc)'; then
+            NPM_TAG=$(echo "$VERSION" | grep -oE '(alpha|beta|rc)')
+            echo "Pre-release detected, publishing with --tag $NPM_TAG"
+            npm publish --access public --provenance --tag "$NPM_TAG"
+          else
+            npm publish --access public --provenance
+          fi
 
   github-release:
     runs-on: ubuntu-latest
     needs: [helm, npm]
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: ./charts/*.tgz
+          prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
           body: |
             ## Changes
             - Docker image: `ghcr.io/${{ github.repository_owner }}/expo-open-ota:${{ github.ref_name }}`

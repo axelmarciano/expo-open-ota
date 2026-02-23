@@ -1,6 +1,6 @@
 module expo-open-ota
 
-go 1.23
+go 1.24
 
 require (
 	cloud.google.com/go/storage v1.41.0
