@@ -5,8 +5,9 @@ import (
 	"expo-open-ota/config"
 	"expo-open-ota/internal/services"
 	"fmt"
-	"github.com/golang-jwt/jwt/v5"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type Auth struct {
