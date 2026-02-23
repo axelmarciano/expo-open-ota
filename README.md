@@ -8,7 +8,7 @@
 
 <p align="center">
   An open-source Go server implementing the <a href="https://docs.expo.dev/technical-specs/expo-updates-1/">Expo Updates protocol</a>.<br/>
-  Deploy on AWS, GCP, or locally. No vendor lock-in.
+  Deploy on AWS, GCP, or locally.
 </p>
 
 <p align="center">
