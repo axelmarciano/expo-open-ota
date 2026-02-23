@@ -40,30 +40,35 @@
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/MGW3k1?referralCode=OEHlEK&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
-🚀 **An open-source Go implementation of the Expo Updates protocol, designed for production with support for cloud storage like S3 and CDN integration, delivering fast and reliable OTA updates for React Native apps.**
+Or with Docker:
 
-## ⚠️ Disclaimer
+```bash
+docker run -p 3000:3000 \
+  -e STORAGE_MODE=s3 \
+  -e S3_BUCKET_NAME=my-bucket \
+  -e AWS_REGION=us-east-1 \
+  axelmarciano/expo-open-ota
+```
 
-**Expo Open OTA is not officially supported or affiliated with [Expo](https://expo.dev/).**  
-This is an independent open-source project.
+Then configure your Expo app to point to your server — see the [full documentation](https://axelmarciano.github.io/expo-open-ota/).
 
-## 📖 Documentation
+## Storage Options
 
-The full documentation is available at:  
-➡️ [Documentation](https://axelmarciano.github.io/expo-open-ota/)
+| Provider | Mode | Asset Delivery |
+|----------|------|----------------|
+| **Amazon S3** | `STORAGE_MODE=s3` | Direct or CloudFront CDN |
+| **Google Cloud Storage** | `STORAGE_MODE=gcs` | GCS signed URLs |
+| **S3-compatible** (R2, MinIO, etc.) | `STORAGE_MODE=s3` + `AWS_BASE_ENDPOINT` | Direct |
+| **Local file system** | `STORAGE_MODE=local` | Direct (dev only) |
 
-## 🛠 Features
+## Disclaimer
 
-- **Self-hosted OTA update server** for Expo applications.
-- **Cloud storage support**: AWS S3, local storage, and more.
-- **CDN integration**: Optimized for CloudFront and other CDN providers.
-- **Secure key management**: Supports AWS Secrets Manager and environment-based key storage.
-- **Production-ready**: Designed for scalability and performance.
+Expo Open OTA is **not officially supported or affiliated with [Expo](https://expo.dev/)**. This is an independent open-source project.
 
-## 📜 License
+## License
 
-This project is licensed under the MIT License - see the [LICENSE](./LICENSE.md) file for details.
+MIT — see [LICENSE](./LICENSE.md).
 
 ## Contact
 
-✉️ [E-mail](mailto:expoopenota@gmail.com)
+[expoopenota@gmail.com](mailto:expoopenota@gmail.com)

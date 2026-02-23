@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
+	"google.golang.org/api/option"
 )
 
 var (
@@ -22,7 +23,17 @@ var (
 func GetGCSClient() (*storage.Client, error) {
 	initGCSClient.Do(func() {
 		ctx := context.Background()
-		gcsClient, gcsClientErr = storage.NewClient(ctx)
+		var opts []option.ClientOption
+		b64Creds := config.GetEnv("GOOGLE_APPLICATION_CREDENTIALS_B64")
+		if b64Creds != "" {
+			creds, err := base64.StdEncoding.DecodeString(b64Creds)
+			if err != nil {
+				gcsClientErr = fmt.Errorf("error decoding GOOGLE_APPLICATION_CREDENTIALS_B64: %w", err)
+				return
+			}
+			opts = append(opts, option.WithCredentialsJSON(creds))
+		}
+		gcsClient, gcsClientErr = storage.NewClient(ctx, opts...)
 		if gcsClientErr != nil {
 			gcsClientErr = fmt.Errorf("error initializing GCS client: %w", gcsClientErr)
 		}

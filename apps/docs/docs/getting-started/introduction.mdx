@@ -4,7 +4,7 @@ sidebar_position: 1
 
 # Introduction
 
-**Expo Open OTA** is an open-source project that allows you to host your own updates server for your Expo application. It is a self-hosted alternative to the official Expo OTA service, implementing the [Expo Updates protocol](https://docs.expo.dev/technical-specs/expo-updates-1/).
+**Expo Open OTA** is an open-source, multi-cloud OTA update server for Expo and React Native applications. It implements the [Expo Updates protocol](https://docs.expo.dev/technical-specs/expo-updates-1/) and supports **AWS S3**, **Google Cloud Storage**, and any **S3-compatible** provider (Cloudflare R2, MinIO, DigitalOcean Spaces).
 
 :::warning
 **Expo Open OTA** is not affiliated with Expo. It is an independent open-source project.
@@ -30,10 +30,10 @@ When an update is available, a list of assets is sent back to the client. These 
 - Signs and compresses the files.
 - Returns the required assets to the Expo client.
 
-If a CDN is configured, the returned URL is a pre-signed link pointing to a cdn endpoint. Otherwise, the server returns the asset directly.
+If a CDN is configured (CloudFront) or if using GCS, the returned URL is a pre-signed/signed link and the client downloads directly from the storage provider. Otherwise, the server returns the asset directly.
 
 ### 3. `/requestUploadUrl` & `/uploadLocalFile`
-These routes are used by the `eoas` package to publish updates to the chosen storage solution, whether it's S3 or a local file system.
+These routes are used by the `eoas` package to publish updates to the chosen storage solution, whether it's S3, Google Cloud Storage, or a local file system.
 `/uploadLocalFile` is used to upload the file to the server when [storage mode](/docs/server-configuration/storage?storage=local) is set to `local`.
 
 ## Why Self-Host Your OTA Update server?

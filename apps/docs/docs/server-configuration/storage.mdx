@@ -74,13 +74,41 @@ import TabItem from '@theme/TabItem';
     ```bash title=".env"
     STORAGE_MODE=gcs
     GCS_BUCKET_NAME=your-bucket-name
-    ```
-
-    To generate signed URLs for uploads and asset redirects, provide your service account credentials as a base64-encoded JSON:
-    ```bash title=".env"
     GOOGLE_APPLICATION_CREDENTIALS_B64=<base64-encoded service account JSON>
     ```
 
-    The service account must have at minimum `storage.objectCreator` and `storage.objectAdmin` permissions on your bucket. You don't need to make objects public — the server generates short-lived signed URLs for all file access.
+    #### Setting up GCP credentials
+
+    1. In the GCP Console, go to **IAM & Admin > Service Accounts**
+    2. Create a new service account (or use an existing one)
+    3. Go to your bucket in **Cloud Storage > Buckets**, open the **Permissions** tab
+    4. Click **Grant Access**, add your service account with the **Storage Admin** role
+    5. Back in Service Accounts, go to **Keys > Add Key > Create new key > JSON**
+    6. Encode the downloaded JSON file to base64:
+
+    ```bash
+    base64 -i /path/to/service-account.json | tr -d '\n'
+    ```
+
+    7. Set the output as `GOOGLE_APPLICATION_CREDENTIALS_B64` in your `.env`
+
+    :::tip
+    The base64 credential is used both for authenticating API calls (read, write, delete objects) and for generating signed URLs.
+    :::
+
+    #### How asset delivery works
+
+    Unlike S3 where you can optionally configure CloudFront as a CDN, GCS uses **direct signed URLs** for asset delivery. When a client requests an update asset, the server generates a short-lived signed URL (15 minutes) and redirects the client to download the file directly from GCS — the server never proxies the file content itself.
+
+    This is automatic when `GOOGLE_APPLICATION_CREDENTIALS_B64` is set. No additional CDN configuration is needed.
+
+    #### Permissions
+
+    The service account needs at minimum the **Storage Admin** role on your bucket. This covers:
+    - `storage.objects.get` — reading objects
+    - `storage.objects.list` — listing branches, runtime versions, and updates
+    - `storage.objects.create` — uploading new updates
+    - `storage.objects.delete` — removing updates
+    - Signed URL generation for asset delivery
   </TabItem>
 </Tabs>

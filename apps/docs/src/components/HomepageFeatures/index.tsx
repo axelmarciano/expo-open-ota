@@ -10,30 +10,29 @@ type FeatureItem = {
 
 const FeatureList: FeatureItem[] = [
     {
-        title: '⚙️ Ready for production in 10 minutes',
+        title: '⚙️ Production-ready in 10 minutes',
         description: (
             <>
-                No database, no complex setup—Expo Open OTA is designed for seamless production use. It fully leverages Expo’s configuration, handling <strong>release channels</strong>, <strong>branches</strong>, and <strong>runtime version fingerprints</strong> out of the box. Just connect your cloud storage (S3) and you're ready to go!
+                No database, no complex setup. Connect your cloud storage — <strong>AWS S3</strong>, <strong>Google Cloud Storage</strong>, or any S3-compatible provider — and you’re live. Handles release channels, branches, and runtime versions out of the box.
             </>
         ),
     },
     {
-        title: '🚀 EOAS: One Command to Publish & Configure',
+        title: '🚀 One Command to Publish',
         description: (
             <>
-                Say goodbye to manual setup! Our <code>eoas</code> NPM package automates everything—run <code>npx eoas init</code> to configure your project, and <code>npx eoas publish</code> to push updates effortlessly from your CI/CD pipeline. No extra scripts, no hassle.
+                The <code>eoas</code> CLI automates everything — run <code>npx eoas init</code> to configure your project, and <code>npx eoas publish</code> to push updates from your CI/CD pipeline. No extra scripts, no hassle.
             </>
         ),
     },
     {
-        title: '⚡ CDN Delivery',
+        title: '⚡ Fast Asset Delivery',
         description: (
             <>
-                Your assets, delivered at lightning speed. Expo Open OTA serves static assets through a CDN for maximum performance. Currently supporting AWS CloudFront, with upcoming support for Cloudflare and more—so your users get updates instantly, wherever they are.
+                Assets served at the edge. Deliver updates via <strong>CloudFront CDN</strong> or <strong>GCS signed URLs</strong> — your users get updates instantly, wherever they are. No public bucket access needed.
             </>
         ),
     },
-
 ];
 
 
