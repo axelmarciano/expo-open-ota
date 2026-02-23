@@ -54,5 +54,19 @@ import TabItem from '@theme/TabItem';
 
     You don't need to allow public read access to the assets, as the server will generate pre-signed URLs for the assets for CDN if configured.
     If CDN is not configured, the server will return the asset directly.
+
+    #### Multi-app bucket sharing
+
+    If you want to share a single S3 bucket between multiple applications, you can use the `S3_KEY_PREFIX` environment variable to namespace all keys under a specific prefix:
+
+    ```bash title=".env"
+    S3_KEY_PREFIX=myapp
+    ```
+
+    All objects will be stored under `myapp/<branch>/<runtimeVersion>/<updateId>/...`. This allows multiple independent Expo Open OTA instances to coexist in the same bucket without conflicts.
+
+    :::note
+    A trailing slash is automatically added if omitted (`myapp` → `myapp/`).
+    :::
   </TabItem>
 </Tabs>

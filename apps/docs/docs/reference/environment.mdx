@@ -42,6 +42,7 @@ You can set these variables in a `.env` file for local development or in your de
 | --- | --- | --- | --- | --- |
 | `STORAGE_MODE` | ✅ | `local` or `s3` | `local` | [Ref](/docs/server-configuration/storage) |
 | `S3_BUCKET_NAME` | ✅ if STORAGE_MODE = `s3` | S3 bucket name | `my-bucket` | [Ref](/docs/server-configuration/storage?storage=s3) |
+| `S3_KEY_PREFIX` | ❌ | Key prefix for namespacing inside a shared bucket (multi-app) | `myapp/` | [Ref](/docs/server-configuration/storage?storage=s3) |
 | `LOCAL_BUCKET_BASE_PATH` | ✅ if STORAGE_MODE = `local` | Path to store assets | `/path/to/assets` | [Ref](/docs/server-configuration/storage?storage=local) |
 
 ### 🔐 **Key store Configuration**

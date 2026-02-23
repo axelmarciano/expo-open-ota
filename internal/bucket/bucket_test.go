@@ -77,6 +77,54 @@ func TestGetS3Bucket(t *testing2.T) {
 	assert.IsType(t, &S3Bucket{}, bucket)
 }
 
+func TestPrefixedKeyWithPrefix(t *testing2.T) {
+	b := &S3Bucket{KeyPrefix: "myapp/"}
+	assert.Equal(t, "myapp/branch/main", b.prefixedKey("branch/main"))
+}
+
+func TestPrefixedKeyWithoutPrefix(t *testing2.T) {
+	b := &S3Bucket{KeyPrefix: ""}
+	assert.Equal(t, "branch/main", b.prefixedKey("branch/main"))
+}
+
+func TestGetS3BucketWithKeyPrefix(t *testing2.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("STORAGE_MODE", "s3")
+	os.Setenv("S3_BUCKET_NAME", "test")
+	os.Setenv("S3_KEY_PREFIX", "myapp")
+	defer os.Unsetenv("S3_KEY_PREFIX")
+	bucket := GetBucket()
+	s3b, ok := bucket.(*S3Bucket)
+	assert.True(t, ok)
+	assert.Equal(t, "myapp/", s3b.KeyPrefix)
+}
+
+func TestGetS3BucketKeyPrefixAlreadyHasSlash(t *testing2.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("STORAGE_MODE", "s3")
+	os.Setenv("S3_BUCKET_NAME", "test")
+	os.Setenv("S3_KEY_PREFIX", "myapp/")
+	defer os.Unsetenv("S3_KEY_PREFIX")
+	bucket := GetBucket()
+	s3b, ok := bucket.(*S3Bucket)
+	assert.True(t, ok)
+	assert.Equal(t, "myapp/", s3b.KeyPrefix)
+}
+
+func TestGetS3BucketWithoutKeyPrefix(t *testing2.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("STORAGE_MODE", "s3")
+	os.Setenv("S3_BUCKET_NAME", "test")
+	os.Unsetenv("S3_KEY_PREFIX")
+	bucket := GetBucket()
+	s3b, ok := bucket.(*S3Bucket)
+	assert.True(t, ok)
+	assert.Equal(t, "", s3b.KeyPrefix)
+}
+
 func TestGetLocalBucket(t *testing2.T) {
 	teardown := setup(t)
 	defer teardown()

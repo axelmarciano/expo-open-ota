@@ -101,6 +101,9 @@ environment:
     required:
       - key: "storageMode"
         is: "s3"
+  - name: "S3_KEY_PREFIX"
+    value: ""
+    required: false
   - name: "LOCAL_BUCKET_BASE_PATH"
     value: ""
     required:
