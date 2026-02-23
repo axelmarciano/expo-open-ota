@@ -103,7 +103,14 @@ jobs:
           npm ci
           npm run build
           npm version "$VERSION" --no-git-tag-version
-          npm publish --access public --provenance
+
+          if echo "$VERSION" | grep -qE '\-(alpha|beta|rc)'; then
+            NPM_TAG=$(echo "$VERSION" | grep -oE '(alpha|beta|rc)')
+            echo "Pre-release detected, publishing with --tag $NPM_TAG"
+            npm publish --access public --provenance --tag "$NPM_TAG"
+          else
+            npm publish --access public --provenance
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -118,6 +125,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: ./charts/*.tgz
+          prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
           body: |
             ## Changes
             - Docker image: `ghcr.io/${{ github.repository_owner }}/expo-open-ota:${{ github.ref_name }}`
