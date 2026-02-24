@@ -14,7 +14,7 @@ It supports the fingerprint policy.
 To publish an update, run the following command in your Expo project:
 
 ```bash
-npx eoas publish --branch <branch-name> [--nonInteractive] [--outputDir <outputDir>] [--platform <platform>]
+npx eoas publish --branch <branch-name> [--nonInteractive] [--outputDir <outputDir>] [--platform <platform>] [--packageRunner <runner>]
 ```
 
 This command will retrieve the expo credentials from your .expo/state.json file or an EXPO_TOKEN in your runtime environment to authenticate
@@ -25,6 +25,35 @@ the request to the Expo API.
  Example: `EXPO_TOKEN=your_token RELEASE_CHANNEL=staging npx eoas publish --branch <branch-name>`.
  Or with dotenv: `dotenv -e .env.local -- npx eoas publish --branch <branch-name>`.
 :::
+
+## Package runner
+
+By default, EOAS uses `npx` to spawn Expo CLI commands (`expo export`, `expo config`). If your project uses a different package manager, you can override this.
+
+**Resolution priority:**
+
+1. `--packageRunner` CLI flag
+2. `EOAS_PACKAGE_RUNNER` environment variable
+3. `packageManager` field in the nearest `package.json` (e.g. `"packageManager": "bun@1.3.6"` → `bunx`)
+4. Falls back to `npx`
+
+| `packageManager` value | Resolved runner |
+| --- | --- |
+| `bun@x.x.x` | `bunx` |
+| `pnpm@x.x.x` | `pnpx` |
+| `yarn@x.x.x` | `npx` |
+| `npm@x.x.x` | `npx` |
+
+```bash
+# Auto-detected from package.json (zero config)
+npx eoas publish --branch production
+
+# Explicit flag
+npx eoas publish --branch production --packageRunner bunx
+
+# Via environment variable
+EOAS_PACKAGE_RUNNER=bunx eoas publish --branch production
+```
 
 ## CI/CD
 
