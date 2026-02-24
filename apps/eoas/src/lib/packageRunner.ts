@@ -3,6 +3,16 @@ import path from 'path';
 
 const DEFAULT_PACKAGE_RUNNER = 'npx';
 
+const VALID_RUNNER_RE = /^[a-zA-Z0-9._-]+$/;
+
+function assertValidRunner(value: string, source: string): void {
+  if (!VALID_RUNNER_RE.test(value)) {
+    throw new Error(
+      `Invalid package runner "${value}" (from ${source}). Expected a simple binary name like npx, bunx or pnpx.`
+    );
+  }
+}
+
 const PACKAGE_MANAGER_RUNNERS: Record<string, string> = {
   bun: 'bunx',
   pnpm: 'pnpx',
@@ -22,8 +32,14 @@ const PACKAGE_MANAGER_RUNNERS: Record<string, string> = {
  * Supported values: npx, bunx, pnpx, or any other package runner binary.
  */
 export function resolvePackageRunner(explicit?: string, projectDir?: string): string {
-  if (explicit) return explicit;
-  if (process.env.EOAS_PACKAGE_RUNNER) return process.env.EOAS_PACKAGE_RUNNER;
+  if (explicit) {
+    assertValidRunner(explicit, '--packageRunner flag');
+    return explicit;
+  }
+  if (process.env.EOAS_PACKAGE_RUNNER) {
+    assertValidRunner(process.env.EOAS_PACKAGE_RUNNER, 'EOAS_PACKAGE_RUNNER environment variable');
+    return process.env.EOAS_PACKAGE_RUNNER;
+  }
 
   if (projectDir) {
     const detected = detectRunnerFromPackageJson(projectDir);
