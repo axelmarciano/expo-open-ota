@@ -113,19 +113,19 @@ export async function requestUploadUrls({
   platform: string;
   commitHash?: string;
 }): Promise<{ uploadRequests: RequestUploadUrlItem[]; updateId: string }> {
-  const response = await fetchWithRetries(
-    `${requestUploadUrl}?runtimeVersion=${runtimeVersion}&platform=${platform}&commitHash=${
-      commitHash || ''
-    }`,
-    {
-      method: 'POST',
-      headers: {
-        ...getAuthExpoHeaders(auth),
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    }
-  );
+  const uploadUrl = new URL(requestUploadUrl);
+  uploadUrl.searchParams.set('runtimeVersion', runtimeVersion);
+  uploadUrl.searchParams.set('platform', platform);
+  uploadUrl.searchParams.set('commitHash', commitHash ?? '');
+
+  const response = await fetchWithRetries(uploadUrl.toString(), {
+    method: 'POST',
+    headers: {
+      ...getAuthExpoHeaders(auth),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
   if (!response.ok) {
     const text = await response.text();
     throw new Error(`Failed to request upload URL: ${text}`);

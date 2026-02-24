@@ -140,9 +140,13 @@ export default class Publish extends Command {
       })),
     });
     Log.log(`Re-publishing update: ${selectedUpdated.update.updateUUID}`);
-    const republishEndpoint = `${baseUrl}/republish/${branch}?platform=${platform}&runtimeVersion=${selectedRuntimeVersion.runtimeVersion}&updateId=${selectedUpdated.update.updateId}&commitHash=${selectedUpdated.update.commitHash}`;
+    const republishUrl = new URL(`${baseUrl}/republish/${branch}`);
+    republishUrl.searchParams.set('platform', platform);
+    republishUrl.searchParams.set('runtimeVersion', selectedRuntimeVersion.runtimeVersion);
+    republishUrl.searchParams.set('updateId', selectedUpdated.update.updateId);
+    republishUrl.searchParams.set('commitHash', selectedUpdated.update.commitHash);
     const republishSpinner = ora('🔄 Republishing update...').start();
-    const republishResponse = await fetchWithRetries(republishEndpoint, {
+    const republishResponse = await fetchWithRetries(republishUrl.toString(), {
       method: 'POST',
       headers: {
         ...getAuthExpoHeaders(credentials),

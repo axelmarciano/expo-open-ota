@@ -322,16 +322,18 @@ export default class Publish extends Command {
     const markAsFinishedSpinner = ora('🔗 Marking the updates as finished...').start();
     const results = await Promise.all(
       uploadUrls.map(async ({ updateId, platform, runtimeVersion }) => {
-        const response = await fetchWithRetries(
-          `${serverUrl}/markUpdateAsUploaded/${branch}?platform=${platform}&updateId=${updateId}&runtimeVersion=${runtimeVersion}`,
-          {
-            method: 'POST',
-            headers: {
-              ...getAuthExpoHeaders(credentials),
-              'Content-Type': 'application/json',
-            },
-          }
-        );
+        const markAsUploadedUrl = new URL(`${serverUrl}/markUpdateAsUploaded/${branch}`);
+        markAsUploadedUrl.searchParams.set('platform', platform);
+        markAsUploadedUrl.searchParams.set('updateId', updateId);
+        markAsUploadedUrl.searchParams.set('runtimeVersion', runtimeVersion);
+
+        const response = await fetchWithRetries(markAsUploadedUrl.toString(), {
+          method: 'POST',
+          headers: {
+            ...getAuthExpoHeaders(credentials),
+            'Content-Type': 'application/json',
+          },
+        });
         // If success and status code = 200
         if (response.ok) {
           Log.withInfo(`✅ Update ready for ${platform}`);
