@@ -35,19 +35,21 @@ export const BranchesTable = () => {
             },
           },
           {
-            header: 'Release channel',
+            header: 'Release channel(s)',
             size: 10,
             maxSize: 10,
-            accessorKey: 'releaseChannel',
+            accessorKey: 'releaseChannels',
             cell: value => {
-              const releaseChannel = value.row.original.releaseChannel;
-              if (!releaseChannel) return <span>N/A</span>;
+              const releaseChannels = value.row.original.releaseChannels;
+              if (!releaseChannels?.length) return <span>N/A</span>;
               return (
-                <div className="flex flex-row gap-2 items-center">
-                  <Box className="w-4" />
-                  <span>{value.row.original.releaseChannel}</span>
-                </div>
-              );
+                releaseChannels.map(channel => (
+                  <div key={channel} className="flex flex-row gap-2 items-center">
+                    <Box className="w-4" />
+                    <span>{channel}</span>
+                  </div>
+                ))
+              )
             },
           },
         ]}

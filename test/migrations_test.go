@@ -62,6 +62,11 @@ func (b *dummyMigrationsBucket) RemoveMigrationFromHistory(migrationId string) e
 	}
 	return nil
 }
+func (b *dummyMigrationsBucket) UpsertBranch(_ string) error { return nil }
+func (b *dummyMigrationsBucket) GetChannels() ([]string, error) { return nil, nil }
+func (b *dummyMigrationsBucket) GetChannelMapping(_ string) (string, error) { return "", nil }
+func (b *dummyMigrationsBucket) SetChannelMapping(_, _ string) error { return nil }
+func (b *dummyMigrationsBucket) DeleteChannel(_ string) error { return nil }
 
 func TestShouldNotRunAppliedMigrations(t *testing.T) {
 	migrationA := migration.BaseMigration{

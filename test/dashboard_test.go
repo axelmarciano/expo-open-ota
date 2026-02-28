@@ -6,14 +6,14 @@ import (
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/handlers"
 	infrastructure "expo-open-ota/internal/router"
-	"github.com/jarcoal/httpmock"
-	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestLoginDashboardNotEnabled(t *testing.T) {
@@ -123,13 +123,13 @@ func TestSettings(t *testing.T) {
 	projectRoot, err := os.Getwd()
 	assert.Nil(t, err)
 
-	responseBody := strings.TrimSpace(string(respRec.Body.Bytes()))
+	responseBody := strings.TrimSpace(respRec.Body.String())
 
 	responseBody = strings.ReplaceAll(responseBody, projectRoot+"/test-updates", "{PROJECT_ROOT}/test/test-updates")
 	responseBody = strings.ReplaceAll(responseBody, projectRoot+"/keys/public-key-test.pem", "{PROJECT_ROOT}/test/keys/public-key-test.pem")
 	responseBody = strings.ReplaceAll(responseBody, projectRoot+"/keys/private-key-test.pem", "{PROJECT_ROOT}/test/keys/private-key-test.pem")
 
-	expectedSnapshot := `{"BASE_URL":"http://localhost:3000","EXPO_APP_ID":"EXPO_APP_ID","EXPO_ACCESS_TOKEN":"***EXPO_","CACHE_MODE":"","REDIS_HOST":"","REDIS_PORT":"","STORAGE_MODE":"local","S3_BUCKET_NAME":"","LOCAL_BUCKET_BASE_PATH":"{PROJECT_ROOT}/test/test-updates","KEYS_STORAGE_TYPE":"local","AWSSM_EXPO_PUBLIC_KEY_SECRET_ID":"","AWSSM_EXPO_PRIVATE_KEY_SECRET_ID":"","PUBLIC_EXPO_KEY_B64":"","PUBLIC_LOCAL_EXPO_KEY_PATH":"{PROJECT_ROOT}/test/keys/public-key-test.pem","PRIVATE_LOCAL_EXPO_KEY_PATH":"{PROJECT_ROOT}/test/keys/private-key-test.pem","AWS_REGION":"eu-west-3","AWS_BASE_ENDPOINT":"","AWS_ACCESS_KEY_ID":"","CLOUDFRONT_DOMAIN":"","CLOUDFRONT_KEY_PAIR_ID":"","CLOUDFRONT_PRIVATE_KEY_B64":"","AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID":"","PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH":"","PROMETHEUS_ENABLED":""}`
+	expectedSnapshot := `{"BASE_URL":"http://localhost:3000","EOAS_API_KEY":"***EO","CACHE_MODE":"","REDIS_HOST":"","REDIS_PORT":"","STORAGE_MODE":"local","S3_BUCKET_NAME":"","LOCAL_BUCKET_BASE_PATH":"{PROJECT_ROOT}/test/test-updates","KEYS_STORAGE_TYPE":"local","AWSSM_EXPO_PUBLIC_KEY_SECRET_ID":"","AWSSM_EXPO_PRIVATE_KEY_SECRET_ID":"","PUBLIC_EXPO_KEY_B64":"","PUBLIC_LOCAL_EXPO_KEY_PATH":"{PROJECT_ROOT}/test/keys/public-key-test.pem","PRIVATE_LOCAL_EXPO_KEY_PATH":"{PROJECT_ROOT}/test/keys/private-key-test.pem","AWS_REGION":"eu-west-3","AWS_BASE_ENDPOINT":"","AWS_ACCESS_KEY_ID":"","CLOUDFRONT_DOMAIN":"","CLOUDFRONT_KEY_PAIR_ID":"","CLOUDFRONT_PRIVATE_KEY_B64":"","AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID":"","PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH":"","PROMETHEUS_ENABLED":""}`
 
 	assert.Equal(t, expectedSnapshot, responseBody)
 }
@@ -147,12 +147,9 @@ func TestSettingsWithoutAuth(t *testing.T) {
 func TestBranches(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
+	setupChannelMapping("staging", "branch-1")
 	router := infrastructure.NewRouter()
 	respRec := httptest.NewRecorder()
-	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
-		func(req *http.Request) (*http.Response, error) {
-			return MockExpoBranchesMappingResponse([]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}, {"id": "branch-2", "name": "branch-2"}}, []map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}})
-		})
 	req, _ := http.NewRequest("GET", "/api/branches", nil)
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	router.ServeHTTP(respRec, req)
@@ -161,7 +158,7 @@ func TestBranches(t *testing.T) {
 	var response []handlers.BranchMapping
 	err := json.Unmarshal(respRec.Body.Bytes(), &response)
 	assert.Nil(t, err)
-	assert.Equal(t, `[{"branchName":"branch-1","branchId":"branch-1","releaseChannel":"staging"},{"branchName":"branch-2","branchId":"branch-2","releaseChannel":null},{"branchName":"branch-3","branchId":null,"releaseChannel":null},{"branchName":"branch-4","branchId":null,"releaseChannel":null}]`, strings.TrimSpace(string(respRec.Body.Bytes())))
+	assert.Equal(t, `[{"branchName":"branch-1","releaseChannels":["staging"]},{"branchName":"branch-2","releaseChannels":[]},{"branchName":"branch-3","releaseChannels":[]},{"branchName":"branch-4","releaseChannels":[]}]`, strings.TrimSpace(respRec.Body.String()))
 }
 
 func TestBranchesWithoutAuth(t *testing.T) {
@@ -189,10 +186,6 @@ func TestRuntimeVersions(t *testing.T) {
 	defer teardown()
 	router := infrastructure.NewRouter()
 	respRec := httptest.NewRecorder()
-	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
-		func(req *http.Request) (*http.Response, error) {
-			return MockExpoBranchesMappingResponse([]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}, {"id": "branch-2", "name": "branch-2"}}, []map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}})
-		})
 	req, _ := http.NewRequest("GET", "/api/branch/branch-1/runtimeVersions", nil)
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	router.ServeHTTP(respRec, req)
@@ -200,7 +193,7 @@ func TestRuntimeVersions(t *testing.T) {
 	var response []bucket.RuntimeVersionWithStats
 	err := json.Unmarshal(respRec.Body.Bytes(), &response)
 	assert.Nil(t, err)
-	assert.Equal(t, "[{\"runtimeVersion\":\"1\",\"lastUpdatedAt\":\"1970-01-20T09:02:50Z\",\"createdAt\":\"1970-01-20T09:02:50Z\",\"numberOfUpdates\":1}]", strings.TrimSpace(string(respRec.Body.Bytes())))
+	assert.Equal(t, "[{\"runtimeVersion\":\"1\",\"lastUpdatedAt\":\"1970-01-20T09:02:50Z\",\"createdAt\":\"1970-01-20T09:02:50Z\",\"numberOfUpdates\":1}]", strings.TrimSpace(respRec.Body.String()))
 }
 
 func TestUpdatesWithoutAuth(t *testing.T) {
@@ -218,15 +211,11 @@ func TestUpdatesRegularBranch1(t *testing.T) {
 	defer teardown()
 	router := infrastructure.NewRouter()
 	respRec := httptest.NewRecorder()
-	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
-		func(req *http.Request) (*http.Response, error) {
-			return MockExpoBranchesMappingResponse([]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}, {"id": "branch-2", "name": "branch-2"}}, []map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}})
-		})
 	req, _ := http.NewRequest("GET", "/api/branch/branch-1/runtimeVersion/1/updates", nil)
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusOK, respRec.Code)
-	assert.Equal(t, "[{\"updateUUID\":\"04b793a0-b6ab-fd4f-308c-b91d812adec2\",\"updateId\":\"1674170951\",\"createdAt\":\"1970-01-20T09:02:50Z\",\"commitHash\":\"1674170951\",\"platform\":\"android\"}]", strings.TrimSpace(string(respRec.Body.Bytes())))
+	assert.Equal(t, "[{\"updateUUID\":\"04b793a0-b6ab-fd4f-308c-b91d812adec2\",\"updateId\":\"1674170951\",\"createdAt\":\"1970-01-20T09:02:50Z\",\"commitHash\":\"1674170951\",\"platform\":\"android\"}]", strings.TrimSpace(respRec.Body.String()))
 }
 
 func TestUpdatesMultiBranch2(t *testing.T) {
@@ -234,15 +223,11 @@ func TestUpdatesMultiBranch2(t *testing.T) {
 	defer teardown()
 	router := infrastructure.NewRouter()
 	respRec := httptest.NewRecorder()
-	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
-		func(req *http.Request) (*http.Response, error) {
-			return MockExpoBranchesMappingResponse([]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}, {"id": "branch-2", "name": "branch-2"}}, []map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}})
-		})
 	req, _ := http.NewRequest("GET", "/api/branch/branch-2/runtimeVersion/1/updates", nil)
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusOK, respRec.Code)
-	assert.Equal(t, "[{\"updateUUID\":\"68e096e2-a619-9d56-7f7c-89f97bc27312\",\"updateId\":\"1737455526\",\"createdAt\":\"1970-01-21T02:37:35Z\",\"commitHash\":\"\",\"platform\":\"ios\"},{\"updateUUID\":\"fdc14544-9e15-732f-cd9c-e3e26c55cbea\",\"updateId\":\"1674170951\",\"createdAt\":\"1970-01-20T09:02:50Z\",\"commitHash\":\"\",\"platform\":\"android\"},{\"updateUUID\":\"d100f19f-e0be-45c4-212a-27d1f067552b\",\"updateId\":\"1666629107\",\"createdAt\":\"1970-01-20T06:57:09Z\",\"commitHash\":\"1674170951\",\"platform\":\"android\"},{\"updateUUID\":\"Rollback to embedded\",\"updateId\":\"1666629141\",\"createdAt\":\"1970-01-20T06:57:09Z\",\"commitHash\":\"1674170951\",\"platform\":\"ios\"},{\"updateUUID\":\"Rollback to embedded\",\"updateId\":\"1666304169\",\"createdAt\":\"1970-01-20T06:51:44Z\",\"commitHash\":\"1674170951\",\"platform\":\"ios\"}]", strings.TrimSpace(string(respRec.Body.Bytes())))
+	assert.Equal(t, "[{\"updateUUID\":\"68e096e2-a619-9d56-7f7c-89f97bc27312\",\"updateId\":\"1737455526\",\"createdAt\":\"1970-01-21T02:37:35Z\",\"commitHash\":\"\",\"platform\":\"ios\"},{\"updateUUID\":\"fdc14544-9e15-732f-cd9c-e3e26c55cbea\",\"updateId\":\"1674170951\",\"createdAt\":\"1970-01-20T09:02:50Z\",\"commitHash\":\"\",\"platform\":\"android\"},{\"updateUUID\":\"d100f19f-e0be-45c4-212a-27d1f067552b\",\"updateId\":\"1666629107\",\"createdAt\":\"1970-01-20T06:57:09Z\",\"commitHash\":\"1674170951\",\"platform\":\"android\"},{\"updateUUID\":\"Rollback to embedded\",\"updateId\":\"1666629141\",\"createdAt\":\"1970-01-20T06:57:09Z\",\"commitHash\":\"1674170951\",\"platform\":\"ios\"},{\"updateUUID\":\"Rollback to embedded\",\"updateId\":\"1666304169\",\"createdAt\":\"1970-01-20T06:51:44Z\",\"commitHash\":\"1674170951\",\"platform\":\"ios\"}]", strings.TrimSpace(respRec.Body.String()))
 }
 
 func TestUpdatesSomeNotValidBranch4(t *testing.T) {
@@ -250,13 +235,9 @@ func TestUpdatesSomeNotValidBranch4(t *testing.T) {
 	defer teardown()
 	router := infrastructure.NewRouter()
 	respRec := httptest.NewRecorder()
-	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
-		func(req *http.Request) (*http.Response, error) {
-			return MockExpoBranchesMappingResponse([]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}, {"id": "branch-2", "name": "branch-2"}}, []map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}})
-		})
 	req, _ := http.NewRequest("GET", "/api/branch/branch-4/runtimeVersion/1/updates", nil)
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusOK, respRec.Code)
-	assert.Equal(t, "[{\"updateUUID\":\"3f23a8c4-cd0e-a5a4-63f2-bb2841e95a01\",\"updateId\":\"1674170951\",\"createdAt\":\"1970-01-20T09:02:50Z\",\"commitHash\":\"1674170951\",\"platform\":\"android\"}]", strings.TrimSpace(string(respRec.Body.Bytes())))
+	assert.Equal(t, "[{\"updateUUID\":\"3f23a8c4-cd0e-a5a4-63f2-bb2841e95a01\",\"updateId\":\"1674170951\",\"createdAt\":\"1970-01-20T09:02:50Z\",\"commitHash\":\"1674170951\",\"platform\":\"android\"}]", strings.TrimSpace(respRec.Body.String()))
 }

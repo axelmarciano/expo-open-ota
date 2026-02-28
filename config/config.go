@@ -83,13 +83,9 @@ func LoadConfig() {
 	if !validateBaseUrl(baseUrl) {
 		log.Fatalf("Invalid BASE_URL: %s", baseUrl)
 	}
-	expoToken := GetEnv("EXPO_ACCESS_TOKEN")
-	if expoToken == "" {
-		log.Fatalf("EXPO_ACCESS_TOKEN not set")
-	}
-	expoAppId := GetEnv("EXPO_APP_ID")
-	if expoAppId == "" {
-		log.Fatalf("EXPO_APP_ID not set")
+	eoasApiKey := GetEnv("EOAS_API_KEY")
+	if eoasApiKey == "" {
+		log.Fatalf("EOAS_API_KEY not set")
 	}
 	jwtSecret := GetEnv("JWT_SECRET")
 	if jwtSecret == "" {

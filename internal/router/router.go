@@ -100,5 +100,7 @@ func NewRouter() *mux.Router {
 	authSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates", handlers.GetUpdatesHandler).Methods(http.MethodGet)
 	authSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates/{UPDATE_ID}", handlers.GetUpdateDetails).Methods(http.MethodGet)
 	authSubrouter.HandleFunc("/branch/{BRANCH}/updateChannelBranchMapping", handlers.UpdateChannelBranchMappingHandler).Methods(http.MethodPost)
+	authSubrouter.HandleFunc("/channels", handlers.CreateChannelHandler).Methods(http.MethodPost)
+	authSubrouter.HandleFunc("/channels/{CHANNEL}", handlers.DeleteChannelHandler).Methods(http.MethodDelete)
 	return r
 }

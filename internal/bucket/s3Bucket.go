@@ -3,13 +3,11 @@ package bucket
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/types"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"io"
 	"runtime"
 	"sort"
@@ -17,6 +15,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 type S3Bucket struct {
@@ -151,6 +153,69 @@ func (b *S3Bucket) GetRuntimeVersions(branch string) ([]RuntimeVersionWithStats,
 	return runtimeVersions, nil
 }
 
+func (b *S3Bucket) SetChannelMapping(channel, branch string) error {
+	s3Client, err := services.GetS3Client()
+	if err != nil {
+		return fmt.Errorf("error getting S3 client: %w", err)
+	}
+	key := b.prefixedKey(".channels/" + channel + ".json")
+	body, err := json.Marshal(map[string]string{"branch": branch})
+	if err != nil {
+		return fmt.Errorf("error marshalling channel mapping: %w", err)
+	}
+	input := &s3.PutObjectInput{
+		Bucket: aws.String(b.BucketName),
+		Key:    aws.String(key),
+		Body:   bytes.NewReader(body),
+	}
+	_, err = s3Client.PutObject(context.TODO(), input)
+	if err != nil {
+		return fmt.Errorf("PutObject error: %w", err)
+	}
+	return nil
+}
+
+func (b *S3Bucket) GetChannelMapping(channel string) (string, error) {
+	s3Client, err := services.GetS3Client()
+	if err != nil {
+		return "", fmt.Errorf("error getting S3 client: %w", err)
+	}
+	key := b.prefixedKey(".channels/" + channel + ".json")
+	input := &s3.GetObjectInput{
+		Bucket: aws.String(b.BucketName),
+		Key:    aws.String(key),
+	}
+	resp, err := s3Client.GetObject(context.TODO(), input)
+	if err != nil {
+		return "", fmt.Errorf("GetObject error: %w", err)
+	}
+	defer resp.Body.Close()
+	var mapping struct {
+		Branch string `json:"branch"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&mapping); err != nil {
+		return "", fmt.Errorf("error decoding channel mapping: %w", err)
+	}
+	return mapping.Branch, nil
+}
+
+func (b *S3Bucket) DeleteChannel(channel string) error {
+	s3Client, err := services.GetS3Client()
+	if err != nil {
+		return fmt.Errorf("error getting S3 client: %w", err)
+	}
+	key := b.prefixedKey(".channels/" + channel + ".json")
+	input := &s3.DeleteObjectInput{
+		Bucket: aws.String(b.BucketName),
+		Key:    aws.String(key),
+	}
+	_, err = s3Client.DeleteObject(context.TODO(), input)
+	if err != nil {
+		return fmt.Errorf("DeleteObject error: %w", err)
+	}
+	return nil
+}
+
 func (b *S3Bucket) GetBranches() ([]string, error) {
 	if b.BucketName == "" {
 		return nil, errors.New("BucketName not set")
@@ -172,9 +237,60 @@ func (b *S3Bucket) GetBranches() ([]string, error) {
 	for _, commonPrefix := range resp.CommonPrefixes {
 		prefix := *commonPrefix.Prefix
 		branch := strings.TrimPrefix(prefix[:len(prefix)-1], b.KeyPrefix)
+		if strings.HasPrefix(branch, ".") {
+			continue
+		}
 		branches = append(branches, branch)
 	}
 	return branches, nil
+}
+
+func (b *S3Bucket) GetChannels() ([]string, error) {
+	if b.BucketName == "" {
+		return nil, errors.New("BucketName not set")
+	}
+	s3Client, errS3 := services.GetS3Client()
+	if errS3 != nil {
+		return nil, errS3
+	}
+	prefix := b.prefixedKey(".channels/")
+	input := &s3.ListObjectsV2Input{
+		Bucket: aws.String(b.BucketName),
+		Prefix: aws.String(prefix),
+	}
+	resp, err := s3Client.ListObjectsV2(context.TODO(), input)
+	if err != nil {
+		return nil, fmt.Errorf("ListObjectsV2 error: %w", err)
+	}
+	var channels []string
+	for _, obj := range resp.Contents {
+		key := strings.TrimPrefix(*obj.Key, prefix)
+		if !strings.HasSuffix(key, ".json") {
+			continue
+		}
+		channelName := strings.TrimSuffix(key, ".json")
+		channels = append(channels, channelName)
+	}
+	return channels, nil
+}
+
+func (b *S3Bucket) UpsertBranch(branch string) error {
+	s3Client, err := services.GetS3Client()
+	if err != nil {
+		return fmt.Errorf("error getting S3 client: %w", err)
+	}
+
+	key := b.prefixedKey(branch + "/.keep")
+	input := &s3.PutObjectInput{
+		Bucket: aws.String(b.BucketName),
+		Key:    aws.String(key),
+		Body:   bytes.NewReader([]byte{}),
+	}
+	_, err = s3Client.PutObject(context.TODO(), input)
+	if err != nil {
+		return fmt.Errorf("PutObject error: %w", err)
+	}
+	return nil
 }
 
 func (b *S3Bucket) GetUpdates(branch string, runtimeVersion string) ([]types.Update, error) {

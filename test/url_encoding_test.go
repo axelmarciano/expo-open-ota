@@ -22,7 +22,6 @@ const runtimeVersionWithPlus = "1.2.3+ios.1234"
 func TestRequestUploadUrlWithEncodedPlusInRuntimeVersion(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	require.NoError(t, err)
 
@@ -39,7 +38,7 @@ func TestRequestUploadUrlWithEncodedPlusInRuntimeVersion(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", u.String(), nil)
 	r = mux.SetURLVars(r, map[string]string{"BRANCH": "DO_NOT_USE"})
-	r.Header.Set("Authorization", "Bearer expo_test_token")
+	r.Header.Set("Authorization", "Bearer EOAS_API_KEY")
 
 	uploadRequestsInput := ComputeUploadRequestsInput(sampleUpdatePath)
 	uploadRequestsInputJSON, err := json.Marshal(uploadRequestsInput)
@@ -60,7 +59,6 @@ func TestRequestUploadUrlWithEncodedPlusInRuntimeVersion(t *testing.T) {
 func TestRollbackWithEncodedPlusInRuntimeVersion(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	require.NoError(t, err)
 
@@ -76,7 +74,7 @@ func TestRollbackWithEncodedPlusInRuntimeVersion(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", u.String(), nil)
 	r = mux.SetURLVars(r, map[string]string{"BRANCH": "DO_NOT_USE"})
-	r.Header.Set("Authorization", "Bearer expo_test_token")
+	r.Header.Set("Authorization", "Bearer EOAS_API_KEY")
 
 	handlers.RollbackHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
@@ -103,7 +101,7 @@ func TestRollbackWithEncodedPlusInRuntimeVersion(t *testing.T) {
 func TestManifestWithEncodedPlusInRuntimeVersion(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockWorkingExpoResponse("staging")
+	setupChannelMapping("staging", "branch-1")
 	projectRoot, err := findProjectRoot()
 	require.NoError(t, err)
 

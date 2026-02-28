@@ -2,12 +2,12 @@ package bucket
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"expo-open-ota/config"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/types"
 	"fmt"
-	"github.com/golang-jwt/jwt/v5"
 	"io"
 	"io/fs"
 	"mime/multipart"
@@ -17,8 +17,11 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type LocalBucket struct {
@@ -43,7 +46,7 @@ func (b *LocalBucket) RequestUploadUrlForFileUpdate(branch string, runtimeVersio
 		return "", err
 	}
 	token, err := services.GenerateJWTToken(config.GetEnv("JWT_SECRET"), jwt.MapClaims{
-		"sub":      services.FetchSelfExpoUsername(),
+		"sub":      "eoas",
 		"exp":      time.Now().Add(time.Minute * 10).Unix(),
 		"filePath": filepath.Join(dirPath, fileName),
 		"action":   "uploadLocalFile",
@@ -63,6 +66,92 @@ func (b *LocalBucket) RequestUploadUrlForFileUpdate(branch string, runtimeVersio
 	query.Set("token", token)
 	parsedURL.RawQuery = query.Encode()
 	return parsedURL.String(), nil
+}
+
+func (b *LocalBucket) UpsertBranch(branch string) error {
+	if b.BasePath == "" {
+		return errors.New("BasePath not set")
+	}
+	keepFilePath := filepath.Join(b.BasePath, branch, ".keep")
+	err := os.MkdirAll(filepath.Dir(keepFilePath), os.ModePerm)
+	if err != nil {
+		return err
+	}
+	file, err := os.Create(keepFilePath)
+	if err != nil {
+		return err
+	}
+	return file.Close()
+}
+
+func (b *LocalBucket) SetChannelMapping(channel, branch string) error {
+	if b.BasePath == "" {
+		return errors.New("BasePath not set")
+	}
+	channelsPath := filepath.Join(b.BasePath, ".channels")
+	if err := os.MkdirAll(channelsPath, os.ModePerm); err != nil {
+		return err
+	}
+	filePath := filepath.Join(channelsPath, channel+".json")
+	data, err := json.Marshal(map[string]string{"branch": branch})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filePath, data, 0644)
+}
+
+func (b *LocalBucket) GetChannelMapping(channel string) (string, error) {
+	if b.BasePath == "" {
+		return "", errors.New("BasePath not set")
+	}
+	filePath := filepath.Join(b.BasePath, ".channels", channel+".json")
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("channel %s not found", channel)
+		}
+		return "", err
+	}
+	var mapping struct {
+		Branch string `json:"branch"`
+	}
+	if err := json.Unmarshal(data, &mapping); err != nil {
+		return "", fmt.Errorf("error decoding channel mapping: %w", err)
+	}
+	return mapping.Branch, nil
+}
+
+func (b *LocalBucket) DeleteChannel(channel string) error {
+	if b.BasePath == "" {
+		return errors.New("BasePath not set")
+	}
+	filePath := filepath.Join(b.BasePath, ".channels", channel+".json")
+	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func (b *LocalBucket) GetChannels() ([]string, error) {
+	if b.BasePath == "" {
+		return nil, errors.New("BasePath not set")
+	}
+	channelsPath := filepath.Join(b.BasePath, ".channels")
+	entries, err := os.ReadDir(channelsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+	var channels []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			channelName := strings.TrimSuffix(entry.Name(), ".json")
+			channels = append(channels, channelName)
+		}
+	}
+	return channels, nil
 }
 
 func (b *LocalBucket) GetUpdates(branch string, runtimeVersion string) ([]types.Update, error) {
@@ -127,7 +216,7 @@ func (b *LocalBucket) GetBranches() ([]string, error) {
 	}
 	var branches []string
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
 			branches = append(branches, entry.Name())
 		}
 	}
@@ -212,7 +301,7 @@ func ValidateUploadTokenAndResolveFilePath(token string) (string, error) {
 	action := claims["action"].(string)
 	filePath := claims["filePath"].(string)
 	sub := claims["sub"].(string)
-	if sub != services.FetchSelfExpoUsername() {
+	if sub != "eoas" {
 		return "", errors.New("invalid token sub")
 	}
 	if action != "uploadLocalFile" {

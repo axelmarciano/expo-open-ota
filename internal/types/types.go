@@ -95,7 +95,6 @@ type BucketFile struct {
 	CreatedAt time.Time
 }
 
-type ExpoAuth struct {
+type EoasAuth struct {
 	Token         *string
-	SessionSecret *string
 }

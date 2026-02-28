@@ -46,7 +46,7 @@ func performUpload(t *testing.T, projectRoot, branch, runtimeVersion, sampleUpda
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", requestURL, nil)
 	r = mux.SetURLVars(r, map[string]string{"BRANCH": branch})
-	r.Header.Set("Authorization", "Bearer expo_test_token")
+	r.Header.Set("Authorization", "Bearer EOAS_API_KEY")
 	uploadRequestsInput := ComputeUploadRequestsInput(sampleUpdatePath)
 	uploadRequestsInputJSON, err := json.Marshal(uploadRequestsInput)
 	if err != nil {
@@ -104,7 +104,7 @@ func performUpload(t *testing.T, projectRoot, branch, runtimeVersion, sampleUpda
 			token := parsedUrl.Query().Get("token")
 			uploadReq := httptest.NewRequest("PUT", "/uploadLocalFile?token="+token, body)
 			uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
-			uploadReq.Header.Set("Authorization", "Bearer expo_test_token")
+			uploadReq.Header.Set("Authorization", "Bearer EOAS_API_KEY")
 			handlers.RequestUploadLocalFileHandler(ws[index], uploadReq)
 			if ws[index].Code != 200 {
 				errs <- fmt.Errorf("File upload for %s returned status %d", req.FileName, ws[index].Code)
@@ -145,7 +145,7 @@ func markUpdateAsUploaded(t *testing.T, branch, runtimeVersion, updateId, platfo
 	markURL := fmt.Sprintf("http://localhost:3000/markUpdateAsUploaded/%s?platform=%s&runtimeVersion=%s&updateId=%s", branch, platform, runtimeVersion, updateId)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", markURL, nil)
-	r.Header.Set("Authorization", "Bearer expo_test_token")
+	r.Header.Set("Authorization", "Bearer EOAS_API_KEY")
 	r = mux.SetURLVars(r, map[string]string{"BRANCH": branch})
 	handlers.MarkUpdateAsUploadedHandler(w, r)
 	return w
@@ -154,7 +154,6 @@ func markUpdateAsUploaded(t *testing.T, branch, runtimeVersion, updateId, platfo
 func TestRequestUploadUrlWithoutBearer(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -163,13 +162,12 @@ func TestRequestUploadUrlWithoutBearer(t *testing.T) {
 	w, _, _, r := createUploadRequest(t, projectRoot, "DO_NOT_USE", "1", sampleUpdatePath, "Authorization", "Bearer expo_alternative_token", "ios")
 	handlers.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error validating expo auth\nNo expo account found\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Unauthorized\n", w.Body.String(), "Expected error message")
 }
 
 func TestRequestUploadUrlWithBadBearer(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -178,13 +176,12 @@ func TestRequestUploadUrlWithBadBearer(t *testing.T) {
 	w, _, _, r := createUploadRequest(t, projectRoot, "DO_NOT_USE", "1", sampleUpdatePath, "Authorization", "Bearer expo_bad_token", "ios")
 	handlers.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error validating expo auth\nNo expo account found\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Unauthorized\n", w.Body.String(), "Expected error message")
 }
 
 func TestRequestUploadUrlWithoutRuntimeVersion(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -194,7 +191,7 @@ func TestRequestUploadUrlWithoutRuntimeVersion(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
 	r = mux.SetURLVars(r, map[string]string{"BRANCH": "DO_NOT_USE"})
-	r.Header.Set("Authorization", "Bearer expo_test_token")
+	r.Header.Set("Authorization", "Bearer EOAS_API_KEY")
 	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/branch-1/1/1674170951")
 	uploadRequestsInput := ComputeUploadRequestsInput(sampleUpdatePath)
 	uploadRequestsInputJSON, err := json.Marshal(uploadRequestsInput)
@@ -204,13 +201,12 @@ func TestRequestUploadUrlWithoutRuntimeVersion(t *testing.T) {
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
 	handlers.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
-	assert.Equal(t, "No runtime version provided\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "runtimeVersion cannot be empty\n", w.Body.String(), "Expected error message")
 }
 
 func TestRequestUploadUrlWithBadRequestBody(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -220,7 +216,7 @@ func TestRequestUploadUrlWithBadRequestBody(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
 	r = mux.SetURLVars(r, map[string]string{"BRANCH": "DO_NOT_USE"})
-	r.Header.Set("Authorization", "Bearer expo_test_token")
+	r.Header.Set("Authorization", "Bearer EOAS_API_KEY")
 	uploadRequestsInputJSON, err := json.Marshal(map[string]string{"id": "4"})
 	if err != nil {
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
@@ -234,7 +230,6 @@ func TestRequestUploadUrlWithBadRequestBody(t *testing.T) {
 func TestRequestUploadUrlWithBadFilenamesType(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -244,7 +239,7 @@ func TestRequestUploadUrlWithBadFilenamesType(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
 	r = mux.SetURLVars(r, map[string]string{"BRANCH": "DO_NOT_USE"})
-	r.Header.Set("Authorization", "Bearer expo_test_token")
+	r.Header.Set("Authorization", "Bearer EOAS_API_KEY")
 	uploadRequestsInputJSON, err := json.Marshal(map[string]int{"fileNames": 1})
 	if err != nil {
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
@@ -258,7 +253,6 @@ func TestRequestUploadUrlWithBadFilenamesType(t *testing.T) {
 func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -268,7 +262,7 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
 	r = mux.SetURLVars(r, map[string]string{"BRANCH": "DO_NOT_USE"})
-	r.Header.Set("Authorization", "Bearer expo_test_token")
+	r.Header.Set("Authorization", "Bearer EOAS_API_KEY")
 	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/branch-4/1/1674170952")
 	uploadRequestsInput := ComputeUploadRequestsInput(sampleUpdatePath)
 	uploadRequestsInputJSON, err := json.Marshal(uploadRequestsInput)
@@ -308,7 +302,7 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 		assert.NotEmpty(t, filePath, "Expected non-empty file path")
 		sub, ok := claims["sub"].(string)
 		assert.True(t, ok, "Expected sub to be a string")
-		assert.Equal(t, "test_username", sub, "Expected test_username sub")
+		assert.Equal(t, "eoas", sub, "Expected eoas sub")
 	}
 	var (
 		ws   = make([]*httptest.ResponseRecorder, len(uploadRequests))
@@ -347,7 +341,7 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 			token := parsedUrl.Query().Get("token")
 			uploadFileReq := httptest.NewRequest("PUT", "/uploadLocalFile?token="+token, body)
 			uploadFileReq.Header.Set("Content-Type", writer.FormDataContentType())
-			uploadFileReq.Header.Set("Authorization", "Bearer expo_test_token")
+			uploadFileReq.Header.Set("Authorization", "Bearer EOAS_API_KEY")
 			handlers.RequestUploadLocalFileHandler(ws[index], uploadFileReq)
 			if ws[index].Code != 200 {
 				errs <- fmt.Errorf("Upload failed with status %d", ws[index].Code)
@@ -374,7 +368,7 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 	qMark := "http://localhost:3000/markUpdateAsUploaded/DO_NOT_USE?platform=android&runtimeVersion=1&updateId=" + updateIdHeader
 	wMark := httptest.NewRecorder()
 	rMark := httptest.NewRequest("POST", qMark, nil)
-	rMark.Header.Set("Authorization", "Bearer expo_test_token")
+	rMark.Header.Set("Authorization", "Bearer EOAS_API_KEY")
 	rMark = mux.SetURLVars(rMark, map[string]string{"BRANCH": "DO_NOT_USE"})
 	handlers.MarkUpdateAsUploadedHandler(wMark, rMark)
 	assert.Equal(t, 200, wMark.Code, "Expected status code 200")
@@ -386,10 +380,9 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 	assert.Equal(t, updateIdHeader, lastUpdate.UpdateId, "Expected update ID to match")
 }
 
-func TestRequestUploadUrlWithValidExpoSession(t *testing.T) {
+func TestRequestUploadUrlWithInvalidAuth(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -399,7 +392,6 @@ func TestRequestUploadUrlWithValidExpoSession(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
 	r = mux.SetURLVars(r, map[string]string{"BRANCH": "DO_NOT_USE"})
-	r.Header.Set("expo-session", "expo_test_session")
 	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/branch-1/1/1674170951")
 	uploadRequestsInput := ComputeUploadRequestsInput(sampleUpdatePath)
 	uploadRequestsInputJSON, err := json.Marshal(uploadRequestsInput)
@@ -408,8 +400,8 @@ func TestRequestUploadUrlWithValidExpoSession(t *testing.T) {
 	}
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
 	handlers.RequestUploadUrlHandler(w, r)
-	assert.Equal(t, 200, w.Code, "Expected status code 200")
-	assert.NotEmpty(t, w.Header().Get("expo-update-id"), "Expected non-empty update ID")
+	assert.Equal(t, 401, w.Code, "Expected status code 401")
+	assert.Equal(t, "Unauthorized\n", w.Body.String(), "Expected error message")
 }
 
 func TestShouldClearCache(t *testing.T) {
@@ -420,7 +412,7 @@ func TestShouldClearCache(t *testing.T) {
 		t.Fatalf("Error finding project root: %v", err)
 	}
 	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "/test/test-updates"))
-	mockWorkingExpoResponse("staging")
+	setupChannelMapping("staging", "branch-1")
 	qManifest := "http://localhost:3000/manifest"
 	wManifest := httptest.NewRecorder()
 	rManifest := httptest.NewRequest("GET", qManifest, nil)
@@ -437,7 +429,7 @@ func TestShouldClearCache(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
 	r = mux.SetURLVars(r, map[string]string{"BRANCH": "branch-1"})
-	r.Header.Set("expo-session", "expo_test_session")
+	r.Header.Set("Authorization", "Bearer EOAS_API_KEY")
 	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/branch-1/1/1674170951")
 	cache := cache2.GetCache()
 	cacheKey := update.ComputeLastUpdateCacheKey("branch-1", "1", "android")
@@ -457,36 +449,9 @@ func TestShouldClearCache(t *testing.T) {
 	assert.Empty(t, value, "Expected an empty cache value")
 }
 
-func TestRequestUploadUrlWithInvalidExpoSession(t *testing.T) {
-	teardown := setup(t)
-	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
-	projectRoot, err := findProjectRoot()
-	if err != nil {
-		t.Fatalf("Error finding project root: %v", err)
-	}
-	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates"))
-	q := "http://localhost:3000/requestUploadUrl/DO_NOT_USE?runtimeVersion=1&platform=android&commitHash=abc123"
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", q, nil)
-	r = mux.SetURLVars(r, map[string]string{"BRANCH": "DO_NOT_USE"})
-	r.Header.Set("expo-session", "invalid_session_token")
-	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/branch-1/1/1674170951")
-	uploadRequestsInput := ComputeUploadRequestsInput(sampleUpdatePath)
-	uploadRequestsInputJSON, err := json.Marshal(uploadRequestsInput)
-	if err != nil {
-		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
-	}
-	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
-	handlers.RequestUploadUrlHandler(w, r)
-	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error validating expo auth\nNo expo account found\n", w.Body.String(), "Expected error message")
-}
-
 func TestIdenticalUpload(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -515,7 +480,6 @@ func TestIdenticalUpload(t *testing.T) {
 func TestDifferentUpload(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)

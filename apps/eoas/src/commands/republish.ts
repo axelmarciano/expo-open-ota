@@ -2,7 +2,7 @@ import { Env } from '@expo/eas-build-job';
 import { Command, Flags } from '@oclif/core';
 import ora from 'ora';
 
-import { getAuthExpoHeaders, retrieveExpoCredentials } from '../lib/auth';
+import { getAuthHeaders } from '../lib/auth';
 import { getExpoConfigUpdateUrl, getPrivateExpoConfigAsync } from '../lib/expoConfig';
 import { fetchWithRetries } from '../lib/fetch';
 import Log from '../lib/log';
@@ -36,11 +36,6 @@ export default class Publish extends Command {
     };
   }
   public async run(): Promise<void> {
-    const credentials = retrieveExpoCredentials();
-    if (!credentials.token && !credentials.sessionSecret) {
-      Log.error('You are not logged to eas, please run `eas login`');
-      process.exit(1);
-    }
     const { flags } = await this.parse(Publish);
     const { branch, platform } = this.sanitizeFlags(flags);
     if (!branch) {
@@ -78,9 +73,11 @@ export default class Publish extends Command {
       Log.error('Invalid URL', e);
       process.exit(1);
     }
-    const runtimeVersionsEndpoint = `${baseUrl}/api/branch/${branch}/runtimeVersions`;
+    const runtimeVersionsEndpoint = `${baseUrl}/api/branch/${encodeURIComponent(
+      branch
+    )}/runtimeVersions`;
     const response = await fetchWithRetries(runtimeVersionsEndpoint, {
-      headers: { ...getAuthExpoHeaders(credentials), 'use-expo-auth': 'true' },
+      headers: { ...getAuthHeaders() },
     });
     if (!response.ok) {
       Log.error(`Failed to fetch runtime versions: ${await response.text()}`);
@@ -110,9 +107,11 @@ export default class Publish extends Command {
       })),
     });
     Log.log(`Selected runtime version: ${selectedRuntimeVersion.runtimeVersion}`);
-    const updatesEndpoint = `${baseUrl}/api/branch/${branch}/runtimeVersion/${selectedRuntimeVersion.runtimeVersion}/updates`;
+    const updatesEndpoint = `${baseUrl}/api/branch/${encodeURIComponent(branch)}/runtimeVersion/${
+      encodeURIComponent(selectedRuntimeVersion.runtimeVersion)
+    }/updates`;
     const updatesResponse = await fetchWithRetries(updatesEndpoint, {
-      headers: { ...getAuthExpoHeaders(credentials), 'use-expo-auth': 'true' },
+      headers: { ...getAuthHeaders() },
     });
     if (!updatesResponse.ok) {
       Log.error(`Failed to fetch updates: ${await updatesResponse.text()}`);
@@ -140,12 +139,16 @@ export default class Publish extends Command {
       })),
     });
     Log.log(`Re-publishing update: ${selectedUpdated.update.updateUUID}`);
-    const republishEndpoint = `${baseUrl}/republish/${branch}?platform=${platform}&runtimeVersion=${selectedRuntimeVersion.runtimeVersion}&updateId=${selectedUpdated.update.updateId}&commitHash=${selectedUpdated.update.commitHash}`;
+    const republishEndpoint = `${baseUrl}/republish/${encodeURIComponent(
+      branch
+    )}?platform=${encodeURIComponent(platform)}&runtimeVersion=${encodeURIComponent(selectedRuntimeVersion.runtimeVersion)}&updateId=${
+      encodeURIComponent(selectedUpdated.update.updateId)
+    }&commitHash=${encodeURIComponent(selectedUpdated.update.commitHash)}`;
     const republishSpinner = ora('🔄 Republishing update...').start();
     const republishResponse = await fetchWithRetries(republishEndpoint, {
       method: 'POST',
       headers: {
-        ...getAuthExpoHeaders(credentials),
+        ...getAuthHeaders(),
         'Content-Type': 'application/json',
       },
     });

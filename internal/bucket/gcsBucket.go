@@ -1,22 +1,23 @@
 package bucket
 
 import (
-    "bytes"
-    "context"
-    "errors"
-    "expo-open-ota/internal/services"
-    "expo-open-ota/internal/types"
-    "fmt"
-    "io"
-    "runtime"
-    "sort"
-    "strconv"
-    "strings"
-    "sync"
-    "time"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"expo-open-ota/internal/services"
+	"expo-open-ota/internal/types"
+	"fmt"
+	"io"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 
-    "cloud.google.com/go/storage"
-    "google.golang.org/api/iterator"
+	"cloud.google.com/go/storage"
+	"google.golang.org/api/iterator"
 )
 
 type GCSBucket struct {
@@ -133,6 +134,106 @@ func (b *GCSBucket) GetRuntimeVersions(branch string) ([]RuntimeVersionWithStats
     return runtimeVersions, nil
 }
 
+func (b *GCSBucket) SetChannelMapping(channel, branch string) error {
+    marshaledMapping, err := json.Marshal(map[string]string{"branch": branch})
+    if err != nil {
+        return fmt.Errorf("error marshalling channel mapping: %w", err)
+    }
+    jsonBytes := bytes.NewReader(marshaledMapping)
+    ctx := context.Background()
+    bh, err := b.bucketHandle(ctx)
+    if err != nil {
+        return err
+    }
+    w := bh.Object(".channels/" + channel + ".json").NewWriter(ctx)
+    if _, err := io.Copy(w, jsonBytes); err != nil {
+        _ = w.Close()
+        return fmt.Errorf("failed to write channel mapping: %w", err)
+    }
+    if err := w.Close(); err != nil {
+        return fmt.Errorf("failed to finalize channel mapping write: %w", err)
+    }
+    return nil
+}
+
+func (b *GCSBucket) GetChannels() ([]string, error) {
+    ctx := context.Background()
+    bh, err := b.bucketHandle(ctx)
+    if err != nil {
+        return nil, err
+    }
+    q := &storage.Query{Prefix: ".channels/"}
+    it := bh.Objects(ctx, q)
+    var channels []string
+    for {
+        attrs, err := it.Next()
+        if err == iterator.Done {
+            break
+        }
+        if err != nil {
+            return nil, fmt.Errorf("list channels: %w", err)
+        }
+        name := strings.TrimPrefix(attrs.Name, ".channels/")
+        if !strings.HasSuffix(name, ".json") {
+            continue
+        }
+        channelName := strings.TrimSuffix(name, ".json")
+        channels = append(channels, channelName)
+    }
+    return channels, nil
+}
+
+
+
+func (b *GCSBucket) GetChannelMapping(channel string) (string, error) {
+    ctx := context.Background()
+    bh, err := b.bucketHandle(ctx)
+    if err != nil {
+        return "", err
+    }
+    r, err := bh.Object(".channels/" + channel + ".json").NewReader(ctx)
+    if err != nil {
+        if errors.Is(err, storage.ErrObjectNotExist) {
+            return "", fmt.Errorf("channel %s not found", channel)
+        }
+        return "", fmt.Errorf("failed to read channel mapping: %w", err)
+    }
+    defer r.Close()
+    var mapping struct {
+        Branch string `json:"branch"`
+    }
+    if err := json.NewDecoder(r).Decode(&mapping); err != nil {
+        return "", fmt.Errorf("error decoding channel mapping: %w", err)
+    }
+    return mapping.Branch, nil
+}
+
+func (b *GCSBucket) DeleteChannel(channel string) error {
+    ctx := context.Background()
+    bh, err := b.bucketHandle(ctx)
+    if err != nil {
+        return err
+    }
+    if err := bh.Object(".channels/" + channel + ".json").Delete(ctx); err != nil {
+        return fmt.Errorf("failed to delete channel: %w", err)
+    }
+    return nil
+}
+
+func (b *GCSBucket) UpsertBranch(branch string) error {
+    ctx := context.Background()
+    bh, err := b.bucketHandle(ctx)
+    if err != nil {
+        return err
+    }
+    w := bh.Object(branch + "/.keep").NewWriter(ctx)
+    if _, err := w.Write([]byte("")); err != nil {
+        _ = w.Close()
+        return err
+    }
+    return w.Close()
+}
+
 func (b *GCSBucket) GetBranches() ([]string, error) {
     ctx := context.Background()
     bh, err := b.bucketHandle(ctx)
@@ -153,6 +254,9 @@ func (b *GCSBucket) GetBranches() ([]string, error) {
             continue
         }
         prefix := strings.TrimSuffix(attrs.Prefix, "/")
+        if strings.HasPrefix(prefix, ".") {
+            continue
+        }
         branches = append(branches, prefix)
     }
     return branches, nil

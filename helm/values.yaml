@@ -185,10 +185,7 @@ environment:
   - name: "BASE_URL"
     value: ""
     required: true
-  - name: "EXPO_ACCESS_TOKEN"
-    value: ""
-    required: true
-  - name: "EXPO_APP_ID"
+  - name: "EOAS_API_KEY"
     value: ""
     required: true
   - name: "JWT_SECRET"

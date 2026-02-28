@@ -4,7 +4,7 @@ export class ApiClient {
   private baseUrl: string;
 
   constructor() {
-    // @ts-ignore using window.env for vite
+    // @ts-expect-error using window.env for vite
     this.baseUrl = window?.env?.VITE_OTA_API_URL || import.meta.env.VITE_OTA_API_URL;
     if (!this.baseUrl) {
       throw new Error('Missing VITE_OTA_API_URL environment variable');
@@ -76,19 +76,29 @@ export class ApiClient {
       releaseChannel: string;
     }
   ) {
-    return this.request(`/api/branch/${branchName}/updateChannelBranchMapping`, {
+    return this.request(`/api/branch/${encodeURIComponent(branchName)}/updateChannelBranchMapping`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
   }
+  public async createChannel(payload: { channelName: string; branchName?: string }) {
+    return this.request<{ status: string }>('/api/channels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+  public async deleteChannel(channelName: string) {
+    return this.request<{ status: string }>(`/api/channels/${encodeURIComponent(channelName)}`, {
+      method: 'DELETE',
+    });
+  }
   public async getChannels() {
     return this.request<
       {
-        releaseChannelId: string;
         releaseChannelName: string;
         branchName?: string | null;
-        branchId?: string | null;
       }[]
     >('/api/channels', {
       method: 'GET',
@@ -98,8 +108,7 @@ export class ApiClient {
     return this.request<
       {
         branchName: string;
-        branchId: string;
-        releaseChannel?: string | null;
+        releaseChannels: string[]
       }[]
     >('/api/branches', {
       method: 'GET',
@@ -113,7 +122,7 @@ export class ApiClient {
         createdAt: string;
         numberOfUpdates: number;
       }[]
-    >(`/api/branch/${branch}/runtimeVersions`, {
+    >(`/api/branch/${encodeURIComponent(branch)}/runtimeVersions`, {
       method: 'GET',
     });
   }
@@ -126,7 +135,7 @@ export class ApiClient {
         platform: string;
         commitHash: string;
       }[]
-    >(`/api/branch/${branch}/runtimeVersion/${runtimeVersion}/updates`, {
+    >(`/api/branch/${encodeURIComponent(branch)}/runtimeVersion/${encodeURIComponent(runtimeVersion)}/updates`, {
       method: 'GET',
     });
   }
@@ -139,15 +148,14 @@ export class ApiClient {
       commitHash: string;
       type: number;
       expoConfig: string;
-    }>(`/api/branch/${branch}/runtimeVersion/${runtimeVersion}/updates/${updateId}`, {
+    }>(`/api/branch/${encodeURIComponent(branch)}/runtimeVersion/${encodeURIComponent(runtimeVersion)}/updates/${encodeURIComponent(updateId)}`, {
       method: 'GET',
     });
   }
   public async getSettings() {
     return this.request<{
       BASE_URL: string;
-      EXPO_APP_ID: string;
-      EXPO_ACCESS_TOKEN: string;
+      EOAS_API_KEY: string;
       CACHE_MODE: string;
       REDIS_HOST: string;
       REDIS_PORT: string;

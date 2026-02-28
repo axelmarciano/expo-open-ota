@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"expo-open-ota/internal/crypto"
+	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/keyStore"
 	"expo-open-ota/internal/metrics"
-	"expo-open-ota/internal/services"
+	"expo-open-ota/internal/channel"
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/update"
 	"fmt"
@@ -154,24 +155,19 @@ func ManifestHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 
 	channelName := r.Header.Get("expo-channel-name")
-	if channelName == "" {
-		log.Printf("[RequestID: %s] No channel name provided", requestID)
-		http.Error(w, "No channel name provided", http.StatusBadRequest)
+	if err := helpers.ValidateResourceName(channelName, "channel"); err != nil {
+		log.Printf("[RequestID: %s] Invalid channel name: %v", requestID, err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	branchMap, err := services.FetchExpoChannelMapping(channelName)
+	branchName, err := channel.GetChannelMapping(channelName)
 	if err != nil {
-		log.Printf("[RequestID: %s] Error fetching channel mapping: %v", requestID, err)
-		http.Error(w, fmt.Sprintf("Error fetching channel mapping: %v", err), http.StatusInternalServerError)
-		return
-	}
-	if branchMap == nil {
-		log.Printf("[RequestID: %s] No branch mapping found for channel: %s", requestID, channelName)
-		http.Error(w, "No branch mapping found", http.StatusNotFound)
+		log.Printf("[RequestID: %s] No branch mapping found for channel %s: %v", requestID, channelName, err)
+		http.Error(w, fmt.Sprintf("No branch mapping found for channel '%s'", channelName), http.StatusNotFound)
 		return
 	}
 
-	branch := branchMap.BranchName
+	branch := branchName
 	protocolVersion, err := strconv.ParseInt(r.Header.Get("expo-protocol-version"), 10, 64)
 	if err != nil {
 		log.Printf("[RequestID: %s] Invalid protocol version: %v", requestID, err)
@@ -190,6 +186,11 @@ func ManifestHandler(w http.ResponseWriter, r *http.Request) {
 	runtimeVersion := r.Header.Get("expo-runtime-version")
 	if runtimeVersion == "" {
 		runtimeVersion = r.URL.Query().Get("runtimeVersion")
+	}
+	if err := helpers.ValidateResourceName(runtimeVersion, "runtimeVersion"); err != nil {
+		log.Printf("[RequestID: %s] Invalid runtime version: %v", requestID, err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 	clientId := r.Header.Get("EAS-Client-ID")
 	currentUpdateId := r.Header.Get("expo-current-update-id")

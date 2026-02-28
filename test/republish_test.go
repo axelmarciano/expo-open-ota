@@ -34,11 +34,10 @@ func createRepublishRequest(branch, runtimeVersion, headerKey, headerValue, plat
 func TestToRepublishRollbackWithBadBearer(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_bad_token", "ios", "hash", "1737455526")
 	handlers.RepublishHandler(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error fetching expo account informations\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Unauthorized\n", w.Body.String(), "Expected error message")
 }
 
 func copyDir(src string, dst string) error {
@@ -83,7 +82,6 @@ func copyDir(src string, dst string) error {
 func TestGoodRepublish(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -96,7 +94,7 @@ func TestGoodRepublish(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "ios", "hash", "1737455526")
+	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer EOAS_API_KEY", "ios", "hash", "1737455526")
 	handlers.RepublishHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	type Response struct {
@@ -147,7 +145,6 @@ func TestGoodRepublish(t *testing.T) {
 func TestGoodRepublishWithoutCommitHash(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -160,7 +157,7 @@ func TestGoodRepublishWithoutCommitHash(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "ios", "", "1737455526")
+	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer EOAS_API_KEY", "ios", "", "1737455526")
 	handlers.RepublishHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	type Response struct {
@@ -211,7 +208,6 @@ func TestGoodRepublishWithoutCommitHash(t *testing.T) {
 func TestRepublishOnBadPlatform(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -224,7 +220,7 @@ func TestRepublishOnBadPlatform(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "android", "", "1737455526")
+	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer EOAS_API_KEY", "android", "", "1737455526")
 	handlers.RepublishHandler(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "Update platform mismatch\n", w.Body.String(), "Expected error message")
@@ -233,7 +229,6 @@ func TestRepublishOnBadPlatform(t *testing.T) {
 func TestRepublishInvalidUpdate(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -251,7 +246,7 @@ func TestRepublishInvalidUpdate(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "ios", "", "1737455526")
+	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer EOAS_API_KEY", "ios", "", "1737455526")
 	handlers.RepublishHandler(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "Update is not valid\n", w.Body.String(), "Expected error message")
@@ -260,7 +255,6 @@ func TestRepublishInvalidUpdate(t *testing.T) {
 func TestRepublishWithBadUpdate(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -273,7 +267,7 @@ func TestRepublishWithBadUpdate(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "ios", "", "BAD_ONE")
+	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer EOAS_API_KEY", "ios", "", "BAD_ONE")
 	handlers.RepublishHandler(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "Error getting update\n", w.Body.String(), "Expected error message")
@@ -282,7 +276,6 @@ func TestRepublishWithBadUpdate(t *testing.T) {
 func TestToRepublishARollback(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -295,7 +288,7 @@ func TestToRepublishARollback(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "ios", "", "1666629141")
+	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer EOAS_API_KEY", "ios", "", "1666629141")
 	handlers.RepublishHandler(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "Update type is not normal update\n", w.Body.String(), "Expected error message")

@@ -34,7 +34,6 @@ func createRollbackRequest(projectRoot, branch, runtimeVersion, headerKey, heade
 func TestToRollbackWithBadBearer(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
@@ -42,18 +41,17 @@ func TestToRollbackWithBadBearer(t *testing.T) {
 	w, _, _, r := createRollbackRequest(projectRoot, "DO_NOT_USE", "1", "Authorization", "Bearer expo_bad_token", "ios", "hash")
 	handlers.RollbackHandler(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error fetching expo account informations\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Unauthorized\n", w.Body.String(), "Expected error message")
 }
 
 func TestGoodRollback(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
 	}
-	w, _, _, r := createRollbackRequest(projectRoot, "DO_NOT_USE", "1", "Authorization", "Bearer expo_test_token", "ios", "hash")
+	w, _, _, r := createRollbackRequest(projectRoot, "DO_NOT_USE", "1", "Authorization", "Bearer EOAS_API_KEY", "ios", "hash")
 	handlers.RollbackHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	type Response struct {
@@ -83,12 +81,11 @@ func TestGoodRollback(t *testing.T) {
 func TestGoodRollbackWithoutCommitHash(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockExpoForRequestUploadUrlTest("staging")
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
 	}
-	w, _, _, r := createRollbackRequest(projectRoot, "DO_NOT_USE", "1", "Authorization", "Bearer expo_test_token", "ios", "")
+	w, _, _, r := createRollbackRequest(projectRoot, "DO_NOT_USE", "1", "Authorization", "Bearer EOAS_API_KEY", "ios", "")
 	handlers.RollbackHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	type Response struct {

@@ -1,14 +1,13 @@
-import { ExpoCredentials, getAuthExpoHeaders } from './auth';
+import { getAuthHeaders } from './auth';
 import { fetchWithRetries } from './fetch';
 
 export async function resolveReleaseChannelDynamicallyFromBranch(
   baseUrl: string,
-  branch: string,
-  credentials: ExpoCredentials
+  branch: string
 ): Promise<string> {
   const branchesEndpoint = `${baseUrl}/api/branches`;
   const response = await fetchWithRetries(branchesEndpoint, {
-    headers: { ...getAuthExpoHeaders(credentials), 'use-expo-auth': 'true' },
+    headers: { ...getAuthHeaders() },
   });
   if (!response.ok) {
     throw new Error(`Failed to retrieve branches from server: ${await response.text()}`);

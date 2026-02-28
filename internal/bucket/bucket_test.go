@@ -3,10 +3,11 @@ package bucket
 import (
 	"bytes"
 	"fmt"
-	"github.com/stretchr/testify/assert"
 	"io"
 	"os"
 	testing2 "testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func setup(t *testing2.T) func() {

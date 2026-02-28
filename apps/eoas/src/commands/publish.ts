@@ -7,7 +7,7 @@ import mime from 'mime';
 import path from 'path';
 
 import { RequestUploadUrlItem, computeFilesRequests, requestUploadUrls } from '../lib/assets';
-import { getAuthExpoHeaders, retrieveExpoCredentials } from '../lib/auth';
+import { getAuthHeaders } from '../lib/auth';
 import {
   RequestedPlatform,
   getPrivateExpoConfigAsync,
@@ -88,12 +88,6 @@ export default class Publish extends Command {
     };
   }
   public async run(): Promise<void> {
-    const credentials = retrieveExpoCredentials();
-
-    if (!credentials.token && !credentials.sessionSecret) {
-      Log.error('You are not logged to eas, please run `eas login`');
-      process.exit(1);
-    }
     const { flags } = await this.parse(Publish);
     const {
       platform,
@@ -206,13 +200,17 @@ export default class Publish extends Command {
     const exportSpinner = ora('📦 Exporting project files...').start();
     try {
       const specifiedPlatform = platform === RequestedPlatform.All ? [] : ['--platform', platform];
-      const { stdout } = await spawnAsync(packageRunner, ['expo', 'export', '--output-dir', outputDir, ...specifiedPlatform], {
-        cwd: projectDir,
-        env: {
-          ...process.env,
-          EXPO_NO_DOTENV: '1',
-        },
-      });
+      const { stdout } = await spawnAsync(
+        packageRunner,
+        ['expo', 'export', '--output-dir', outputDir, ...specifiedPlatform],
+        {
+          cwd: projectDir,
+          env: {
+            ...process.env,
+            EXPO_NO_DOTENV: '1',
+          },
+        }
+      );
       exportSpinner.succeed('🚀 Project exported successfully');
       Log.withInfo(stdout);
     } catch (e) {
@@ -257,8 +255,7 @@ export default class Publish extends Command {
               body: {
                 fileNames: files.map(file => file.path),
               },
-              requestUploadUrl: `${serverUrl}/requestUploadUrl/${branch}`,
-              auth: credentials,
+              requestUploadUrl: `${serverUrl}/requestUploadUrl/${encodeURIComponent(branch)}`,
               runtimeVersion,
               platform,
               commitHash,
@@ -287,7 +284,7 @@ export default class Publish extends Command {
               method: 'PUT',
               headers: {
                 ...formData.getHeaders(),
-                ...getAuthExpoHeaders(credentials),
+                ...getAuthHeaders(),
               },
               body: formData,
             });
@@ -334,11 +331,13 @@ export default class Publish extends Command {
     const results = await Promise.all(
       uploadUrls.map(async ({ updateId, platform, runtimeVersion }) => {
         const response = await fetchWithRetries(
-          `${serverUrl}/markUpdateAsUploaded/${branch}?platform=${platform}&updateId=${updateId}&runtimeVersion=${runtimeVersion}`,
+          `${serverUrl}/markUpdateAsUploaded/${encodeURIComponent(
+            branch
+          )}?platform=${encodeURIComponent(platform)}&updateId=${encodeURIComponent(updateId)}&runtimeVersion=${encodeURIComponent(runtimeVersion)}`,
           {
             method: 'POST',
             headers: {
-              ...getAuthExpoHeaders(credentials),
+              ...getAuthHeaders(),
               'Content-Type': 'application/json',
             },
           }

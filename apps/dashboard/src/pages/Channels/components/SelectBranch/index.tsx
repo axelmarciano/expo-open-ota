@@ -8,7 +8,7 @@ export const SelectBranch = ({
   onChange,
   loading,
 }: {
-  onChange: (branchId?: string | null) => void;
+  onChange: (branchName?: string | null) => void;
   loading?: boolean;
   currentBranch?: string | null;
 }) => {
@@ -19,11 +19,10 @@ export const SelectBranch = ({
   });
   const allBranches =
     data
-      ?.filter(d => !!d.branchId)
       ?.map(d => {
         return {
           branchName: d.branchName,
-          id: d.branchId,
+          id: d.branchName,
         };
       }) ?? [];
   if (error) {

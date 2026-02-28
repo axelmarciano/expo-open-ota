@@ -8,7 +8,6 @@ import (
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/update"
 	"github.com/andybalholm/brotli"
-	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"io"
@@ -22,7 +21,6 @@ import (
 func TestEmptyAssetNameForAssets(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockWorkingExpoResponse("staging")
 	request := assets.AssetsRequest{
 		Branch:         "branch-1",
 		AssetName:      "",
@@ -54,7 +52,6 @@ func TestEmptyAssetNameForAssets(t *testing.T) {
 func TestBadPlatformForAssets(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockWorkingExpoResponse("staging")
 	request := assets.AssetsRequest{
 		Branch:         "branch-1",
 		AssetName:      "/assets/4f1cb2cac2370cd5050681232e8575a8",
@@ -85,7 +82,6 @@ func TestBadPlatformForAssets(t *testing.T) {
 func TestMissingRuntimeVersionForAssets(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockWorkingExpoResponse("staging")
 	request := assets.AssetsRequest{
 		Branch:         "branch-1",
 		AssetName:      "/assets/4f1cb2cac2370cd5050681232e8575a8",
@@ -116,7 +112,6 @@ func TestMissingRuntimeVersionForAssets(t *testing.T) {
 func TestEmptyUpdatesForAssets(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockWorkingExpoResponse("staging")
 	request := assets.AssetsRequest{
 		Branch:         "emptyruntime",
 		AssetName:      "/assets/4f1cb2cac2370cd5050681232e8575a8",
@@ -147,7 +142,6 @@ func TestEmptyUpdatesForAssets(t *testing.T) {
 func TestBadRuntimeVersion(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockWorkingExpoResponse("staging")
 	request := assets.AssetsRequest{
 		Branch:         "branch-1",
 		AssetName:      "/assets/4f1cb2cac2370cd5050681232e8575a8",
@@ -178,7 +172,6 @@ func TestBadRuntimeVersion(t *testing.T) {
 func TestToRetrieveBundleAsset(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockWorkingExpoResponse("staging")
 	asset := assets.AssetsRequest{
 		Branch:         "branch-1",
 		AssetName:      "bundles/android-82adadb1fb6e489d04ad95fd79670deb.js",
@@ -213,8 +206,8 @@ func TestToRetrieveBundleAssetWithGzipCompression(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
 	projectRoot, _ := findProjectRoot()
+	setupChannelMapping("staging", "branch-1")
 
-	mockWorkingExpoResponse("staging")
 	url, _ := update.BuildFinalManifestAssetUrlURL("http://localhost:3000", "bundles/android-82adadb1fb6e489d04ad95fd79670deb.js", "1", "android", "staging")
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", url, nil)
@@ -255,10 +248,10 @@ func TestToRetrieveBundleAssetWithBrotliCompression(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
 	projectRoot, err := findProjectRoot()
-	mockWorkingExpoResponse("staging")
 	if err != nil {
 		t.Errorf("Error finding project root: %v", err)
 	}
+	setupChannelMapping("staging", "branch-1")
 
 	url, _ := update.BuildFinalManifestAssetUrlURL("http://localhost:3000", "bundles/android-82adadb1fb6e489d04ad95fd79670deb.js", "1", "android", "staging")
 	w := httptest.NewRecorder()
@@ -299,15 +292,13 @@ func TestToRetrieveBundleAssetWithBrotliCompression(t *testing.T) {
 func TestToRetrievePNGAssetWithGzipCompression(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	mockWorkingExpoResponse("staging")
+	setupChannelMapping("staging", "branch-1")
 
 	url, _ := update.BuildFinalManifestAssetUrlURL("http://localhost:3000", "assets/4f1cb2cac2370cd5050681232e8575a8", "1", "android", "staging")
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", url, nil)
 	r.Header.Set("Accept-Encoding", "gzip")
-	r = mux.SetURLVars(r, map[string]string{
-		"BRANCH": "staging",
-	})
+	r.Header.Set("expo-channel-name", "staging")
 
 	handlers.AssetsHandler(w, r)
 
@@ -332,8 +323,8 @@ func TestAutomaticUrlRedirectionIfCDNIsSet(t *testing.T) {
 	os.Setenv("PRIVATE_CLOUDFRONT_KEY_PATH", filepath.Join(projectRoot, "/test/keys/private-key-cloudfront-test.pem"))
 	os.Setenv("CLOUDFRONT_DOMAIN", "https://cdn.expoopenota.com")
 	os.Setenv("CLOUDFRONT_KEY_PAIR_ID", "test")
+	setupChannelMapping("staging", "branch-1")
 
-	mockWorkingExpoResponse("staging")
 	url, _ := update.BuildFinalManifestAssetUrlURL("http://localhost:3000", "bundles/ios-9d01842d6ee1224f7188971c5d397115.js", "1", "android", "staging")
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", url, nil)
@@ -352,8 +343,8 @@ func TestPreventCDNRedirectionHeader(t *testing.T) {
 	os.Setenv("PRIVATE_CLOUDFRONT_KEY_PATH", filepath.Join(projectRoot, "/test/keys/private-key-cloudfront-test.pem"))
 	os.Setenv("CLOUDFRONT_DOMAIN", "https://cdn.expoopenota.com")
 	os.Setenv("CLOUDFRONT_KEY_PAIR_ID", "test")
+	setupChannelMapping("staging", "branch-1")
 
-	mockWorkingExpoResponse("staging")
 	url, _ := update.BuildFinalManifestAssetUrlURL("http://localhost:3000", "bundles/ios-9d01842d6ee1224f7188971c5d397115.js", "1", "android", "staging")
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", url, nil)

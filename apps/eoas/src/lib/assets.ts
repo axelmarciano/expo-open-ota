@@ -4,7 +4,7 @@ import fs from 'fs-extra';
 import Joi from 'joi';
 import path from 'path';
 
-import { ExpoCredentials, getAuthExpoHeaders } from './auth';
+import { getAuthHeaders } from './auth';
 import { RequestedPlatform } from './expoConfig';
 import { fetchWithRetries } from './fetch';
 import Log from './log';
@@ -101,26 +101,24 @@ export interface RequestUploadUrlItem {
 export async function requestUploadUrls({
   body,
   requestUploadUrl,
-  auth,
   runtimeVersion,
   platform,
   commitHash,
 }: {
   body: { fileNames: string[] };
   requestUploadUrl: string;
-  auth: ExpoCredentials;
   runtimeVersion: string;
   platform: string;
   commitHash?: string;
 }): Promise<{ uploadRequests: RequestUploadUrlItem[]; updateId: string }> {
   const response = await fetchWithRetries(
-    `${requestUploadUrl}?runtimeVersion=${runtimeVersion}&platform=${platform}&commitHash=${
-      commitHash || ''
+    `${requestUploadUrl}?runtimeVersion=${encodeURIComponent(runtimeVersion)}&platform=${encodeURIComponent(platform)}&commitHash=${
+      encodeURIComponent(commitHash || '')
     }`,
     {
       method: 'POST',
       headers: {
-        ...getAuthExpoHeaders(auth),
+        ...getAuthHeaders(),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),

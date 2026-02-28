@@ -1,10 +1,13 @@
 package auth
 
 import (
+	"crypto/subtle"
 	"errors"
 	"expo-open-ota/config"
 	"expo-open-ota/internal/services"
+	"expo-open-ota/internal/types"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -21,7 +24,7 @@ func getAdminPassword() string {
 func isPasswordValid(password string) bool {
 	adminPassword := getAdminPassword()
 	if adminPassword == "" {
-		fmt.Errorf("admin password is not set, all requests will be rejected")
+		log.Printf("admin password is not set, all requests will be rejected")
 		return false
 	}
 	return password == getAdminPassword()
@@ -120,4 +123,18 @@ func (a *Auth) RefreshToken(tokenString string) (*AuthResponse, error) {
 		Token:        *newToken,
 		RefreshToken: *refreshToken,
 	}, nil
+}
+
+func ValidateEOASAuth(auth *types.EoasAuth) error {
+	if auth.Token == nil {
+		return errors.New("no token provided")
+	}
+	apiToken := config.GetEnv("EOAS_API_KEY")
+	if apiToken == "" {
+		return errors.New("EOAS API key not set")
+	}
+	if subtle.ConstantTimeCompare([]byte(*auth.Token), []byte(apiToken)) != 1 {
+		return errors.New("invalid EOAS token")
+	}
+	return nil
 }

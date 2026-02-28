@@ -1,7 +1,7 @@
 import { Env, Platform } from '@expo/eas-build-job';
 import { Command, Flags } from '@oclif/core';
 
-import { getAuthExpoHeaders, retrieveExpoCredentials } from '../lib/auth';
+import { getAuthHeaders } from '../lib/auth';
 import {
   RequestedPlatform,
   getExpoConfigUpdateUrl,
@@ -42,11 +42,6 @@ export default class Publish extends Command {
     };
   }
   public async run(): Promise<void> {
-    const credentials = retrieveExpoCredentials();
-    if (!credentials.token && !credentials.sessionSecret) {
-      Log.error('You are not logged to eas, please run `eas login`');
-      process.exit(1);
-    }
     const { flags } = await this.parse(Publish);
     const { platform, branch } = this.sanitizeFlags(flags);
     if (!branch) {
@@ -141,11 +136,13 @@ export default class Publish extends Command {
     const erroredPlatforms: { platform: string; reason: string }[] = [];
     await Promise.all(
       runtimeVersions.map(async ({ runtimeVersion, platform }) => {
-        const endpoint = `${baseUrl}/rollback/${branch}?commitHash=${commitHash}&platform=${platform}&runtimeVersion=${runtimeVersion}`;
+        const endpoint = `${baseUrl}/rollback/${encodeURIComponent(
+          branch
+        )}?commitHash=${encodeURIComponent(commitHash || '')}&platform=${encodeURIComponent(platform)}&runtimeVersion=${encodeURIComponent(runtimeVersion || '')}`;
         const response = await fetchWithRetries(endpoint, {
           method: 'POST',
           headers: {
-            ...getAuthExpoHeaders(credentials),
+            ...getAuthHeaders(),
           },
         });
         if (!response.ok) {

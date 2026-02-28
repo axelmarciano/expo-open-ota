@@ -5,30 +5,30 @@ import (
 	"expo-open-ota/config"
 	"expo-open-ota/internal/bucket"
 	cache2 "expo-open-ota/internal/cache"
+	"expo-open-ota/internal/channel"
 	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/dashboard"
-	"expo-open-ota/internal/services"
+	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/types"
 	update2 "expo-open-ota/internal/update"
-	"fmt"
-	"github.com/gorilla/mux"
+	"log"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"time"
+
+	"github.com/gorilla/mux"
 )
 
 type BranchMapping struct {
-	BranchName     string  `json:"branchName"`
-	BranchId       *string `json:"branchId"`
-	ReleaseChannel *string `json:"releaseChannel"`
+	BranchName     string   `json:"branchName"`
+	ReleaseChannels []string `json:"releaseChannels"`
 }
 
 type ChannelMapping struct {
 	ReleaseChannelName string  `json:"releaseChannelName"`
-	ReleaseChannelId   string  `json:"releaseChannelId"`
 	BranchName         *string `json:"branchName"`
-	BranchId           *string `json:"branchId"`
 }
 
 type UpdateItem struct {
@@ -51,8 +51,7 @@ type UpdateDetails struct {
 
 type SettingsEnv struct {
 	BASE_URL                               string `json:"BASE_URL"`
-	EXPO_APP_ID                            string `json:"EXPO_APP_ID"`
-	EXPO_ACCESS_TOKEN                      string `json:"EXPO_ACCESS_TOKEN"`
+	EOAS_API_KEY                           string `json:"EOAS_API_KEY"`
 	CACHE_MODE                             string `json:"CACHE_MODE"`
 	REDIS_HOST                             string `json:"REDIS_HOST"`
 	REDIS_PORT                             string `json:"REDIS_PORT"`
@@ -83,9 +82,13 @@ func GetSettingsHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(SettingsEnv{
 		BASE_URL:    config.GetEnv("BASE_URL"),
-		EXPO_APP_ID: config.GetEnv("EXPO_APP_ID"),
-		// Only retrieve the first 5 characters of the token
-		EXPO_ACCESS_TOKEN:                      "***" + config.GetEnv("EXPO_ACCESS_TOKEN")[:5],
+		EOAS_API_KEY:                      			func() string {
+			key := config.GetEnv("EOAS_API_KEY")
+			if len(key) > 20 {
+				return "***" + key[:2]
+			}
+			return "***"
+		}(),
 		CACHE_MODE:                             config.GetEnv("CACHE_MODE"),
 		REDIS_HOST:                             config.GetEnv("REDIS_HOST"),
 		REDIS_PORT:                             config.GetEnv("REDIS_PORT"),
@@ -121,32 +124,20 @@ func GetChannelsHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(channels)
 		return
 	}
-	allChannels, err := services.FetchExpoChannels()
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	branchesMapping, err := services.FetchExpoBranchesMapping()
+	allChannels, err := channel.FetchChannels()
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	var channels []ChannelMapping
-	for _, channel := range allChannels {
+	for _, ch := range allChannels {
 		var branchName *string
-		var branchId *string
-		for _, mapping := range branchesMapping {
-			if mapping.ChannelName != nil && *mapping.ChannelName == channel.Name {
-				branchName = &mapping.BranchName
-				branchId = &mapping.BranchId
-				break
-			}
+		if mapping, err := channel.GetChannelMapping(ch); err == nil {
+			branchName = &mapping
 		}
 		channels = append(channels, ChannelMapping{
-			ReleaseChannelId:   channel.Id,
-			ReleaseChannelName: channel.Name,
+			ReleaseChannelName: ch,
 			BranchName:         branchName,
-			BranchId:           branchId,
 		})
 	}
 
@@ -166,26 +157,26 @@ func GetBranchesHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	branchesMapping, err := services.FetchExpoBranchesMapping()
+	allChannels, err := channel.FetchChannels()
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	branchToChannel := make(map[string][]string)
+	for _, ch := range allChannels {
+		if mapping, err := channel.GetChannelMapping(ch); err == nil {
+			branchToChannel[mapping] = append(branchToChannel[mapping], ch)
+		}
+	}
 	var response []BranchMapping
-	for _, branch := range branches {
-		var releaseChannel *string
-		var branchId *string
-		for _, mapping := range branchesMapping {
-			if mapping.BranchName == branch {
-				releaseChannel = mapping.ChannelName
-				branchId = &mapping.BranchId
-				break
-			}
+	for _, b := range branches {
+		var releaseChannels []string = []string{}
+		if ch, ok := branchToChannel[b]; ok {
+			releaseChannels = ch
 		}
 		response = append(response, BranchMapping{
-			BranchName:     branch,
-			BranchId:       branchId,
-			ReleaseChannel: releaseChannel,
+			BranchName:     b,
+			ReleaseChannels: releaseChannels,
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -195,7 +186,11 @@ func GetBranchesHandler(w http.ResponseWriter, r *http.Request) {
 
 func GetRuntimeVersionsHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	branchName := vars["BRANCH"]
+	branchName, _ := url.PathUnescape(vars["BRANCH"])
+	if err := helpers.ValidateResourceName(branchName, "branch"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	cacheKey := dashboard.ComputeGetRuntimeVersionsCacheKey(branchName)
 	cache := cache2.GetCache()
 	if cacheValue := cache.Get(cacheKey); cacheValue != "" {
@@ -230,7 +225,11 @@ func GetRuntimeVersionsHandler(w http.ResponseWriter, r *http.Request) {
 
 func GetUpdateDetails(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	branchName := vars["BRANCH"]
+	branchName, _ := url.PathUnescape(vars["BRANCH"])
+	if err := helpers.ValidateResourceName(branchName, "branch"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	runtimeVersion := vars["RUNTIME_VERSION"]
 	updateId := vars["UPDATE_ID"]
 	cacheKey := dashboard.ComputeGetUpdateDetailsCacheKey(branchName, runtimeVersion, updateId)
@@ -285,7 +284,11 @@ func GetUpdateDetails(w http.ResponseWriter, r *http.Request) {
 
 func GetUpdatesHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	branchName := vars["BRANCH"]
+	branchName, _ := url.PathUnescape(vars["BRANCH"])
+	if err := helpers.ValidateResourceName(branchName, "branch"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	runtimeVersion := vars["RUNTIME_VERSION"]
 	cacheKey := dashboard.ComputeGetUpdatesCacheKey(branchName, runtimeVersion)
 	cache := cache2.GetCache()
@@ -354,36 +357,109 @@ func GetUpdatesHandler(w http.ResponseWriter, r *http.Request) {
 	cache.Set(cacheKey, string(marshaledResponse), &ttlMs)
 }
 
+func CreateChannelHandler(w http.ResponseWriter, r *http.Request) {
+	var requestBody struct {
+		ChannelName string `json:"channelName"`
+		BranchName  string `json:"branchName"`
+	}
+	err := json.NewDecoder(r.Body).Decode(&requestBody)
+	if err != nil {
+		http.Error(w, "Error decoding request body", http.StatusBadRequest)
+		return
+	}
+	if err := helpers.ValidateResourceName(requestBody.ChannelName, "channelName"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if requestBody.BranchName != "" {
+		if err := helpers.ValidateResourceName(requestBody.BranchName, "branchName"); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	existingChannels, err := channel.FetchChannels()
+	if err != nil {
+		http.Error(w, "Error fetching channels", http.StatusInternalServerError)
+		return
+	}
+	for _, ch := range existingChannels {
+		if ch == requestBody.ChannelName {
+			http.Error(w, "Channel already exists", http.StatusConflict)
+			return
+		}
+	}
+
+	err = channel.SetChannelMapping(requestBody.ChannelName, requestBody.BranchName)
+	if err != nil {
+		http.Error(w, "Error creating channel", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+
+	cache := cache2.GetCache()
+	cache.Delete(dashboard.ComputeGetChannelsCacheKey())
+	cache.Delete(dashboard.ComputeGetBranchesCacheKey())
+}
+
+func DeleteChannelHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	channelName, _ := url.PathUnescape(vars["CHANNEL"])
+	if err := helpers.ValidateResourceName(channelName, "channelName"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err := channel.DeleteChannel(channelName)
+	if err != nil {
+		http.Error(w, "Error deleting channel", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+
+	cache := cache2.GetCache()
+	cache.Delete(dashboard.ComputeGetChannelsCacheKey())
+	cache.Delete(dashboard.ComputeGetBranchesCacheKey())
+}
+
 func UpdateChannelBranchMappingHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	branchId := vars["BRANCH"]
+	branchName, _ := url.PathUnescape(vars["BRANCH"])
+	if err := helpers.ValidateResourceName(branchName, "branch"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	var requestBody struct {
 		ReleaseChannel string `json:"releaseChannel"`
 	}
 	err := json.NewDecoder(r.Body).Decode(&requestBody)
 	if err != nil {
-		fmt.Println("Error decoding request body:", err)
+		log.Printf("Error decoding request body: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("Error decoding request body"))
 		return
 	}
 	releaseChannel := requestBody.ReleaseChannel
-	if releaseChannel == "" {
-		fmt.Println("Release channel is empty")
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Release channel is empty"))
+	if err := helpers.ValidateResourceName(releaseChannel, "releaseChannel"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	err = services.UpdateChannelBranchMapping(releaseChannel, branchId)
+	err = channel.SetChannelMapping(releaseChannel, branchName)
 	if err != nil {
-		fmt.Println("Error updating channel branch mapping:", err)
+		log.Printf("Error updating channel branch mapping: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("Error updating channel branch mapping"))
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	marshaledResponse, _ := json.Marshal("ok")
-	w.Header().Set("Content-Type", "application/json")
 	w.Write(marshaledResponse)
 
 	branchesCacheKey := dashboard.ComputeGetBranchesCacheKey()

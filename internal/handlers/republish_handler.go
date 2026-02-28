@@ -2,42 +2,39 @@ package handlers
 
 import (
 	"encoding/json"
+	"expo-open-ota/internal/auth"
 	"expo-open-ota/internal/branch"
 	"expo-open-ota/internal/helpers"
-	"expo-open-ota/internal/services"
 	types2 "expo-open-ota/internal/types"
 	update2 "expo-open-ota/internal/update"
-	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 	"log"
 	"net/http"
+	"net/url"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 )
 
 func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	vars := mux.Vars(r)
-	branchName := vars["BRANCH"]
+	branchName, _ := url.PathUnescape(vars["BRANCH"])
 	platform := r.URL.Query().Get("platform")
 	if platform == "" || (platform != "ios" && platform != "android") {
 		log.Printf("[RequestID: %s] Invalid platform: %s", requestID, platform)
 		http.Error(w, "Invalid platform", http.StatusBadRequest)
 		return
 	}
-	if branchName == "" {
-		log.Printf("[RequestID: %s] No branch provided", requestID)
-		http.Error(w, "No branch provided", http.StatusBadRequest)
+	if err := helpers.ValidateResourceName(branchName, "branch"); err != nil {
+		log.Printf("[RequestID: %s] Invalid branch name: %v", requestID, err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	expoAuth := helpers.GetExpoAuth(r)
-	expoAccount, err := services.FetchExpoUserAccountInformations(expoAuth)
+	eoasAuth := helpers.GetEoasAuth(r)
+	err := auth.ValidateEOASAuth(&eoasAuth)
 	if err != nil {
-		log.Printf("[RequestID: %s] Error fetching expo account informations: %v", requestID, err)
-		http.Error(w, "Error fetching expo account informations", http.StatusUnauthorized)
-		return
-	}
-	if expoAccount == nil {
-		log.Printf("[RequestID: %s] No expo account found", requestID)
-		http.Error(w, "No expo account found", http.StatusUnauthorized)
+		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 	err = branch.UpsertBranch(branchName)
@@ -47,9 +44,9 @@ func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")
-	if runtimeVersion == "" {
-		log.Printf("[RequestID: %s] No runtime version provided", requestID)
-		http.Error(w, "No runtime version provided", http.StatusBadRequest)
+	if err := helpers.ValidateResourceName(runtimeVersion, "runtimeVersion"); err != nil {
+		log.Printf("[RequestID: %s] Invalid runtime version: %v", requestID, err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	commitHash := r.URL.Query().Get("commitHash")

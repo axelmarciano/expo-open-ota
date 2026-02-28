@@ -24,6 +24,11 @@ type Bucket interface {
 	GetFile(update types.Update, assetPath string) (*types.BucketFile, error)
 	RequestUploadUrlForFileUpdate(branch string, runtimeVersion string, updateId string, fileName string) (string, error)
 	UploadFileIntoUpdate(update types.Update, fileName string, file io.Reader) error
+	UpsertBranch(branch string) error
+	GetChannels() ([]string, error)
+	GetChannelMapping(channel string) (string, error)
+	SetChannelMapping(channel, branch string) error
+	DeleteChannel(channel string) error
 	DeleteUpdateFolder(branch string, runtimeVersion string, updateId string) error
 	CreateUpdateFrom(previousUpdate *types.Update, newUpdateId string) (*types.Update, error)
 	RetrieveMigrationHistory() ([]string, error)

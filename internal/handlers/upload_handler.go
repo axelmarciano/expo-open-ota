@@ -3,20 +3,22 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"expo-open-ota/internal/auth"
 	"expo-open-ota/internal/branch"
 	"expo-open-ota/internal/bucket"
 	cache2 "expo-open-ota/internal/cache"
 	"expo-open-ota/internal/helpers"
-	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/update"
 	"fmt"
-	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 	"log"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 )
 
 type FileNamesRequest struct {
@@ -26,45 +28,42 @@ type FileNamesRequest struct {
 func MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	vars := mux.Vars(r)
-	branchName := vars["BRANCH"]
+	branchName, _ := url.PathUnescape(vars["BRANCH"])
 	platform := r.URL.Query().Get("platform")
 	if platform == "" || (platform != "ios" && platform != "android") {
 		log.Printf("[RequestID: %s] Invalid platform: %s", requestID, platform)
 		http.Error(w, "Invalid platform", http.StatusBadRequest)
 		return
 	}
-	if branchName == "" {
-		log.Printf("[RequestID: %s] No branch provided", requestID)
-		http.Error(w, "No branch provided", http.StatusBadRequest)
+	if err := helpers.ValidateResourceName(branchName, "branch"); err != nil {
+		log.Printf("[RequestID: %s] Invalid branch name: %v", requestID, err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	err := branch.UpsertBranch(branchName)
+	eoasAuth := helpers.GetEoasAuth(r)
+	err := auth.ValidateEOASAuth(&eoasAuth)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	err = branch.UpsertBranch(branchName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
 		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
 		return
 	}
-	expoAuth := helpers.GetExpoAuth(r)
-	expoAccount, err := services.ValidateExpoAuth(expoAuth)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error validating expo auth: %v", requestID, err)
-		http.Error(w, "Error validating expo auth", http.StatusUnauthorized)
-	}
-	if expoAccount == nil {
-		log.Printf("[RequestID: %s] No expo account found", requestID)
-		http.Error(w, "No expo account found", http.StatusUnauthorized)
-		return
-	}
+	
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")
-	if runtimeVersion == "" {
-		log.Printf("[RequestID: %s] No runtime version provided", requestID)
-		http.Error(w, "No runtime version provided", http.StatusBadRequest)
+	if err := helpers.ValidateResourceName(runtimeVersion, "runtimeVersion"); err != nil {
+		log.Printf("[RequestID: %s] Invalid runtime version: %v", requestID, err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	updateId := r.URL.Query().Get("updateId")
-	if updateId == "" {
-		log.Printf("[RequestID: %s] No update id provided", requestID)
-		http.Error(w, "No update id provided", http.StatusBadRequest)
+	if err := helpers.ValidateResourceName(updateId, "updateId"); err != nil {
+		log.Printf("[RequestID: %s] Invalid update id: %v", requestID, err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	currentUpdate, err := update.GetUpdate(branchName, runtimeVersion, updateId)
@@ -126,10 +125,10 @@ func MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Error deleting update folder", http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusNotAcceptable)
 	// Send error like json error { error: "No changes detected in the update from the previous one" }
 	log.Printf("[RequestID: %s] Updates are identical, folder deleted", requestID)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusNotAcceptable)
 	response := map[string]string{
 		"error": "You have already uploaded this update, no changes detected",
 	}
@@ -144,11 +143,12 @@ func RequestUploadLocalFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	requestID := uuid.New().String()
-	expoAuth := helpers.GetExpoAuth(r)
-	expoAccount, err := services.ValidateExpoAuth(expoAuth)
-	if err != nil || expoAccount == nil {
-		log.Printf("[RequestID: %s] Error validating expo auth: %v", requestID, err)
-		http.Error(w, "Error validating expo auth", http.StatusUnauthorized)
+	eoasAuth := helpers.GetEoasAuth(r)
+	err := auth.ValidateEOASAuth(&eoasAuth)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
 	}
 	token := r.URL.Query().Get("token")
 	if token == "" {
@@ -195,30 +195,25 @@ func RequestUploadLocalFileHandler(w http.ResponseWriter, r *http.Request) {
 func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	vars := mux.Vars(r)
-	branchName := vars["BRANCH"]
-	if branchName == "" {
-		log.Printf("[RequestID: %s] No branch provided", requestID)
-		http.Error(w, "No branch provided", http.StatusBadRequest)
+	branchName, _ := url.PathUnescape(vars["BRANCH"])
+	if err := helpers.ValidateResourceName(branchName, "branch"); err != nil {
+		log.Printf("[RequestID: %s] Invalid branch name: %v", requestID, err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	expoAuth := helpers.GetExpoAuth(r)
-	expoAccount, err := services.ValidateExpoAuth(expoAuth)
-	if err != nil || expoAccount == nil {
-		log.Printf("[RequestID: %s] Error validating expo auth: %v", requestID, err)
-		http.Error(w, "Error validating expo auth", http.StatusUnauthorized)
+	eoasAuth := helpers.GetEoasAuth(r)
+	err := auth.ValidateEOASAuth(&eoasAuth)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
 	}
 
 	err = branch.UpsertBranch(branchName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
 		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
-		return
-	}
-
-	if expoAccount == nil {
-		log.Printf("[RequestID: %s] No expo account found", requestID)
-		http.Error(w, "No expo account found", http.StatusUnauthorized)
 		return
 	}
 
@@ -229,9 +224,9 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	commitHash := r.URL.Query().Get("commitHash")
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")
-	if runtimeVersion == "" {
-		log.Printf("[RequestID: %s] No runtime version provided", requestID)
-		http.Error(w, "No runtime version provided", http.StatusBadRequest)
+	if err := helpers.ValidateResourceName(runtimeVersion, "runtimeVersion"); err != nil {
+		log.Printf("[RequestID: %s] Invalid runtime version: %v", requestID, err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -289,5 +284,4 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[RequestID: %s] Error encoding response: %v", requestID, err)
 		http.Error(w, "Error encoding response", http.StatusInternalServerError)
 	}
-	w.WriteHeader(http.StatusOK)
 }

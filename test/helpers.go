@@ -8,8 +8,6 @@ import (
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/metrics"
 	"expo-open-ota/internal/types"
-	"github.com/jarcoal/httpmock"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,12 +17,10 @@ import (
 
 func setup(t *testing.T) func() {
 	GlobalBeforeEach()
-	httpmock.Activate()
 	SetValidConfiguration()
 	metrics.InitMetrics()
 	return func() {
 		GlobalAfterEach(t)
-		defer httpmock.DeactivateAndReset()
 	}
 }
 
@@ -46,6 +42,27 @@ func GlobalAfterEach(t *testing.T) {
 		if err != nil {
 			t.Errorf("Error finding project root: %v", err)
 		}
+		// Clean up .channels dir created during tests
+		channelsPath := filepath.Join(projectRoot, "test/test-updates/.channels")
+		os.RemoveAll(channelsPath)
+
+		// Clean up branches created during tests (keep only fixture branches)
+		fixtureBranches := map[string]bool{
+			"branch-1": true,
+			"branch-2": true,
+			"branch-3": true,
+			"branch-4": true,
+		}
+		testUpdatesPath := filepath.Join(projectRoot, "test/test-updates")
+		entries, err := os.ReadDir(testUpdatesPath)
+		if err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() && !fixtureBranches[entry.Name()] {
+					os.RemoveAll(filepath.Join(testUpdatesPath, entry.Name()))
+				}
+			}
+		}
+
 		updatesPath := filepath.Join(projectRoot, "./updates/DO_NOT_USE")
 		updates, err := os.ReadDir(updatesPath)
 		if err != nil {
@@ -102,245 +119,22 @@ func findProjectRoot() (string, error) {
 	return "", os.ErrNotExist
 }
 
-func MockExpoChannelMapping(updateBranches []map[string]interface{}, updateChannelByName map[string]interface{}) (*http.Response, error) {
-	return httpmock.NewJsonResponse(http.StatusOK, map[string]interface{}{
-		"data": map[string]interface{}{
-			"app": map[string]interface{}{
-				"byId": map[string]interface{}{
-					"id":                  "EXPO_APP_ID",
-					"updateBranches":      updateBranches,
-					"updateChannelByName": updateChannelByName,
-				},
-			},
-		},
-	})
-}
-
-func MockExpoBranchesMappingResponse(updateBranches []map[string]interface{}, updateChannelByName []map[string]interface{}) (*http.Response, error) {
-	return httpmock.NewJsonResponse(http.StatusOK, map[string]interface{}{
-		"data": map[string]interface{}{
-			"app": map[string]interface{}{
-				"byId": map[string]interface{}{
-					"id":             "EXPO_APP_ID",
-					"updateBranches": updateBranches,
-					"updateChannels": updateChannelByName,
-				},
-			},
-		},
-	})
-}
-
-func MockExpoBranchesResponse(updateBranches []map[string]interface{}) (*http.Response, error) {
-	return httpmock.NewJsonResponse(http.StatusOK, map[string]interface{}{
-		"data": map[string]interface{}{
-			"app": map[string]interface{}{
-				"byId": map[string]interface{}{
-					"id":             "EXPO_APP_ID",
-					"updateBranches": updateBranches,
-				},
-			},
-		},
-	})
-}
-
-func MockExpoAccountResponse(me map[string]interface{}) (*http.Response, error) {
-	return httpmock.NewJsonResponse(http.StatusOK, map[string]interface{}{
-		"data": map[string]interface{}{
-			"me": me,
-		},
-	})
-}
-
-func StringifyBranchMapping(branchMapping map[string]interface{}) string {
-	branchMappingString, err := json.Marshal(branchMapping)
+func setupChannelMapping(channelName, branchName string) {
+	projectRoot, err := findProjectRoot()
 	if err != nil {
 		panic(err)
 	}
-	return string(branchMappingString)
-}
-
-func mockWorkingExpoResponse(channelName string) {
-	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
-		func(req *http.Request) (*http.Response, error) {
-			isFetchSelfExpoUsername := req.Header.Get("operationName") == "FetchExpoUserAccountInformations"
-			isFetchExpoChannelMapping := req.Header.Get("operationName") == "FetchExpoChannelMapping"
-			isFetchBranches := req.Header.Get("operationName") == "FetchExpoBranches"
-			isCreateBranch := req.Header.Get("operationName") == "CreateBranch"
-			if isFetchBranches {
-				return MockExpoBranchesResponse([]map[string]interface{}{
-					{
-						"id":   "branch-1-id",
-						"name": "branch-1",
-					},
-					{
-						"id":   "branch-2-id",
-						"name": "branch-2",
-					},
-				})
-			}
-			if isCreateBranch {
-				return httpmock.NewJsonResponse(http.StatusOK, map[string]interface{}{
-					"data": map[string]interface{}{
-						"updateBranch": map[string]interface{}{
-							"createUpdateBranchForApp": map[string]interface{}{
-								"id":   "created-branch-id",
-								"name": "created-branch",
-							},
-						},
-					},
-				})
-			}
-			if isFetchSelfExpoUsername {
-				return MockExpoAccountResponse(map[string]interface{}{
-					"id":       "test_id",
-					"username": "test_username",
-					"email":    "test_email",
-				})
-			}
-			if isFetchExpoChannelMapping {
-				return MockExpoChannelMapping(
-					[]map[string]interface{}{
-						{
-							"id":   "branch-1-id",
-							"name": "branch-1",
-						},
-						{
-							"id":   "branch-2-id",
-							"name": "branch-2",
-						},
-					},
-					map[string]interface{}{
-						"id":   channelName + "-id",
-						"name": channelName,
-						"branchMapping": StringifyBranchMapping(map[string]interface{}{
-							"version": 0,
-							"data": []map[string]interface{}{
-								{
-									"branchId":           "branch-1-id",
-									"branchMappingLogic": "true",
-								},
-								{
-									"branchId":           "branch-2-id",
-									"branchMappingLogic": "false",
-								},
-							},
-						}),
-					},
-				)
-			}
-
-			return httpmock.NewStringResponse(404, "Unknown operation"), nil
-		})
-}
-
-func mockExpoForRequestUploadUrlTest(channelName string) {
-	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
-		func(req *http.Request) (*http.Response, error) {
-			isFetchSelfExpoUsername := req.Header.Get("operationName") == "FetchExpoUserAccountInformations"
-			isFetchExpoChannelMapping := req.Header.Get("operationName") == "FetchExpoChannelMapping"
-			isFetchBranches := req.Header.Get("operationName") == "FetchExpoBranches"
-			isCreateBranch := req.Header.Get("operationName") == "CreateBranch"
-			if isFetchBranches {
-				return MockExpoBranchesResponse([]map[string]interface{}{
-					{
-						"id":   "branch-1-id",
-						"name": "branch-1",
-					},
-					{
-						"id":   "branch-2-id",
-						"name": "branch-2",
-					},
-					{
-						"id":   "do-not-use",
-						"name": "DO_NOT_USE",
-					},
-				})
-			}
-			if isCreateBranch {
-				return httpmock.NewJsonResponse(http.StatusOK, map[string]interface{}{
-					"data": map[string]interface{}{
-						"updateBranch": map[string]interface{}{
-							"createUpdateBranchForApp": map[string]interface{}{
-								"id":   "created-branch-id",
-								"name": "created-branch",
-							},
-						},
-					},
-				})
-			}
-			if isFetchSelfExpoUsername {
-				authHeader := req.Header.Get("Authorization")
-				if authHeader != "" {
-					if authHeader == "Bearer expo_test_token" || authHeader == "Bearer EXPO_ACCESS_TOKEN" {
-						return MockExpoAccountResponse(map[string]interface{}{
-							"id":       "123",
-							"username": "test_username",
-							"email":    "test@example.com",
-						})
-					}
-					if authHeader == "Bearer expo_alternative_token" {
-						return MockExpoAccountResponse(map[string]interface{}{
-							"id":       "1234",
-							"username": "test_alternative_username",
-							"email":    "test_alternative@example.com",
-						})
-					}
-					if authHeader != "Bearer expo_test_token" {
-						return httpmock.NewStringResponse(http.StatusUnauthorized, `{"error": "Unauthorized"}`), nil
-					}
-				}
-				expoSession := req.Header.Get("expo-session")
-				if expoSession != "" {
-					if expoSession == "expo_test_session" {
-						return MockExpoAccountResponse(map[string]interface{}{
-							"id":       "123",
-							"username": "test_username",
-							"email":    "text@example.com",
-						})
-					}
-					return httpmock.NewStringResponse(http.StatusUnauthorized, `{"error": "Unauthorized"}`), nil
-				}
-				return MockExpoAccountResponse(map[string]interface{}{
-					"id":       "123",
-					"username": "test_username",
-					"email":    "test@example.com",
-				})
-			}
-
-			if isFetchExpoChannelMapping {
-				return MockExpoChannelMapping(
-					[]map[string]interface{}{
-						{
-							"id":   "branch-1-id",
-							"name": "branch-1",
-						},
-						{
-							"id":   "branch-2-id",
-							"name": "branch-2",
-						},
-						{
-							"id":   "do-not-use",
-							"name": "DO_NOT_USE",
-						},
-					},
-					map[string]interface{}{
-						"id":   channelName + "-id",
-						"name": channelName,
-						"branchMapping": StringifyBranchMapping(map[string]interface{}{
-							"version": 0,
-							"data": []map[string]interface{}{
-								{
-									"branchId":           "do-not-use",
-									"branchMappingLogic": "true",
-								},
-							},
-						}),
-					},
-				)
-			}
-
-			return httpmock.NewStringResponse(404, "Unknown operation"), nil
-		})
+	channelsDir := filepath.Join(projectRoot, "test/test-updates/.channels")
+	os.MkdirAll(channelsDir, 0755)
+	mapping := map[string]string{"branch": branchName}
+	data, err := json.Marshal(mapping)
+	if err != nil {
+		panic(err)
+	}
+	err = os.WriteFile(filepath.Join(channelsDir, channelName+".json"), data, 0644)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func ComputeUploadRequestsInput(dirPath string) handlers.FileNamesRequest {
@@ -416,8 +210,7 @@ func SetValidConfiguration() {
 	os.Setenv("PUBLIC_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/public-key-test.pem"))
 	os.Setenv("PRIVATE_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/private-key-test.pem"))
 	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "/test/test-updates"))
-	os.Setenv("EXPO_APP_ID", "EXPO_APP_ID")
-	os.Setenv("EXPO_ACCESS_TOKEN", "EXPO_ACCESS_TOKEN")
+	os.Setenv("EOAS_API_KEY", "EOAS_API_KEY")
 	os.Setenv("JWT_SECRET", "test_jwt_secret")
 	os.Setenv("PRIVATE_CLOUDFRONT_KEY_PATH", "")
 	os.Setenv("CLOUDFRONT_DOMAIN", "")
