@@ -36,16 +36,16 @@ func RollbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	errUpsert := branch.UpsertBranch(branchName)
-	if errUpsert != nil {
-		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
-		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
-		return
-	}
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")
 	if err := helpers.ValidateResourceName(runtimeVersion, "runtimeVersion"); err != nil {
 		log.Printf("[RequestID: %s] Invalid runtime version: %v", requestID, err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	errUpsert := branch.UpsertBranch(branchName)
+	if errUpsert != nil {
+		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, errUpsert)
+		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
 		return
 	}
 	commitHash := r.URL.Query().Get("commitHash")

@@ -19,6 +19,7 @@ import (
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/update"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"

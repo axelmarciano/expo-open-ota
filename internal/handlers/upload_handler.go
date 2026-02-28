@@ -66,6 +66,12 @@ func MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	err = branch.UpsertBranch(branchName)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
+		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
+		return
+	}
 	currentUpdate, err := update.GetUpdate(branchName, runtimeVersion, updateId)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error getting update: %v", requestID, err)
@@ -221,6 +227,7 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	if platform != "" && (platform != "ios" && platform != "android") {
 		log.Printf("[RequestID: %s] Invalid platform: %s", requestID, platform)
 		http.Error(w, "Invalid platform", http.StatusBadRequest)
+		return
 	}
 	commitHash := r.URL.Query().Get("commitHash")
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")
@@ -240,6 +247,13 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	if len(request.FileNames) == 0 {
 		log.Printf("[RequestID: %s] No file names provided", requestID)
 		http.Error(w, "No file names provided", http.StatusBadRequest)
+		return
+	}
+
+	err = branch.UpsertBranch(branchName)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
+		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
 		return
 	}
 
@@ -268,6 +282,12 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 		UpdateId:       update.ConvertUpdateTimestampToString(updateId),
 		CreatedAt:      time.Duration(updateId) * time.Millisecond,
 	}, "update-metadata.json", metadataReader)
+
+	if err != nil {
+		log.Printf("[RequestID: %s] Error uploading file update metadata: %v", requestID, err)
+		http.Error(w, "Error uploading file update metadata", http.StatusInternalServerError)
+		return
+	}
 
 	cache := cache2.GetCache()
 	cacheKey := update.ComputeLastUpdateCacheKey(branchName, runtimeVersion, platform)

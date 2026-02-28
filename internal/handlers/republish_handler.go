@@ -37,12 +37,6 @@ func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	err = branch.UpsertBranch(branchName)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
-		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
-		return
-	}
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")
 	if err := helpers.ValidateResourceName(runtimeVersion, "runtimeVersion"); err != nil {
 		log.Printf("[RequestID: %s] Invalid runtime version: %v", requestID, err)
@@ -54,6 +48,12 @@ func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 	if updateId == "" {
 		log.Printf("[RequestID: %s] No updateId provided", requestID)
 		http.Error(w, "No updateId provided", http.StatusBadRequest)
+		return
+	}
+	err = branch.UpsertBranch(branchName)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
+		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
 		return
 	}
 	update, err := update2.GetUpdate(branchName, runtimeVersion, updateId)
