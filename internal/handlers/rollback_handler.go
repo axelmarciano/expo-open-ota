@@ -39,16 +39,16 @@ func RollbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No expo account found", http.StatusUnauthorized)
 		return
 	}
-	errUpsert := branch.UpsertBranch(branchName)
-	if errUpsert != nil {
-		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
-		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
-		return
-	}
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")
 	if runtimeVersion == "" {
 		log.Printf("[RequestID: %s] No runtime version provided", requestID)
 		http.Error(w, "No runtime version provided", http.StatusBadRequest)
+		return
+	}
+	errUpsert := branch.UpsertBranch(branchName)
+	if errUpsert != nil {
+		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, errUpsert)
+		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
 		return
 	}
 	commitHash := r.URL.Query().Get("commitHash")

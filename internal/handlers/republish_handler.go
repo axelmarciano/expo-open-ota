@@ -40,12 +40,6 @@ func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No expo account found", http.StatusUnauthorized)
 		return
 	}
-	err = branch.UpsertBranch(branchName)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
-		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
-		return
-	}
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")
 	if runtimeVersion == "" {
 		log.Printf("[RequestID: %s] No runtime version provided", requestID)
@@ -57,6 +51,12 @@ func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 	if updateId == "" {
 		log.Printf("[RequestID: %s] No updateId provided", requestID)
 		http.Error(w, "No updateId provided", http.StatusBadRequest)
+		return
+	}
+	err = branch.UpsertBranch(branchName)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
+		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
 		return
 	}
 	update, err := update2.GetUpdate(branchName, runtimeVersion, updateId)

@@ -11,12 +11,13 @@ import (
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/update"
 	"fmt"
-	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 	"log"
 	"net/http"
 	"path/filepath"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 )
 
 type FileNamesRequest struct {
@@ -38,17 +39,12 @@ func MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No branch provided", http.StatusBadRequest)
 		return
 	}
-	err := branch.UpsertBranch(branchName)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
-		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
-		return
-	}
 	expoAuth := helpers.GetExpoAuth(r)
 	expoAccount, err := services.ValidateExpoAuth(expoAuth)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating expo auth: %v", requestID, err)
 		http.Error(w, "Error validating expo auth", http.StatusUnauthorized)
+		return
 	}
 	if expoAccount == nil {
 		log.Printf("[RequestID: %s] No expo account found", requestID)
@@ -65,6 +61,12 @@ func MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
 	if updateId == "" {
 		log.Printf("[RequestID: %s] No update id provided", requestID)
 		http.Error(w, "No update id provided", http.StatusBadRequest)
+		return
+	}
+	err = branch.UpsertBranch(branchName)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
+		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
 		return
 	}
 	currentUpdate, err := update.GetUpdate(branchName, runtimeVersion, updateId)
@@ -149,6 +151,7 @@ func RequestUploadLocalFileHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil || expoAccount == nil {
 		log.Printf("[RequestID: %s] Error validating expo auth: %v", requestID, err)
 		http.Error(w, "Error validating expo auth", http.StatusUnauthorized)
+		return
 	}
 	token := r.URL.Query().Get("token")
 	if token == "" {
@@ -207,18 +210,6 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil || expoAccount == nil {
 		log.Printf("[RequestID: %s] Error validating expo auth: %v", requestID, err)
 		http.Error(w, "Error validating expo auth", http.StatusUnauthorized)
-	}
-
-	err = branch.UpsertBranch(branchName)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
-		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
-		return
-	}
-
-	if expoAccount == nil {
-		log.Printf("[RequestID: %s] No expo account found", requestID)
-		http.Error(w, "No expo account found", http.StatusUnauthorized)
 		return
 	}
 
@@ -226,6 +217,7 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	if platform != "" && (platform != "ios" && platform != "android") {
 		log.Printf("[RequestID: %s] Invalid platform: %s", requestID, platform)
 		http.Error(w, "Invalid platform", http.StatusBadRequest)
+		return
 	}
 	commitHash := r.URL.Query().Get("commitHash")
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")
@@ -245,6 +237,13 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	if len(request.FileNames) == 0 {
 		log.Printf("[RequestID: %s] No file names provided", requestID)
 		http.Error(w, "No file names provided", http.StatusBadRequest)
+		return
+	}
+
+	err = branch.UpsertBranch(branchName)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
+		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
 		return
 	}
 
@@ -273,6 +272,12 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 		UpdateId:       update.ConvertUpdateTimestampToString(updateId),
 		CreatedAt:      time.Duration(updateId) * time.Millisecond,
 	}, "update-metadata.json", metadataReader)
+
+	if err != nil {
+		log.Printf("[RequestID: %s] Error uploading file update metadata: %v", requestID, err)
+		http.Error(w, "Error uploading file update metadata", http.StatusInternalServerError)
+		return
+	}
 
 	cache := cache2.GetCache()
 	cacheKey := update.ComputeLastUpdateCacheKey(branchName, runtimeVersion, platform)

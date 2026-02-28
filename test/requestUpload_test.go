@@ -163,7 +163,7 @@ func TestRequestUploadUrlWithoutBearer(t *testing.T) {
 	w, _, _, r := createUploadRequest(t, projectRoot, "DO_NOT_USE", "1", sampleUpdatePath, "Authorization", "Bearer expo_alternative_token", "ios")
 	handlers.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error validating expo auth\nNo expo account found\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Error validating expo auth\n", w.Body.String(), "Expected error message")
 }
 
 func TestRequestUploadUrlWithBadBearer(t *testing.T) {
@@ -178,7 +178,7 @@ func TestRequestUploadUrlWithBadBearer(t *testing.T) {
 	w, _, _, r := createUploadRequest(t, projectRoot, "DO_NOT_USE", "1", sampleUpdatePath, "Authorization", "Bearer expo_bad_token", "ios")
 	handlers.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error validating expo auth\nNo expo account found\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Error validating expo auth\n", w.Body.String(), "Expected error message")
 }
 
 func TestRequestUploadUrlWithoutRuntimeVersion(t *testing.T) {
@@ -480,7 +480,7 @@ func TestRequestUploadUrlWithInvalidExpoSession(t *testing.T) {
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
 	handlers.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error validating expo auth\nNo expo account found\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Error validating expo auth\n", w.Body.String(), "Expected error message")
 }
 
 func TestIdenticalUpload(t *testing.T) {
