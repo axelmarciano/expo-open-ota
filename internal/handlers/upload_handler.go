@@ -99,7 +99,8 @@ func MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.Printf("[RequestID: %s] No latest update found, update marked as checked", requestID)
-		go update.PreWarmManifestCache(branchName, runtimeVersion, platform)
+		go update.PreWarmManifestCache(branchName, runtimeVersion, "ios")
+		go update.PreWarmManifestCache(branchName, runtimeVersion, "android")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -118,7 +119,8 @@ func MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.Printf("[RequestID: %s] Updates are not identical, update marked as checked", requestID)
-		go update.PreWarmManifestCache(branchName, runtimeVersion, platform)
+		go update.PreWarmManifestCache(branchName, runtimeVersion, "ios")
+		go update.PreWarmManifestCache(branchName, runtimeVersion, "android")
 		w.WriteHeader(http.StatusOK)
 		return
 	}

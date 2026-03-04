@@ -11,6 +11,7 @@ import (
 	"expo-open-ota/internal/version"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 )
 
@@ -306,7 +307,9 @@ func FetchExpoChannelMapping(channelName string) (*ExpoChannelMapping, error) {
 	cacheKey := computeChannelMappingCacheKey(channelName)
 	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
 		var mapping ExpoChannelMapping
-		if err := json.Unmarshal([]byte(cachedValue), &mapping); err == nil {
+		if err := json.Unmarshal([]byte(cachedValue), &mapping); err != nil {
+			log.Printf("[ChannelMapping] cache unmarshal error for key=%s: %v", cacheKey, err)
+		} else {
 			return &mapping, nil
 		}
 	}
