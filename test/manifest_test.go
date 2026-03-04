@@ -5,6 +5,7 @@ import (
 	"expo-open-ota/internal/bucket"
 	cache2 "expo-open-ota/internal/cache"
 	"expo-open-ota/internal/handlers"
+	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/update"
 	"github.com/jarcoal/httpmock"
@@ -634,4 +635,32 @@ func TestEmptyRequestForAndroid(t *testing.T) {
 		t.Errorf("Error parsing json body: %v", err)
 	}
 	assert.Equal(t, "{\"type\":\"noUpdateAvailable\"}", body)
+}
+
+func TestChannelMappingIsCached(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	mockWorkingExpoResponse("staging")
+
+	// First call — hits the Expo GraphQL API
+	mapping1, err := services.FetchExpoChannelMapping("staging")
+	assert.NoError(t, err)
+	assert.NotNil(t, mapping1)
+	assert.Equal(t, "branch-1", mapping1.BranchName)
+
+	// Verify cache was populated
+	cache := cache2.GetCache()
+	cachedValue := cache.Get("channelMapping:" + os.Getenv("APP_VERSION") + ":staging")
+	// The cache key includes the internal version, so just check via a second call
+	// after removing the mock — if it still works, it used cache.
+	httpmock.Reset()
+
+	// Second call — mock is gone, so this must use cache
+	mapping2, err := services.FetchExpoChannelMapping("staging")
+	assert.NoError(t, err)
+	assert.NotNil(t, mapping2)
+	assert.Equal(t, mapping1.BranchName, mapping2.BranchName)
+	assert.Equal(t, mapping1.Id, mapping2.Id)
+
+	_ = cachedValue // used for debugging if needed
 }
