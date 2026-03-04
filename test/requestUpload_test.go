@@ -412,7 +412,7 @@ func TestRequestUploadUrlWithValidExpoSession(t *testing.T) {
 	assert.NotEmpty(t, w.Header().Get("expo-update-id"), "Expected non-empty update ID")
 }
 
-func TestShouldClearCache(t *testing.T) {
+func TestShouldPreserveCacheOnUploadRequest(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
 	projectRoot, err := findProjectRoot()
@@ -454,7 +454,7 @@ func TestShouldClearCache(t *testing.T) {
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	assert.NotEmpty(t, w.Header().Get("expo-update-id"), "Expected non-empty update ID")
 	value = cache.Get(cacheKey)
-	assert.Empty(t, value, "Expected an empty cache value")
+	assert.Equal(t, expectedValue, value, "Expected cache to be preserved after RequestUploadUrl")
 }
 
 func TestRequestUploadUrlWithInvalidExpoSession(t *testing.T) {

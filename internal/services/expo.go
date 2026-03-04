@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"expo-open-ota/config"
+	cache2 "expo-open-ota/internal/cache"
 	"expo-open-ota/internal/types"
+	"expo-open-ota/internal/version"
 	"fmt"
 	"io"
 	"net/http"
@@ -295,7 +297,20 @@ func FetchSelfExpoUsername() string {
 	return expoAccount.Username
 }
 
+func computeChannelMappingCacheKey(channelName string) string {
+	return fmt.Sprintf("channelMapping:%s:%s", version.Version, channelName)
+}
+
 func FetchExpoChannelMapping(channelName string) (*ExpoChannelMapping, error) {
+	cache := cache2.GetCache()
+	cacheKey := computeChannelMappingCacheKey(channelName)
+	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
+		var mapping ExpoChannelMapping
+		if err := json.Unmarshal([]byte(cachedValue), &mapping); err == nil {
+			return &mapping, nil
+		}
+	}
+
 	query := `
 		query FetchAppChannel($appId: String!, $channelName: String!) {
 			app {
@@ -376,10 +391,15 @@ func FetchExpoChannelMapping(channelName string) (*ExpoChannelMapping, error) {
 		return nil, nil
 	}
 
-	return &ExpoChannelMapping{
+	result := &ExpoChannelMapping{
 		Id:         resp.Data.App.ById.UpdateChannelByName.ID,
 		BranchName: branchName,
-	}, nil
+	}
+	if cacheValue, err := json.Marshal(result); err == nil {
+		ttl := 60
+		_ = cache.Set(cacheKey, string(cacheValue), &ttl)
+	}
+	return result, nil
 }
 
 func FetchExpoBranchesMapping() ([]ExpoBranchMapping, error) {
