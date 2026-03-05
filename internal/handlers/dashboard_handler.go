@@ -37,6 +37,7 @@ type UpdateItem struct {
 	CreatedAt  string `json:"createdAt"`
 	CommitHash string `json:"commitHash"`
 	Platform   string `json:"platform"`
+	Message    string `json:"message,omitempty"`
 }
 
 type UpdateDetails struct {
@@ -45,6 +46,7 @@ type UpdateDetails struct {
 	CreatedAt  string           `json:"createdAt"`
 	CommitHash string           `json:"commitHash"`
 	Platform   string           `json:"platform"`
+	Message    string           `json:"message,omitempty"`
 	Type       types.UpdateType `json:"type"`
 	ExpoConfig string           `json:"expoConfig"`
 }
@@ -271,6 +273,7 @@ func GetUpdateDetails(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:  time.UnixMilli(numberUpdate).UTC().Format(time.RFC3339),
 		CommitHash: storedMetadata.CommitHash,
 		Platform:   storedMetadata.Platform,
+		Message:    storedMetadata.Message,
 		Type:       update2.GetUpdateType(*update),
 		ExpoConfig: string(expoConfig),
 	}
@@ -320,6 +323,7 @@ func GetUpdatesHandler(w http.ResponseWriter, r *http.Request) {
 				CreatedAt:  time.UnixMilli(numberUpdate).UTC().Format(time.RFC3339),
 				CommitHash: storedMetadata.CommitHash,
 				Platform:   storedMetadata.Platform,
+				Message:    storedMetadata.Message,
 			})
 			continue
 		}
@@ -338,6 +342,7 @@ func GetUpdatesHandler(w http.ResponseWriter, r *http.Request) {
 			CreatedAt:  time.UnixMilli(numberUpdate).UTC().Format(time.RFC3339),
 			CommitHash: storedMetadata.CommitHash,
 			Platform:   storedMetadata.Platform,
+			Message:    storedMetadata.Message,
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")

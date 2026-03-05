@@ -125,6 +125,7 @@ export class ApiClient {
         updateId: string;
         platform: string;
         commitHash: string;
+        message?: string;
       }[]
     >(`/api/branch/${branch}/runtimeVersion/${runtimeVersion}/updates`, {
       method: 'GET',
@@ -137,6 +138,7 @@ export class ApiClient {
       updateId: string;
       platform: string;
       commitHash: string;
+      message?: string;
       type: number;
       expoConfig: string;
     }>(`/api/branch/${branch}/runtimeVersion/${runtimeVersion}/updates/${updateId}`, {

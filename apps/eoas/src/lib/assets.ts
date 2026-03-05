@@ -105,6 +105,7 @@ export async function requestUploadUrls({
   runtimeVersion,
   platform,
   commitHash,
+  message,
 }: {
   body: { fileNames: string[] };
   requestUploadUrl: string;
@@ -112,11 +113,18 @@ export async function requestUploadUrls({
   runtimeVersion: string;
   platform: string;
   commitHash?: string;
+  message?: string;
 }): Promise<{ uploadRequests: RequestUploadUrlItem[]; updateId: string }> {
+  const params = new URLSearchParams({
+    runtimeVersion,
+    platform,
+    commitHash: commitHash || '',
+  });
+  if (message) {
+    params.set('message', message);
+  }
   const response = await fetchWithRetries(
-    `${requestUploadUrl}?runtimeVersion=${runtimeVersion}&platform=${platform}&commitHash=${
-      commitHash || ''
-    }`,
+    `${requestUploadUrl}?${params.toString()}`,
     {
       method: 'POST',
       headers: {

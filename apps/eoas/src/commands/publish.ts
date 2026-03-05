@@ -67,6 +67,11 @@ export default class Publish extends Command {
         'Package runner to use for spawning Expo CLI commands (e.g. npx, bunx, pnpx). Can also be set via EOAS_PACKAGE_RUNNER env var. Defaults to npx.',
       required: false,
     }),
+    message: Flags.string({
+      char: 'm',
+      description: 'A short message describing the update',
+      required: false,
+    }),
   };
   private sanitizeFlags(flags: any): {
     platform: RequestedPlatform;
@@ -76,6 +81,7 @@ export default class Publish extends Command {
     outputDir: string;
     packageRunner: string;
     providedDeprecatedChannel?: string;
+    message?: string;
   } {
     return {
       disableRepositoryCheck: flags.disableRepositoryCheck,
@@ -85,6 +91,7 @@ export default class Publish extends Command {
       outputDir: flags.outputDir,
       packageRunner: resolvePackageRunner(flags.packageRunner, process.cwd()),
       providedDeprecatedChannel: flags.channel,
+      message: flags.message,
     };
   }
   public async run(): Promise<void> {
@@ -103,6 +110,7 @@ export default class Publish extends Command {
       packageRunner,
       providedDeprecatedChannel,
       disableRepositoryCheck,
+      message,
     } = this.sanitizeFlags(flags);
     if (!branch) {
       Log.error('Branch name is required');
@@ -262,6 +270,7 @@ export default class Publish extends Command {
               runtimeVersion,
               platform,
               commitHash,
+              message,
             })),
             runtimeVersion,
             platform,
