@@ -38,6 +38,7 @@ type UpdateStoredMetadata struct {
 	Platform   string `json:"platform"`
 	CommitHash string `json:"commitHash"`
 	UpdateUUID string `json:"updateUUID"`
+	Message    string `json:"message,omitempty"`
 }
 
 type UpdateType int
