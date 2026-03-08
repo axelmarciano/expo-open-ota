@@ -106,6 +106,7 @@ export const RuntimeVersionsTable = ({ branch }: { branch: string }) => {
           },
         ]}
         data={data ?? []}
+        defaultSorting={[{ id: 'createdAt', desc: true }]}
       />
     </div>
   );
