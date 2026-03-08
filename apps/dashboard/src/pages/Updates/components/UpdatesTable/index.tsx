@@ -96,6 +96,20 @@ export const UpdatesTable = ({
             },
           },
           {
+            header: 'Message',
+            accessorKey: 'message',
+            cell: value => {
+              const msg = value.row.original.message;
+              return msg ? (
+                <span className="text-sm text-muted-foreground truncate max-w-[200px] block">
+                  {msg}
+                </span>
+              ) : (
+                <span className="text-sm text-muted-foreground">-</span>
+              );
+            },
+          },
+          {
             header: 'Commit',
             accessorKey: 'commitHash',
             cell: value => {
