@@ -136,6 +136,14 @@ const UpdateDetails = ({
             {updateDetails.commitHash}
           </Badge>
         </div>
+        {updateDetails.message && (
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label>Message</Label>
+            <Badge variant="outline" className="col-span-3 break-all">
+              {updateDetails.message}
+            </Badge>
+          </div>
+        )}
         <div className="grid grid-cols-4 items-center gap-4">
           <Label>Platform</Label>
           <Badge variant="outline" className="col-span-3 break-all">
