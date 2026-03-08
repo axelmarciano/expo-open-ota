@@ -1,4 +1,11 @@
-import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
+import {
+  ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  SortingState,
+  useReactTable,
+} from '@tanstack/react-table';
 
 import {
   Table,
@@ -9,24 +16,35 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton.tsx';
+import { useState } from 'react';
+import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
   loading?: boolean;
   onRowClick?: (row: TData) => void;
+  defaultSorting?: SortingState;
 }
 
 export function DataTable<TData, TValue>({
   columns,
   data,
   loading,
-  onRowClick = (_row) => {}
+  onRowClick = (_row) => {},
+  defaultSorting = [],
 }: DataTableProps<TData, TValue>) {
+  const [sorting, setSorting] = useState<SortingState>(defaultSorting);
+
   const table = useReactTable({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    onSortingChange: setSorting,
+    state: {
+      sorting,
+    },
   });
 
   return (
@@ -37,10 +55,26 @@ export function DataTable<TData, TValue>({
             <TableRow key={headerGroup.id}>
               {headerGroup.headers.map(header => {
                 return (
-                  <TableHead key={header.id}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
+                  <TableHead
+                    key={header.id}
+                    className={header.column.getCanSort() ? 'cursor-pointer select-none' : ''}
+                    onClick={header.column.getToggleSortingHandler()}>
+                    <div className="flex items-center gap-1">
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(header.column.columnDef.header, header.getContext())}
+                      {header.column.getCanSort() && (
+                        <>
+                          {header.column.getIsSorted() === 'asc' ? (
+                            <ArrowUp className="w-3.5 h-3.5" />
+                          ) : header.column.getIsSorted() === 'desc' ? (
+                            <ArrowDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowUpDown className="w-3.5 h-3.5 opacity-40" />
+                          )}
+                        </>
+                      )}
+                    </div>
                   </TableHead>
                 );
               })}
