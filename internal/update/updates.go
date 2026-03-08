@@ -30,7 +30,7 @@ func filterPlatformUpdates(updates []types.Update, platform string) []types.Upda
 	filteredUpdates := make([]types.Update, 0)
 	for _, update := range updates {
 		storedMetadata, err := RetrieveUpdateStoredMetadata(update)
-		if err == nil && storedMetadata.Platform == platform {
+		if err == nil && storedMetadata != nil && storedMetadata.Platform == platform {
 			filteredUpdates = append(filteredUpdates, update)
 		}
 	}
@@ -82,7 +82,7 @@ func MarkUpdateAsChecked(update types.Update) error {
 	runTimeVersionsCacheKey := dashboard.ComputeGetRuntimeVersionsCacheKey(update.Branch)
 	updatesCacheKey := dashboard.ComputeGetUpdatesCacheKey(update.Branch, update.RuntimeVersion)
 	storedMetadata, err := RetrieveUpdateStoredMetadata(update)
-	if err != nil {
+	if err != nil || storedMetadata == nil {
 		return err
 	}
 	cacheKeys := []string{ComputeLastUpdateCacheKey(update.Branch, update.RuntimeVersion, storedMetadata.Platform), branchesCacheKey, runTimeVersionsCacheKey, updatesCacheKey}
