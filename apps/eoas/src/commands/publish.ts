@@ -12,6 +12,7 @@ import {
   RequestedPlatform,
   getPrivateExpoConfigAsync,
   getPublicExpoConfigAsync,
+  preserveSchemesInPublicExpoConfig,
   resolveServerUrl,
 } from '../lib/expoConfig';
 import { fetchWithRetries } from '../lib/fetch';
@@ -220,13 +221,17 @@ export default class Publish extends Command {
     const exportSpinner = ora('📦 Exporting project files...').start();
     try {
       const specifiedPlatform = platform === RequestedPlatform.All ? [] : ['--platform', platform];
-      const { stdout } = await spawnAsync(packageRunner, ['expo', 'export', '--output-dir', outputDir, ...specifiedPlatform], {
-        cwd: projectDir,
-        env: {
-          ...process.env,
-          EXPO_NO_DOTENV: '1',
-        },
-      });
+      const { stdout } = await spawnAsync(
+        packageRunner,
+        ['expo', 'export', '--output-dir', outputDir, ...specifiedPlatform],
+        {
+          cwd: projectDir,
+          env: {
+            ...process.env,
+            EXPO_NO_DOTENV: '1',
+          },
+        }
+      );
       exportSpinner.succeed('🚀 Project exported successfully');
       Log.withInfo(stdout);
     } catch (e) {
@@ -243,8 +248,9 @@ export default class Publish extends Command {
       );
       process.exit(1);
     }
+    const normalizedPublicConfig = preserveSchemesInPublicExpoConfig(publicConfig, config);
     // eslint-disable-next-line
-    fs.writeJsonSync(path.join(projectDir, outputDir, 'expoConfig.json'), publicConfig, {
+    fs.writeJsonSync(path.join(projectDir, outputDir, 'expoConfig.json'), normalizedPublicConfig, {
       spaces: 2,
     });
     Log.withInfo(`expoConfig.json file created in ${outputDir} directory`);

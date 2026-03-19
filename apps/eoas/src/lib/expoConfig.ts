@@ -17,12 +17,16 @@ export enum RequestedPlatform {
   All = 'all',
 }
 
+type SchemeValue = string | string[] | null | undefined;
+type IOSConfigWithScheme = NonNullable<ExpoConfig['ios']> & { scheme?: SchemeValue };
+type AndroidConfigWithScheme = NonNullable<ExpoConfig['android']> & { scheme?: SchemeValue };
+
 export type PublicExpoConfig = Omit<
   ExpoConfig,
   '_internal' | 'hooks' | 'ios' | 'android' | 'updates'
 > & {
-  ios?: Omit<ExpoConfig['ios'], 'config'>;
-  android?: Omit<ExpoConfig['android'], 'config'>;
+  ios?: Omit<IOSConfigWithScheme, 'config'>;
+  android?: Omit<AndroidConfigWithScheme, 'config'>;
   updates?: Omit<ExpoConfig['updates'], 'codeSigningCertificate' | 'codeSigningMetadata'>;
 };
 
@@ -143,6 +147,60 @@ export async function getPublicExpoConfigAsync(
   ensureExpoConfigExists(projectDir);
 
   return await getExpoConfigInternalAsync(projectDir, { ...opts, isPublicConfig: true });
+}
+
+function hasScheme(value: SchemeValue): value is string | string[] {
+  if (typeof value === 'string') {
+    return value.length > 0;
+  }
+
+  if (Array.isArray(value)) {
+    return value.some(item => typeof item === 'string' && item.length > 0);
+  }
+
+  return false;
+}
+
+export function preserveSchemesInPublicExpoConfig(
+  publicConfig: PublicExpoConfig,
+  privateConfig: ExpoConfig
+): PublicExpoConfig {
+  const privateIosConfig = privateConfig.ios as IOSConfigWithScheme | undefined;
+  const privateAndroidConfig = privateConfig.android as AndroidConfigWithScheme | undefined;
+  const normalizedConfig: PublicExpoConfig = {
+    ...publicConfig,
+    ...(publicConfig.ios ? { ios: { ...publicConfig.ios } } : {}),
+    ...(publicConfig.android ? { android: { ...publicConfig.android } } : {}),
+  };
+
+  const topLevelScheme =
+    publicConfig.scheme ??
+    privateConfig.scheme ??
+    privateIosConfig?.scheme ??
+    privateAndroidConfig?.scheme;
+
+  if (!hasScheme(normalizedConfig.scheme) && hasScheme(topLevelScheme)) {
+    normalizedConfig.scheme = topLevelScheme;
+  }
+
+  const iosScheme = publicConfig.ios?.scheme ?? privateIosConfig?.scheme ?? normalizedConfig.scheme;
+  if (!hasScheme(normalizedConfig.ios?.scheme) && hasScheme(iosScheme)) {
+    normalizedConfig.ios = {
+      ...(normalizedConfig.ios ?? {}),
+      scheme: iosScheme,
+    };
+  }
+
+  const androidScheme =
+    publicConfig.android?.scheme ?? privateAndroidConfig?.scheme ?? normalizedConfig.scheme;
+  if (!hasScheme(normalizedConfig.android?.scheme) && hasScheme(androidScheme)) {
+    normalizedConfig.android = {
+      ...(normalizedConfig.android ?? {}),
+      scheme: androidScheme,
+    };
+  }
+
+  return normalizedConfig;
 }
 
 export function getExpoConfigUpdateUrl(config: ExpoConfig): string | undefined {
@@ -276,7 +334,7 @@ export async function resolveServerUrl(config: ExpoConfig): Promise<string> {
   try {
     const parsedUrl = new URL(updateUrl);
     baseUrl = parsedUrl.origin;
-  } catch (e) {
+  } catch {
     throw new Error('Invalid update URL.');
   }
   return baseUrl;

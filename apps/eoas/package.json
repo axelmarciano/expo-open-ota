@@ -4,6 +4,7 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc --project tsconfig.json",
+    "test": "node --require ts-node/register --test src/**/*.test.ts",
     "watch": "tsc --project tsconfig.json --watch",
     "lint": "eslint ."
   },
