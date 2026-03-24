@@ -13,21 +13,32 @@ import (
 func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	channelName := r.Header.Get("expo-channel-name")
+	branchName := ""
 	preventCDNRedirection := r.Header.Get("prevent-cdn-redirection") == "true"
-	branchMap, err := services.FetchExpoChannelMapping(channelName)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error fetching channel mapping: %v", requestID, err)
-		http.Error(w, "Error fetching channel mapping", http.StatusInternalServerError)
-		return
-	}
-	if branchMap == nil {
-		log.Printf("[RequestID: %s] No branch mapping found for channel: %s", requestID, channelName)
-		http.Error(w, "No branch mapping found", http.StatusNotFound)
-		return
+	if channelName != "" {
+		branchMap, err := services.FetchExpoChannelMapping(channelName)
+		if err != nil {
+			log.Printf("[RequestID: %s] Error fetching channel mapping: %v", requestID, err)
+			http.Error(w, "Error fetching channel mapping", http.StatusInternalServerError)
+			return
+		}
+		if branchMap == nil {
+			log.Printf("[RequestID: %s] No branch mapping found for channel: %s", requestID, channelName)
+			http.Error(w, "No branch mapping found", http.StatusNotFound)
+			return
+		}
+		branchName = branchMap.BranchName
+	} else {
+		branchName = r.URL.Query().Get("branch")
+		if branchName == "" {
+			log.Printf("[RequestID: %s] Missing both expo-channel-name header and branch query parameter", requestID)
+			http.Error(w, "No channel or branch provided", http.StatusBadRequest)
+			return
+		}
 	}
 
 	req := assets.AssetsRequest{
-		Branch:         branchMap.BranchName,
+		Branch:         branchName,
 		AssetName:      r.URL.Query().Get("asset"),
 		RuntimeVersion: r.URL.Query().Get("runtimeVersion"),
 		Platform:       r.URL.Query().Get("platform"),

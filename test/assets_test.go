@@ -365,3 +365,30 @@ func TestPreventCDNRedirectionHeader(t *testing.T) {
 
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 }
+
+func TestAssetsHandlerUsesBranchQueryWhenChannelHeaderMissing(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+
+	url, _ := update.BuildFinalManifestAssetUrlURL("http://localhost:3000", "bundles/android-82adadb1fb6e489d04ad95fd79670deb.js", "1", "android", "branch-1")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", url, nil)
+
+	handlers.AssetsHandler(w, r)
+
+	assert.Equal(t, 200, w.Code, "Expected status code 200 when branch query parameter is provided")
+	assert.Equal(t, "application/javascript", w.Header().Get("Content-Type"), "Expected 'application/javascript' content type")
+}
+
+func TestAssetsHandlerMissingChannelAndBranch(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/assets?asset=bundles/android-82adadb1fb6e489d04ad95fd79670deb.js&runtimeVersion=1&platform=android", nil)
+
+	handlers.AssetsHandler(w, r)
+
+	assert.Equal(t, 400, w.Code, "Expected status code 400 when both channel header and branch query are missing")
+	assert.Equal(t, "No channel or branch provided\n", w.Body.String())
+}
