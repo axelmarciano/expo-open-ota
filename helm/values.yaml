@@ -47,6 +47,16 @@ environment:
     key: "cacheMode"
     required: true
     computed: true
+  - name: "REDIS_SENTINEL_ADDRS"
+    value: ""
+    required:
+      - key: "cacheMode"
+        is: "redis-sentinel"
+  - name: "REDIS_SENTINEL_MASTER_NAME"
+    value: ""
+    required:
+      - key: "cacheMode"
+        is: "redis-sentinel"
   - name: "REDIS_HOST"
     value: ""
     required:

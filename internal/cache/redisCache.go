@@ -14,10 +14,27 @@ import (
 )
 
 type RedisCache struct {
-	client   *redis.Client
-	host     string
-	password string
-	port     string
+	client redis.UniversalClient
+}
+
+func buildTLSConfig(caCertB64 string) *tls.Config {
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+	if caCertB64 != "" {
+		caCertPEM, err := base64.StdEncoding.DecodeString(caCertB64)
+		if err != nil {
+			log.Printf("Failed to decode CA certificate from base64: %v", err)
+		} else {
+			certPool := x509.NewCertPool()
+			if certPool.AppendCertsFromPEM(caCertPEM) {
+				tlsConfig.RootCAs = certPool
+			} else {
+				log.Printf("Failed to append CA certificate to pool")
+			}
+		}
+	}
+	return tlsConfig
 }
 
 func NewRedisCache(host, password, port string, useTLS bool, username, caCertB64 string) *RedisCache {
@@ -25,38 +42,11 @@ func NewRedisCache(host, password, port string, useTLS bool, username, caCertB64
 		Addr:     host + ":" + port,
 		Password: password,
 	}
-
-	// Configure ACL username if provided
 	if username != "" {
 		opts.Username = username
 	}
-
-	// Configure TLS/SSL
 	if useTLS {
-		tlsConfig := &tls.Config{
-			MinVersion: tls.VersionTLS12,
-		}
-
-		// Load CA certificate if provided
-		if caCertB64 != "" {
-			// Decode base64 certificate
-			caCertPEM, err := base64.StdEncoding.DecodeString(caCertB64)
-			if err != nil {
-				log.Printf("Failed to decode CA certificate from base64: %v", err)
-				log.Printf("WARNING: Proceeding with TLS connection without custom CA certificate")
-			} else {
-				// Create certificate pool and add CA certificate
-				certPool := x509.NewCertPool()
-				if !certPool.AppendCertsFromPEM(caCertPEM) {
-					log.Printf("Failed to append CA certificate to pool")
-					log.Printf("WARNING: Proceeding with TLS connection without custom CA certificate")
-				} else {
-					tlsConfig.RootCAs = certPool
-				}
-			}
-		}
-
-		opts.TLSConfig = tlsConfig
+		opts.TLSConfig = buildTLSConfig(caCertB64)
 	}
 
 	client := redis.NewClient(opts)
@@ -68,6 +58,32 @@ func NewRedisCache(host, password, port string, useTLS bool, username, caCertB64
 		panic(err)
 	}
 
+	return &RedisCache{client: client}
+}
+
+func NewRedisSentinelCache(sentinelAddrs []string, masterName, password string, useTLS bool, username, caCertB64 string) *RedisCache {
+	opts := &redis.FailoverOptions{
+		SentinelAddrs: sentinelAddrs,
+		MasterName:    masterName,
+		Password:      password,
+	}
+	if username != "" {
+		opts.Username = username
+	}
+	if useTLS {
+		opts.TLSConfig = buildTLSConfig(caCertB64)
+	}
+
+	client := redis.NewFailoverClient(opts)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if _, err := client.Ping(ctx).Result(); err != nil {
+		panic(fmt.Sprintf("Redis Sentinel connection failed: %v", err))
+	}
+
+	log.Printf("Connected to Redis via Sentinel (master: %s)", masterName)
 	return &RedisCache{client: client}
 }
 

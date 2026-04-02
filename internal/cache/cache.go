@@ -2,6 +2,7 @@ package cache
 
 import (
 	"expo-open-ota/config"
+	"strings"
 	"sync"
 )
 
@@ -32,12 +33,20 @@ func withPrefix(key string) string {
 	return prefix + ":" + key
 }
 
+const (
+	RedisSentinelCacheType CacheType = "redis-sentinel"
+)
+
 func ResolveCacheType() CacheType {
 	cacheType := config.GetEnv("CACHE_MODE")
-	if cacheType == "redis" {
+	switch cacheType {
+	case "redis":
 		return RedisCacheType
+	case "redis-sentinel":
+		return RedisSentinelCacheType
+	default:
+		return LocalCacheType
 	}
-	return LocalCacheType
 }
 
 var (
@@ -56,10 +65,21 @@ func GetCache() Cache {
 			password := config.GetEnv("REDIS_PASSWORD")
 			port := config.GetEnv("REDIS_PORT")
 			useTLS := config.GetEnv("REDIS_USE_TLS") == "true"
-			// ACL and TLS configuration
 			username := config.GetEnv("REDIS_USERNAME")
 			caCertB64 := config.GetEnv("REDIS_CA_CERT_B64")
 			cacheInstance = NewRedisCache(host, password, port, useTLS, username, caCertB64)
+		case RedisSentinelCacheType:
+			sentinelAddrsStr := config.GetEnv("REDIS_SENTINEL_ADDRS")
+			sentinelAddrs := strings.Split(sentinelAddrsStr, ",")
+			masterName := config.GetEnv("REDIS_SENTINEL_MASTER_NAME")
+			if masterName == "" {
+				masterName = "mymaster"
+			}
+			password := config.GetEnv("REDIS_PASSWORD")
+			useTLS := config.GetEnv("REDIS_USE_TLS") == "true"
+			username := config.GetEnv("REDIS_USERNAME")
+			caCertB64 := config.GetEnv("REDIS_CA_CERT_B64")
+			cacheInstance = NewRedisSentinelCache(sentinelAddrs, masterName, password, useTLS, username, caCertB64)
 		default:
 			panic("Unknown cache type")
 		}
