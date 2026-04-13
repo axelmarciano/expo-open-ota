@@ -127,7 +127,9 @@ export default class Publish extends Command {
         commitHash: string;
       }[]
     ).filter(u => {
-      return u.updateUUID !== 'Rollback to embedded' && u.platform === platform;
+      return (
+        u.updateUUID !== 'Rollback to embedded' && (platform === 'all' || u.platform === platform)
+      );
     });
     const selectedUpdated = await promptAsync({
       type: 'select',
@@ -141,7 +143,7 @@ export default class Publish extends Command {
     });
     Log.log(`Re-publishing update: ${selectedUpdated.update.updateUUID}`);
     const republishUrl = new URL(`${baseUrl}/republish/${branch}`);
-    republishUrl.searchParams.set('platform', platform);
+    republishUrl.searchParams.set('platform', selectedUpdated.update.platform);
     republishUrl.searchParams.set('runtimeVersion', selectedRuntimeVersion.runtimeVersion);
     republishUrl.searchParams.set('updateId', selectedUpdated.update.updateId);
     republishUrl.searchParams.set('commitHash', selectedUpdated.update.commitHash);
