@@ -37,6 +37,8 @@ The environment variables used by the application depend on the following key se
   - If `true`, requires `CLOUDFRONT_DOMAIN`, `CLOUDFRONT_KEY_PAIR_ID`, and a CloudFront private key (`CLOUDFRONT_PRIVATE_KEY_B64`, `PRIVATE_CLOUDFRONT_KEY_PATH`, or `AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID`, depending on `keysStorageType`).
 - **`useAWSAccessKeys`**:
   - If `true`, requires `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` to be set.
+- **`useGenericCDN`**:
+  - If `true1, requires `S3_CDN_PREFIX` to be set.
 
 ### Deployment
 
