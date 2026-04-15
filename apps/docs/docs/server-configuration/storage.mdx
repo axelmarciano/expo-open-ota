@@ -46,15 +46,6 @@ import TabItem from '@theme/TabItem';
     S3_BUCKET_NAME=your-bucket-name
     ```
 
-    **For S3-compatible object storage that supports custom CDN domains (e.g., Qiniu):**
-    ```bash title=".env"
-    STORAGE_MODE=s3
-    AWS_REGION=auto
-    AWS_BASE_ENDPOINT=https://account-id.r2.cloudflarestorage.com
-    S3_BUCKET_NAME=your-bucket-name
-    S3_CDN_PREFIX=https://cdn.example.com
-    ```
-
     If your are not using AWS IAM roles, you also need to set the following environment variables:
     ```bash title=".env"
     AWS_ACCESS_KEY_ID=your-access-key-id

@@ -43,7 +43,6 @@ You can set these variables in a `.env` file for local development or in your de
 | `STORAGE_MODE` | ✅ | `local`, `s3` or `gcs` | `local` | [Ref](/docs/server-configuration/storage) |
 | `S3_BUCKET_NAME` | ✅ if STORAGE_MODE = `s3` | S3 bucket name | `my-bucket` | [Ref](/docs/server-configuration/storage?storage=s3) |
 | `S3_KEY_PREFIX` | ❌ | Key prefix for namespacing inside a shared bucket (multi-app) | `myapp/` | [Ref](/docs/server-configuration/storage?storage=s3) |
-| `S3_CDN_PREFIX` | ❌ | CDN domain prefix for S3 assets | `https://cdn.example.com` | [Ref](/docs/server-configuration/storage?storage=s3) |
 | `GCS_BUCKET_NAME` | ✅ if STORAGE_MODE = `gcs` | GCS bucket name | `my-bucket` | [Ref](/docs/server-configuration/storage?storage=gcs) |
 | `GOOGLE_APPLICATION_CREDENTIALS_B64` | ✅ if STORAGE_MODE = `gcs` (for signed URLs) | Base64-encoded service account JSON | `Base64 string` | [Ref](/docs/server-configuration/storage?storage=gcs) |
 | `LOCAL_BUCKET_BASE_PATH` | ✅ if STORAGE_MODE = `local` | Path to store assets | `/path/to/assets` | [Ref](/docs/server-configuration/storage?storage=local) |
@@ -87,6 +86,11 @@ You can set these variables in a `.env` file for local development or in your de
 | `CLOUDFRONT_PRIVATE_KEY_B64` | ✅ if using `environment` & CLOUDFRONT_DOMAIN is set | Base64 CloudFront private key | `Base64 string` | [Ref](/docs/server-configuration/cdn/cloudfront) |
 | `AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID` | ✅ if using `aws-secrets-manager` & CLOUDFRONT_DOMAIN is set | CloudFront private key in AWS Secrets Manager | `my-cloudfront-private-key` | [Ref](/docs/server-configuration/cdn/cloudfront) |
 | `PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH` | ✅ if using `local` & CLOUDFRONT_DOMAIN is set | Path to CloudFront private key | `/path/to/cloudfront-private-key.pem` | [Ref](/docs/server-configuration/cdn/cloudfront) |
+
+#### **Generic CDN Settings**
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
+| `S3_CDN_PREFIX` | ❌ | CDN domain prefix for S3 assets | `https://cdn.example.com` | [Ref](/docs/server-configuration/cdn/generic) |
 
 #### **Prometheus Configuration**
 | Name | Required | Description | Example | Reference |
