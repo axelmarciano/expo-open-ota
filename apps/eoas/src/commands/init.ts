@@ -32,6 +32,17 @@ export default class Init extends Command {
       );
       return;
     }
+    const detectedAppId = (config.extra as { eas?: { projectId?: string } } | undefined)?.eas
+      ?.projectId;
+    const { appId } = await promptAsync({
+      message:
+        'Enter the Expo project id for this project (sent as the expo-app-id header).\n' +
+        '  See https://axelmarciano.github.io/expo-open-ota/docs/getting-started/prerequisites for details.',
+      name: 'appId',
+      type: 'text',
+      initial: detectedAppId,
+      validate: v => !!v,
+    });
     const { updateUrl: promptedUrl } = await promptAsync({
       message: 'Enter the URL of your update server (ex: https://customota.com)',
       name: 'updateUrl',
@@ -99,6 +110,7 @@ export default class Init extends Command {
       enabled: true,
       requestHeaders: {
         'expo-channel-name': 'process.env.RELEASE_CHANNEL',
+        'expo-app-id': appId,
       },
     };
     const updateConfigSpinner = ora('Updating Expo config').start();
