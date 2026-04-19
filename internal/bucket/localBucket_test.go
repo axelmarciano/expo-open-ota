@@ -66,6 +66,24 @@ func TestGetFile_PathTraversalMultipleLevels(t *testing.T) {
 	assert.Nil(t, file)
 }
 
+func TestGetFile_SiblingDirWithSharedPrefixBlocked(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+
+	b := &LocalBucket{BasePath: "/tmp/test-bucket"}
+	update := types.Update{
+		Branch:         "branch-1",
+		RuntimeVersion: "1",
+		UpdateId:       "123",
+	}
+
+	// updateId="123" — assetPath escapes into sibling "1234abc" which shares the "123" string prefix.
+	file, err := b.GetFile(update, "../1234abc/secret")
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "invalid asset path")
+	assert.Nil(t, file)
+}
+
 func TestGetFile_NormalSubdirectoryAllowed(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()

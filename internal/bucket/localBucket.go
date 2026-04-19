@@ -107,7 +107,10 @@ func (b *LocalBucket) GetFile(update types.Update, assetPath string) (*types.Buc
 
 	expectedBase := filepath.Join(b.rootPath(), update.Branch, update.RuntimeVersion, update.UpdateId)
 	filePath := filepath.Join(expectedBase, assetPath)
-	if !strings.HasPrefix(filePath, expectedBase) {
+	// Use filepath.Rel so sibling dirs sharing a string prefix (e.g. ".../123" vs ".../1234")
+	// aren't treated as nested, and so "." (the base itself) is accepted.
+	rel, err := filepath.Rel(expectedBase, filePath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
 		return nil, errors.New("invalid asset path")
 	}
 

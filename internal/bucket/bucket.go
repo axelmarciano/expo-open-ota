@@ -7,19 +7,84 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
+// validateSegment ensures a single-segment identifier (branch, runtimeVersion,
+// updateId, migrationId) is safe to embed in a storage path / object key. No
+// empties, no path separators, no "." / "..". Defense-in-depth against path
+// traversal on the local backend and weird keys on S3/GCS.
+func validateSegment(name, value string) error {
+	if value == "" {
+		return fmt.Errorf("invalid %s: must not be empty", name)
+	}
+	if strings.ContainsAny(value, "/\\") {
+		return fmt.Errorf("invalid %s: must not contain path separators", name)
+	}
+	if value == "." || value == ".." {
+		return fmt.Errorf("invalid %s: reserved name", name)
+	}
+	return nil
+}
+
+// validateRelativePath validates multi-segment paths supplied for fileName /
+// assetPath. Nested paths are allowed (e.g. "assets/image.png") but no
+// absolute paths and no ".." segments.
+func validateRelativePath(name, value string) error {
+	if value == "" {
+		return fmt.Errorf("invalid %s: must not be empty", name)
+	}
+	if strings.HasPrefix(value, "/") || strings.HasPrefix(value, "\\") {
+		return fmt.Errorf("invalid %s: must not be absolute", name)
+	}
+	for _, seg := range strings.Split(value, "/") {
+		if seg == ".." {
+			return fmt.Errorf("invalid %s: must not contain '..' segments", name)
+		}
+	}
+	return nil
+}
+
+func validateUpdate(u *types.Update) error {
+	if u == nil {
+		return fmt.Errorf("update must not be nil")
+	}
+	if err := validateSegment("branch", u.Branch); err != nil {
+		return err
+	}
+	if err := validateSegment("runtimeVersion", u.RuntimeVersion); err != nil {
+		return err
+	}
+	if err := validateSegment("updateId", u.UpdateId); err != nil {
+		return err
+	}
+	return nil
+}
+
 // resolveKeyPrefix returns the bucket key prefix, normalized to end with "/"
 // when non-empty. It reads BUCKET_KEY_PREFIX first and falls back to the
-// legacy S3_KEY_PREFIX env var.
+// legacy S3_KEY_PREFIX env var. Panics on unsafe values (absolute paths or
+// ".." segments) to fail-fast on operator misconfiguration that could let
+// the local backend escape its BasePath.
 func resolveKeyPrefix() string {
 	prefix := config.GetEnv("BUCKET_KEY_PREFIX")
 	if prefix == "" {
 		// TODO: remove S3_KEY_PREFIX backward-compat once users migrated to BUCKET_KEY_PREFIX
 		prefix = config.GetEnv("S3_KEY_PREFIX")
 	}
-	if prefix != "" && prefix[len(prefix)-1] != '/' {
+	if prefix == "" {
+		return ""
+	}
+	if strings.HasPrefix(prefix, "/") {
+		panic("bucket key prefix must not be absolute (starts with '/')")
+	}
+	for _, seg := range strings.Split(prefix, "/") {
+		if seg == ".." {
+			panic("bucket key prefix must not contain '..' segments")
+		}
+	}
+	if prefix[len(prefix)-1] != '/' {
 		prefix += "/"
 	}
 	return prefix
@@ -78,25 +143,27 @@ func GetBucket() Bucket {
 		if bucketInstance == nil {
 			bucketType := ResolveBucketType()
 			keyPrefix := resolveKeyPrefix()
+			var inner Bucket
 			switch bucketType {
 			case S3BucketType:
-				bucketInstance = &S3Bucket{
+				inner = &S3Bucket{
 					BucketName: config.GetEnv("S3_BUCKET_NAME"),
 					KeyPrefix:  keyPrefix,
 				}
 			case GCSBucketType:
-				bucketInstance = &GCSBucket{
+				inner = &GCSBucket{
 					BucketName: config.GetEnv("GCS_BUCKET_NAME"),
 					KeyPrefix:  keyPrefix,
 				}
 			case LocalBucketType:
-				bucketInstance = &LocalBucket{
+				inner = &LocalBucket{
 					BasePath:  config.GetEnv("LOCAL_BUCKET_BASE_PATH"),
 					KeyPrefix: keyPrefix,
 				}
 			default:
 				panic(fmt.Sprintf("Unknown bucket type: %s", bucketType))
 			}
+			bucketInstance = &validatingBucket{Inner: inner}
 		}
 	})
 	return bucketInstance

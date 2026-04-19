@@ -15,6 +15,15 @@ func setup(t *testing2.T) func() {
 	}
 }
 
+// unwrap drops the validatingBucket decorator so tests can assert on the
+// concrete backend type.
+func unwrap(b Bucket) Bucket {
+	if vb, ok := b.(*validatingBucket); ok {
+		return vb.Inner
+	}
+	return b
+}
+
 func TestResolveLocalBucketType(t *testing2.T) {
 	teardown := setup(t)
 	defer teardown()
@@ -82,7 +91,7 @@ func TestGetS3Bucket(t *testing2.T) {
 	defer teardown()
 	os.Setenv("STORAGE_MODE", "s3")
 	os.Setenv("S3_BUCKET_NAME", "test")
-	bucket := GetBucket()
+	bucket := unwrap(GetBucket())
 	assert.IsType(t, &S3Bucket{}, bucket)
 }
 
@@ -103,7 +112,7 @@ func TestGetS3BucketWithKeyPrefix(t *testing2.T) {
 	os.Setenv("S3_BUCKET_NAME", "test")
 	os.Setenv("BUCKET_KEY_PREFIX", "myapp")
 	defer os.Unsetenv("BUCKET_KEY_PREFIX")
-	bucket := GetBucket()
+	bucket := unwrap(GetBucket())
 	s3b, ok := bucket.(*S3Bucket)
 	assert.True(t, ok)
 	assert.Equal(t, "myapp/", s3b.KeyPrefix)
@@ -116,7 +125,7 @@ func TestGetS3BucketKeyPrefixAlreadyHasSlash(t *testing2.T) {
 	os.Setenv("S3_BUCKET_NAME", "test")
 	os.Setenv("BUCKET_KEY_PREFIX", "myapp/")
 	defer os.Unsetenv("BUCKET_KEY_PREFIX")
-	bucket := GetBucket()
+	bucket := unwrap(GetBucket())
 	s3b, ok := bucket.(*S3Bucket)
 	assert.True(t, ok)
 	assert.Equal(t, "myapp/", s3b.KeyPrefix)
@@ -129,7 +138,7 @@ func TestGetS3BucketWithoutKeyPrefix(t *testing2.T) {
 	os.Setenv("S3_BUCKET_NAME", "test")
 	os.Unsetenv("BUCKET_KEY_PREFIX")
 	os.Unsetenv("S3_KEY_PREFIX")
-	bucket := GetBucket()
+	bucket := unwrap(GetBucket())
 	s3b, ok := bucket.(*S3Bucket)
 	assert.True(t, ok)
 	assert.Equal(t, "", s3b.KeyPrefix)
@@ -144,7 +153,7 @@ func TestGetS3BucketWithLegacyS3KeyPrefix(t *testing2.T) {
 	os.Unsetenv("BUCKET_KEY_PREFIX")
 	os.Setenv("S3_KEY_PREFIX", "legacy")
 	defer os.Unsetenv("S3_KEY_PREFIX")
-	bucket := GetBucket()
+	bucket := unwrap(GetBucket())
 	s3b, ok := bucket.(*S3Bucket)
 	assert.True(t, ok)
 	assert.Equal(t, "legacy/", s3b.KeyPrefix)
@@ -160,7 +169,7 @@ func TestBucketKeyPrefixTakesPrecedenceOverLegacy(t *testing2.T) {
 	os.Setenv("S3_KEY_PREFIX", "legacy")
 	defer os.Unsetenv("BUCKET_KEY_PREFIX")
 	defer os.Unsetenv("S3_KEY_PREFIX")
-	bucket := GetBucket()
+	bucket := unwrap(GetBucket())
 	s3b, ok := bucket.(*S3Bucket)
 	assert.True(t, ok)
 	assert.Equal(t, "new/", s3b.KeyPrefix)
@@ -173,10 +182,40 @@ func TestGetGCSBucketWithKeyPrefix(t *testing2.T) {
 	os.Setenv("GCS_BUCKET_NAME", "test-bucket")
 	os.Setenv("BUCKET_KEY_PREFIX", "myapp")
 	defer os.Unsetenv("BUCKET_KEY_PREFIX")
-	bucket := GetBucket()
+	bucket := unwrap(GetBucket())
 	gcsb, ok := bucket.(*GCSBucket)
 	assert.True(t, ok)
 	assert.Equal(t, "myapp/", gcsb.KeyPrefix)
+}
+
+func TestKeyPrefixRejectsDotDotSegment(t *testing2.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("STORAGE_MODE", "local")
+	os.Setenv("LOCAL_BUCKET_BASE_PATH", "test")
+	os.Setenv("BUCKET_KEY_PREFIX", "../etc")
+	defer os.Unsetenv("BUCKET_KEY_PREFIX")
+	assert.PanicsWithValue(t, "bucket key prefix must not contain '..' segments", func() { GetBucket() })
+}
+
+func TestKeyPrefixRejectsAbsolutePath(t *testing2.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("STORAGE_MODE", "local")
+	os.Setenv("LOCAL_BUCKET_BASE_PATH", "test")
+	os.Setenv("BUCKET_KEY_PREFIX", "/etc")
+	defer os.Unsetenv("BUCKET_KEY_PREFIX")
+	assert.PanicsWithValue(t, "bucket key prefix must not be absolute (starts with '/')", func() { GetBucket() })
+}
+
+func TestKeyPrefixRejectsDotDotInMiddle(t *testing2.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("STORAGE_MODE", "s3")
+	os.Setenv("S3_BUCKET_NAME", "test")
+	os.Setenv("BUCKET_KEY_PREFIX", "myapp/../other")
+	defer os.Unsetenv("BUCKET_KEY_PREFIX")
+	assert.PanicsWithValue(t, "bucket key prefix must not contain '..' segments", func() { GetBucket() })
 }
 
 func TestGetLocalBucketWithKeyPrefix(t *testing2.T) {
@@ -186,7 +225,7 @@ func TestGetLocalBucketWithKeyPrefix(t *testing2.T) {
 	os.Setenv("LOCAL_BUCKET_BASE_PATH", "test")
 	os.Setenv("BUCKET_KEY_PREFIX", "myapp")
 	defer os.Unsetenv("BUCKET_KEY_PREFIX")
-	bucket := GetBucket()
+	bucket := unwrap(GetBucket())
 	lb, ok := bucket.(*LocalBucket)
 	assert.True(t, ok)
 	assert.Equal(t, "myapp/", lb.KeyPrefix)
@@ -197,7 +236,7 @@ func TestGetLocalBucket(t *testing2.T) {
 	defer teardown()
 	os.Setenv("STORAGE_MODE", "local")
 	os.Setenv("LOCAL_BUCKET_BASE_PATH", "test")
-	bucket := GetBucket()
+	bucket := unwrap(GetBucket())
 	assert.IsType(t, &LocalBucket{}, bucket)
 }
 
@@ -207,6 +246,6 @@ func TestGetGCSBucket(t *testing2.T) {
     defer teardown()
     os.Setenv("STORAGE_MODE", "gcs")
     os.Setenv("GCS_BUCKET_NAME", "test-bucket")
-    bucket := GetBucket()
+    bucket := unwrap(GetBucket())
     assert.IsType(t, &GCSBucket{}, bucket)
 }
