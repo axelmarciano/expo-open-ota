@@ -26,7 +26,7 @@ func createRollbackRequest(projectRoot, branch, runtimeVersion, headerKey, heade
 	}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
-	r = mux.SetURLVars(r, map[string]string{"BRANCH": branch})
+	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": branch})
 	r.Header.Set(headerKey, headerValue)
 	return w, mux.NewRouter(), nil, r
 }
@@ -71,7 +71,7 @@ func TestGoodRollback(t *testing.T) {
 	assert.NotEmpty(t, body.RuntimeVersion, "Expected non-empty runtimeVersion")
 	assert.NotEmpty(t, body.Branch, "Expected non-empty branch")
 	assert.NotEmpty(t, body.CreatedAt, "Expected non-empty createdAt")
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("DO_NOT_USE", "1", "ios")
+	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "DO_NOT_USE", "1", "ios")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestGoodRollbackWithoutCommitHash(t *testing.T) {
 	assert.NotEmpty(t, body.RuntimeVersion, "Expected non-empty runtimeVersion")
 	assert.NotEmpty(t, body.Branch, "Expected non-empty branch")
 	assert.NotEmpty(t, body.CreatedAt, "Expected non-empty createdAt")
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("DO_NOT_USE", "1", "ios")
+	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "DO_NOT_USE", "1", "ios")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}

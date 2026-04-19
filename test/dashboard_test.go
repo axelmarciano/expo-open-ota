@@ -153,7 +153,7 @@ func TestBranches(t *testing.T) {
 		func(req *http.Request) (*http.Response, error) {
 			return MockExpoBranchesMappingResponse([]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}, {"id": "branch-2", "name": "branch-2"}}, []map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}})
 		})
-	req, _ := http.NewRequest("GET", "/api/branches", nil)
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branches", nil)
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusOK, respRec.Code)
@@ -169,7 +169,7 @@ func TestBranchesWithoutAuth(t *testing.T) {
 	defer teardown()
 	router := infrastructure.NewRouter()
 	respRec := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/branches", nil)
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branches", nil)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
 }
@@ -179,7 +179,7 @@ func TestRuntimeVersionsWithoutAuth(t *testing.T) {
 	defer teardown()
 	router := infrastructure.NewRouter()
 	respRec := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/branch/branch-1/runtimeVersions", nil)
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branch/branch-1/runtimeVersions", nil)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
 }
@@ -193,7 +193,7 @@ func TestRuntimeVersions(t *testing.T) {
 		func(req *http.Request) (*http.Response, error) {
 			return MockExpoBranchesMappingResponse([]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}, {"id": "branch-2", "name": "branch-2"}}, []map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}})
 		})
-	req, _ := http.NewRequest("GET", "/api/branch/branch-1/runtimeVersions", nil)
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branch/branch-1/runtimeVersions", nil)
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusOK, respRec.Code)
@@ -208,7 +208,7 @@ func TestUpdatesWithoutAuth(t *testing.T) {
 	defer teardown()
 	router := infrastructure.NewRouter()
 	respRec := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/branch/branch-1/runtimeVersion/1/updates", nil)
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branch/branch-1/runtimeVersion/1/updates", nil)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
 }
@@ -222,7 +222,7 @@ func TestUpdatesRegularBranch1(t *testing.T) {
 		func(req *http.Request) (*http.Response, error) {
 			return MockExpoBranchesMappingResponse([]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}, {"id": "branch-2", "name": "branch-2"}}, []map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}})
 		})
-	req, _ := http.NewRequest("GET", "/api/branch/branch-1/runtimeVersion/1/updates", nil)
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branch/branch-1/runtimeVersion/1/updates", nil)
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusOK, respRec.Code)
@@ -238,7 +238,7 @@ func TestUpdatesMultiBranch2(t *testing.T) {
 		func(req *http.Request) (*http.Response, error) {
 			return MockExpoBranchesMappingResponse([]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}, {"id": "branch-2", "name": "branch-2"}}, []map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}})
 		})
-	req, _ := http.NewRequest("GET", "/api/branch/branch-2/runtimeVersion/1/updates", nil)
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branch/branch-2/runtimeVersion/1/updates", nil)
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusOK, respRec.Code)
@@ -254,7 +254,7 @@ func TestUpdatesSomeNotValidBranch4(t *testing.T) {
 		func(req *http.Request) (*http.Response, error) {
 			return MockExpoBranchesMappingResponse([]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}, {"id": "branch-2", "name": "branch-2"}}, []map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}})
 		})
-	req, _ := http.NewRequest("GET", "/api/branch/branch-4/runtimeVersion/1/updates", nil)
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branch/branch-4/runtimeVersion/1/updates", nil)
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusOK, respRec.Code)

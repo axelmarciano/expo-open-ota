@@ -45,11 +45,13 @@ func NewRouter() *mux.Router {
 	r.HandleFunc("/hc", HealthCheck).Methods(http.MethodGet)
 
 
-	r.HandleFunc("/{APP_ID}/requestUploadUrl/{BRANCH}", handlers.RequestUploadUrlHandler).Methods(http.MethodPost)
-	r.HandleFunc("/{APP_ID}/uploadLocalFile", handlers.RequestUploadLocalFileHandler).Methods(http.MethodPut)
-	r.HandleFunc("/{APP_ID}/markUpdateAsUploaded/{BRANCH}", handlers.MarkUpdateAsUploadedHandler).Methods(http.MethodPost)
-	r.HandleFunc("/{APP_ID}/rollback/{BRANCH}", handlers.RollbackHandler).Methods(http.MethodPost)
-	r.HandleFunc("/{APP_ID}/republish/{BRANCH}", handlers.RepublishHandler).Methods(http.MethodPost)
+	appSubrouter := r.PathPrefix("/{APP_ID}").Subrouter()
+	appSubrouter.Use(middleware.AppResolverMiddleware)
+	appSubrouter.HandleFunc("/requestUploadUrl/{BRANCH}", handlers.RequestUploadUrlHandler).Methods(http.MethodPost)
+	appSubrouter.HandleFunc("/uploadLocalFile", handlers.RequestUploadLocalFileHandler).Methods(http.MethodPut)
+	appSubrouter.HandleFunc("/markUpdateAsUploaded/{BRANCH}", handlers.MarkUpdateAsUploadedHandler).Methods(http.MethodPost)
+	appSubrouter.HandleFunc("/rollback/{BRANCH}", handlers.RollbackHandler).Methods(http.MethodPost)
+	appSubrouter.HandleFunc("/republish/{BRANCH}", handlers.RepublishHandler).Methods(http.MethodPost)
 
 	r.HandleFunc("/manifest", handlers.ManifestHandler).Methods(http.MethodGet)
 	r.HandleFunc("/assets", handlers.AssetsHandler).Methods(http.MethodGet)

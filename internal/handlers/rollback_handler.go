@@ -15,6 +15,7 @@ import (
 func RollbackHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	vars := mux.Vars(r)
+	appId := vars["APP_ID"]
 	branchName := vars["BRANCH"]
 	platform := r.URL.Query().Get("platform")
 	if platform == "" || (platform != "ios" && platform != "android") {
@@ -52,7 +53,7 @@ func RollbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	commitHash := r.URL.Query().Get("commitHash")
-	rollback, err := update.CreateRollback(platform, commitHash, runtimeVersion, branchName)
+	rollback, err := update.CreateRollback(appId, platform, commitHash, runtimeVersion, branchName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error creating rollback: %v", requestID, err)
 		http.Error(w, "Error creating rollback", http.StatusInternalServerError)

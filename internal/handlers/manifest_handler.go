@@ -153,6 +153,12 @@ func putNoUpdateAvailableInResponse(w http.ResponseWriter, r *http.Request, runt
 func ManifestHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 
+	appId := r.Header.Get("expo-app-id")
+	if appId == "" {
+		log.Printf("[RequestID: %s] No app id provided", requestID)
+		http.Error(w, "No app id provided", http.StatusBadRequest)
+		return
+	}
 	channelName := r.Header.Get("expo-channel-name")
 	if channelName == "" {
 		log.Printf("[RequestID: %s] No channel name provided", requestID)
@@ -211,7 +217,7 @@ func ManifestHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No runtime version provided", http.StatusBadRequest)
 		return
 	}
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion(branch, runtimeVersion, platform)
+	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion(appId, branch, runtimeVersion, platform)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error getting latest update: %v", requestID, err)
 		http.Error(w, "Error getting latest update", http.StatusInternalServerError)

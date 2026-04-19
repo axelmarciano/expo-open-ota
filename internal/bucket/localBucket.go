@@ -34,19 +34,19 @@ func (b *LocalBucket) rootPath() string {
 	return filepath.Join(b.BasePath, b.KeyPrefix)
 }
 
-func (b *LocalBucket) DeleteUpdateFolder(branch string, runtimeVersion string, updateId string) error {
+func (b *LocalBucket) DeleteUpdateFolder(appId string, branch string, runtimeVersion string, updateId string) error {
 	if b.BasePath == "" {
 		return errors.New("BasePath not set")
 	}
-	dirPath := filepath.Join(b.rootPath(), branch, runtimeVersion, updateId)
+	dirPath := filepath.Join(b.rootPath(), appId, branch, runtimeVersion, updateId)
 	return os.RemoveAll(dirPath)
 }
 
-func (b *LocalBucket) RequestUploadUrlForFileUpdate(branch string, runtimeVersion string, updateId string, fileName string) (string, error) {
+func (b *LocalBucket) RequestUploadUrlForFileUpdate(appId string, branch string, runtimeVersion string, updateId string, fileName string) (string, error) {
 	if b.BasePath == "" {
 		return "", errors.New("BasePath not set")
 	}
-	dirPath := filepath.Join(b.rootPath(), branch, runtimeVersion, updateId)
+	dirPath := filepath.Join(b.rootPath(), appId, branch, runtimeVersion, updateId)
 	err := os.MkdirAll(dirPath, os.ModePerm)
 	if err != nil {
 		return "", err
@@ -74,11 +74,11 @@ func (b *LocalBucket) RequestUploadUrlForFileUpdate(branch string, runtimeVersio
 	return parsedURL.String(), nil
 }
 
-func (b *LocalBucket) GetUpdates(branch string, runtimeVersion string) ([]types.Update, error) {
+func (b *LocalBucket) GetUpdates(appId string, branch string, runtimeVersion string) ([]types.Update, error) {
 	if b.BasePath == "" {
 		return nil, errors.New("BasePath not set")
 	}
-	dirPath := filepath.Join(b.rootPath(), branch, runtimeVersion)
+	dirPath := filepath.Join(b.rootPath(), appId, branch, runtimeVersion)
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		return []types.Update{}, nil
@@ -89,6 +89,7 @@ func (b *LocalBucket) GetUpdates(branch string, runtimeVersion string) ([]types.
 			updateId, err := strconv.ParseInt(entry.Name(), 10, 64)
 			if err == nil {
 				updates = append(updates, types.Update{
+					AppId:          appId,
 					Branch:         branch,
 					RuntimeVersion: runtimeVersion,
 					UpdateId:       strconv.FormatInt(updateId, 10),
@@ -105,7 +106,7 @@ func (b *LocalBucket) GetFile(update types.Update, assetPath string) (*types.Buc
 		return nil, errors.New("BasePath not set")
 	}
 
-	expectedBase := filepath.Join(b.rootPath(), update.Branch, update.RuntimeVersion, update.UpdateId)
+	expectedBase := filepath.Join(b.rootPath(), update.AppId, update.Branch, update.RuntimeVersion, update.UpdateId)
 	filePath := filepath.Join(expectedBase, assetPath)
 	// Use filepath.Rel so sibling dirs sharing a string prefix (e.g. ".../123" vs ".../1234")
 	// aren't treated as nested, and so "." (the base itself) is accepted.
@@ -133,12 +134,15 @@ func (b *LocalBucket) GetFile(update types.Update, assetPath string) (*types.Buc
 		CreatedAt: info.ModTime(),
 	}, nil
 }
-func (b *LocalBucket) GetBranches() ([]string, error) {
+func (b *LocalBucket) GetBranches(appId string) ([]string, error) {
 	if b.BasePath == "" {
 		return nil, errors.New("BasePath not set")
 	}
-	entries, err := os.ReadDir(b.rootPath())
+	entries, err := os.ReadDir(filepath.Join(b.rootPath(), appId))
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	var branches []string
@@ -150,11 +154,11 @@ func (b *LocalBucket) GetBranches() ([]string, error) {
 	return branches, nil
 }
 
-func (b *LocalBucket) GetRuntimeVersions(branch string) ([]RuntimeVersionWithStats, error) {
+func (b *LocalBucket) GetRuntimeVersions(appId string, branch string) ([]RuntimeVersionWithStats, error) {
 	if b.BasePath == "" {
 		return nil, errors.New("BasePath not set")
 	}
-	dirPath := filepath.Join(b.rootPath(), branch)
+	dirPath := filepath.Join(b.rootPath(), appId, branch)
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		return nil, err
@@ -199,7 +203,7 @@ func (b *LocalBucket) GetRuntimeVersions(branch string) ([]RuntimeVersionWithSta
 }
 
 func (b *LocalBucket) UploadFileIntoUpdate(update types.Update, fileName string, file io.Reader) error {
-	filePath := filepath.Join(b.rootPath(), update.Branch, update.RuntimeVersion, update.UpdateId, fileName)
+	filePath := filepath.Join(b.rootPath(), update.AppId, update.Branch, update.RuntimeVersion, update.UpdateId, fileName)
 	err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm)
 	if err != nil {
 		return err
@@ -265,8 +269,8 @@ func (b *LocalBucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId
 		return nil, errors.New("newUpdateId is empty")
 	}
 
-	previousUpdatePath := filepath.Join(b.rootPath(), previousUpdate.Branch, previousUpdate.RuntimeVersion, previousUpdate.UpdateId)
-	newUpdatePath := filepath.Join(b.rootPath(), previousUpdate.Branch, previousUpdate.RuntimeVersion, newUpdateId)
+	previousUpdatePath := filepath.Join(b.rootPath(), previousUpdate.AppId, previousUpdate.Branch, previousUpdate.RuntimeVersion, previousUpdate.UpdateId)
+	newUpdatePath := filepath.Join(b.rootPath(), previousUpdate.AppId, previousUpdate.Branch, previousUpdate.RuntimeVersion, newUpdateId)
 
 	err := os.MkdirAll(newUpdatePath, os.ModePerm)
 	if err != nil {
@@ -323,6 +327,7 @@ func (b *LocalBucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId
 		return nil, fmt.Errorf("error parsing update ID: %w", err)
 	}
 	return &types.Update{
+		AppId:          previousUpdate.AppId,
 		Branch:         previousUpdate.Branch,
 		RuntimeVersion: previousUpdate.RuntimeVersion,
 		UpdateId:       newUpdateId,

@@ -11,6 +11,7 @@ import (
 )
 
 type AssetsRequest struct {
+	AppId           string
 	Branch         string
 	AssetName      string
 	RuntimeVersion string
@@ -44,7 +45,7 @@ func getAssetMetadata(req AssetsRequest, returnAsset bool) (AssetsResponse, *typ
 		return AssetsResponse{StatusCode: http.StatusBadRequest, Body: []byte("No runtime version provided")}, nil, "", nil
 	}
 
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion(req.Branch, req.RuntimeVersion, req.Platform)
+	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion(req.AppId,req.Branch, req.RuntimeVersion, req.Platform)
 	if err != nil || lastUpdate == nil {
 		log.Printf("[RequestID: %s] No update found for runtimeVersion: %s", requestID, req.RuntimeVersion)
 		return AssetsResponse{StatusCode: http.StatusNotFound, Body: []byte("No update found")}, nil, "", nil

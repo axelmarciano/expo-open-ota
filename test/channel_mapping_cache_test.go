@@ -92,7 +92,7 @@ func TestUpdateChannelBranchMappingInvalidatesChannelMappingCache(t *testing.T) 
 	// Call UpdateChannelBranchMappingHandler via the router — this should invalidate the cache
 	router := infrastructure.NewRouter()
 	body := `{"releaseChannel":"staging"}`
-	req, _ := http.NewRequest("POST", "/api/branch/branch-2-id/updateChannelBranchMapping", strings.NewReader(body))
+	req, _ := http.NewRequest("POST", "/api/apps/test-app-id/branch/branch-2-id/updateChannelBranchMapping", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	w := httptest.NewRecorder()

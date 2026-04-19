@@ -20,6 +20,7 @@ func TestGetFile_ValidAssetPath(t *testing.T) {
 
 	b := &LocalBucket{BasePath: basePath}
 	update := types.Update{
+		AppId:          "test-app-id",
 		Branch:         "branch-1",
 		RuntimeVersion: "1",
 		UpdateId:       "1674170951",

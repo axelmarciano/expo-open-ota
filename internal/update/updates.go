@@ -37,9 +37,9 @@ func filterPlatformUpdates(updates []types.Update, platform string) []types.Upda
 	return filteredUpdates
 }
 
-func GetAllUpdatesForRuntimeVersion(branch string, runtimeVersion string, platform string) ([]types.Update, error) {
+func GetAllUpdatesForRuntimeVersion(appId, branch string, runtimeVersion string, platform string) ([]types.Update, error) {
 	resolvedBucket := bucket.GetBucket()
-	updates, errGetUpdates := resolvedBucket.GetUpdates(branch, runtimeVersion)
+	updates, errGetUpdates := resolvedBucket.GetUpdates(appId, branch, runtimeVersion)
 	if errGetUpdates != nil {
 		return nil, errGetUpdates
 	}
@@ -85,7 +85,7 @@ func MarkUpdateAsChecked(update types.Update) error {
 	if err != nil || storedMetadata == nil {
 		return err
 	}
-	cacheKeys := []string{ComputeLastUpdateCacheKey(update.Branch, update.RuntimeVersion, storedMetadata.Platform), branchesCacheKey, runTimeVersionsCacheKey, updatesCacheKey}
+	cacheKeys := []string{ComputeLastUpdateCacheKey(update.AppId,update.Branch, update.RuntimeVersion, storedMetadata.Platform), branchesCacheKey, runTimeVersionsCacheKey, updatesCacheKey}
 	for _, cacheKey := range cacheKeys {
 		cache.Delete(cacheKey)
 	}
@@ -96,8 +96,8 @@ func MarkUpdateAsChecked(update types.Update) error {
 	}
 	reader := strings.NewReader(".check")
 	_ = resolvedBucket.UploadFileIntoUpdate(update, ".check", reader)
-	go PreWarmManifestCache(update.Branch, update.RuntimeVersion, "ios")
-	go PreWarmManifestCache(update.Branch, update.RuntimeVersion, "android")
+	go PreWarmManifestCache(update.AppId, update.Branch, update.RuntimeVersion, "ios")
+	go PreWarmManifestCache(update.AppId, update.Branch, update.RuntimeVersion, "android")
 	return nil
 }
 
@@ -112,20 +112,20 @@ func IsUpdateValid(Update types.Update) bool {
 	return false
 }
 
-func ComputeLastUpdateCacheKey(branch string, runtimeVersion string, platform string) string {
-	return fmt.Sprintf("lastUpdate:%s:%s:%s:%s", version.Version, branch, runtimeVersion, platform)
+func ComputeLastUpdateCacheKey(appId string, branch string, runtimeVersion string, platform string) string {
+	return fmt.Sprintf("lastUpdate:%s:%s:%s:%s:%s", appId, version.Version, branch, runtimeVersion, platform)
 }
 
-func ComputeMetadataCacheKey(branch string, runtimeVersion string, updateId string) string {
-	return fmt.Sprintf("metadata:%s:%s:%s:%s", version.Version, branch, runtimeVersion, updateId)
+func ComputeMetadataCacheKey(appId string, branch string, runtimeVersion string, updateId string) string {
+	return fmt.Sprintf("metadata:%s:%s:%s:%s:%s", appId, version.Version, branch, runtimeVersion, updateId)
 }
 
-func ComputeUpdataManifestCacheKey(branch string, runtimeVersion string, updateId string, platform string) string {
-	return fmt.Sprintf("manifest:%s:%s:%s:%s:%s", version.Version, branch, runtimeVersion, updateId, platform)
+func ComputeUpdataManifestCacheKey(appId string, branch string, runtimeVersion string, updateId string, platform string) string {
+	return fmt.Sprintf("manifest:%s:%s:%s:%s:%s:%s", appId, version.Version, branch, runtimeVersion, updateId, platform)
 }
 
-func ComputeManifestAssetCacheKey(update types.Update, assetPath string) string {
-	return fmt.Sprintf("asset:%s:%s:%s:%s:%s", version.Version, update.Branch, update.RuntimeVersion, update.UpdateId, assetPath)
+func ComputeManifestAssetCacheKey(appId string, update types.Update, assetPath string) string {
+	return fmt.Sprintf("asset:%s:%s:%s:%s:%s:%s", appId, version.Version, update.Branch, update.RuntimeVersion, update.UpdateId, assetPath)
 }
 
 func VerifyUploadedUpdate(update types.Update) error {
@@ -163,12 +163,13 @@ func VerifyUploadedUpdate(update types.Update) error {
 	return nil
 }
 
-func GetUpdate(branch string, runtimeVersion string, updateId string) (*types.Update, error) {
+func GetUpdate(appId string, branch string, runtimeVersion string, updateId string) (*types.Update, error) {
 	updateIdInt64, err := strconv.ParseInt(updateId, 10, 64)
 	if err != nil {
 		return nil, err
 	}
 	return &types.Update{
+		AppId:          appId,
 		Branch:         branch,
 		RuntimeVersion: runtimeVersion,
 		UpdateId:       updateId,
@@ -188,9 +189,9 @@ func AreUpdatesIdentical(update1, update2 types.Update) (bool, error) {
 	return metadata1.Fingerprint == metadata2.Fingerprint, nil
 }
 
-func GetLatestUpdateBundlePathForRuntimeVersion(branch string, runtimeVersion string, platform string) (*types.Update, error) {
+func GetLatestUpdateBundlePathForRuntimeVersion(appId string, branch string, runtimeVersion string, platform string) (*types.Update, error) {
 	cache := cache2.GetCache()
-	cacheKey := ComputeLastUpdateCacheKey(branch, runtimeVersion, platform)
+	cacheKey := ComputeLastUpdateCacheKey(appId, branch, runtimeVersion, platform)
 	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
 		var update types.Update
 		err := json.Unmarshal([]byte(cachedValue), &update)
@@ -199,7 +200,7 @@ func GetLatestUpdateBundlePathForRuntimeVersion(branch string, runtimeVersion st
 		}
 		return &update, nil
 	}
-	updates, err := GetAllUpdatesForRuntimeVersion(branch, runtimeVersion, platform)
+	updates, err := GetAllUpdatesForRuntimeVersion(appId,branch, runtimeVersion, platform)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +252,7 @@ func GetExpoConfig(update types.Update) (json.RawMessage, error) {
 }
 
 func GetMetadata(update types.Update) (types.UpdateMetadata, error) {
-	metadataCacheKey := ComputeMetadataCacheKey(update.Branch, update.RuntimeVersion, update.UpdateId)
+	metadataCacheKey := ComputeMetadataCacheKey(update.AppId, update.Branch, update.RuntimeVersion, update.UpdateId)
 	cache := cache2.GetCache()
 	if cachedValue := cache.Get(metadataCacheKey); cachedValue != "" {
 		var metadata types.UpdateMetadata
@@ -323,7 +324,7 @@ func GetAssetEndpoint() string {
 }
 
 func shapeManifestAsset(update types.Update, asset *types.Asset, isLaunchAsset bool, platform string) (types.ManifestAsset, error) {
-	cacheKey := ComputeManifestAssetCacheKey(update, asset.Path)
+	cacheKey := ComputeManifestAssetCacheKey(update.AppId, update, asset.Path)
 	cache := cache2.GetCache()
 	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
 		var manifestAsset types.ManifestAsset
@@ -414,7 +415,7 @@ func ComposeUpdateManifest(
 	platform string,
 ) (types.UpdateManifest, error) {
 	cache := cache2.GetCache()
-	cacheKey := ComputeUpdataManifestCacheKey(update.Branch, update.RuntimeVersion, update.UpdateId, platform)
+	cacheKey := ComputeUpdataManifestCacheKey(update.AppId, update.Branch, update.RuntimeVersion, update.UpdateId, platform)
 	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
 		var manifest types.UpdateManifest
 		err := json.Unmarshal([]byte(cachedValue), &manifest)
@@ -563,9 +564,10 @@ func ConvertUpdateTimestampToString(updateId int64) string {
 	return fmt.Sprintf("%d", updateId)
 }
 
-func CreateRollback(platform, commitHash, runtimeVersion, branchName string) (*types.Update, error) {
+func CreateRollback(appId, platform, commitHash, runtimeVersion, branchName string) (*types.Update, error) {
 	updateId := GenerateUpdateTimestamp()
 	update := types.Update{
+		AppId:          appId,
 		UpdateId:       ConvertUpdateTimestampToString(updateId),
 		Branch:         branchName,
 		RuntimeVersion: runtimeVersion,

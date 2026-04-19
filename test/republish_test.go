@@ -26,7 +26,7 @@ func createRepublishRequest(branch, runtimeVersion, headerKey, headerValue, plat
 	}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
-	r = mux.SetURLVars(r, map[string]string{"BRANCH": branch})
+	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": branch})
 	r.Header.Set(headerKey, headerValue)
 	return w, mux.NewRouter(), nil, r
 }
@@ -114,7 +114,7 @@ func TestGoodRepublish(t *testing.T) {
 	assert.NotEmpty(t, body.RuntimeVersion, "Expected non-empty runtimeVersion")
 	assert.NotEmpty(t, body.Branch, "Expected non-empty branch")
 	assert.NotEmpty(t, body.CreatedAt, "Expected non-empty createdAt")
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("branch-2", "1", "ios")
+	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "branch-2", "1", "ios")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestGoodRepublish(t *testing.T) {
 	updateType := update.GetUpdateType(*lastUpdate)
 	assert.Equal(t, updateType, types.NormalUpdate, "Expected update type to be normal")
 
-	previousUpdate, err := update.GetUpdate("branch-2", "1", "1737455526")
+	previousUpdate, err := update.GetUpdate("test-app-id", "branch-2", "1", "1737455526")
 	if err != nil {
 		t.Fatalf("Error getting previous update: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestGoodRepublishWithoutCommitHash(t *testing.T) {
 	assert.NotEmpty(t, body.RuntimeVersion, "Expected non-empty runtimeVersion")
 	assert.NotEmpty(t, body.Branch, "Expected non-empty branch")
 	assert.NotEmpty(t, body.CreatedAt, "Expected non-empty createdAt")
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("branch-2", "1", "ios")
+	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "branch-2", "1", "ios")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestGoodRepublishWithoutCommitHash(t *testing.T) {
 	updateType := update.GetUpdateType(*lastUpdate)
 	assert.Equal(t, updateType, types.NormalUpdate, "Expected update type to be normal")
 
-	previousUpdate, err := update.GetUpdate("branch-2", "1", "1737455526")
+	previousUpdate, err := update.GetUpdate("test-app-id", "branch-2", "1", "1737455526")
 	if err != nil {
 		t.Fatalf("Error getting previous update: %v", err)
 	}
@@ -246,8 +246,8 @@ func TestRepublishInvalidUpdate(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	// rm the file projectDir/updates/DO_NOT_USE/branch-2/1/1737455526/.check
-	err = os.Remove(filepath.Join(dst, "branch-2", "1", "1737455526", ".check"))
+	// rm the file projectDir/updates/DO_NOT_USE/test-app-id/branch-2/1/1737455526/.check
+	err = os.Remove(filepath.Join(dst, "test-app-id", "branch-2", "1", "1737455526", ".check"))
 	if err != nil {
 		panic(err)
 	}

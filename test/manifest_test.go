@@ -25,6 +25,7 @@ func TestNotValidChannelForManifest(t *testing.T) {
 	r.Header.Add("expo-platform", "ios")
 	r.Header.Add("expo-runtime-version", "1")
 	r.Header.Add("expo-channel-name", "bad_channel")
+	r.Header.Add("expo-app-id", "test-app-id")
 	r.Header.Add("expo-protocol-version", "1")
 	r.Header.Add("expo-expect-signature", "true")
 	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
@@ -58,6 +59,7 @@ func TestNotMappedChannelForManifest(t *testing.T) {
 	r.Header.Add("expo-platform", "ios")
 	r.Header.Add("expo-runtime-version", "1")
 	r.Header.Add("expo-channel-name", "bad_channel")
+	r.Header.Add("expo-app-id", "test-app-id")
 	r.Header.Add("expo-protocol-version", "1")
 	r.Header.Add("expo-expect-signature", "true")
 	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
@@ -107,6 +109,7 @@ func TestNotValidProtocolVersionsForManifest(t *testing.T) {
 	r := httptest.NewRequest("GET", q, nil)
 	r.Header.Add("expo-platform", "ios")
 	r.Header.Add("expo-channel-name", "staging")
+	r.Header.Add("expo-app-id", "test-app-id")
 	r.Header.Add("expo-runtime-version", "1")
 	r.Header.Add("expo-protocol-version", "invalid")
 	r.Header.Add("expo-expect-signature", "true")
@@ -128,6 +131,7 @@ func TestNotValidPlatformForManifest(t *testing.T) {
 	r.Header.Add("expo-protocol-version", "1")
 	r.Header.Add("expo-expect-signature", "true")
 	r.Header.Add("expo-channel-name", "staging")
+	r.Header.Add("expo-app-id", "test-app-id")
 	mockWorkingExpoResponse("staging")
 	handlers.ManifestHandler(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400 for an invalid platform")
@@ -146,6 +150,7 @@ func TestNotValidRuntimeVersionForManifest(t *testing.T) {
 	r.Header.Add("expo-protocol-version", "1")
 	r.Header.Add("expo-expect-signature", "true")
 	r.Header.Add("expo-channel-name", "staging")
+	r.Header.Add("expo-app-id", "test-app-id")
 
 	mockWorkingExpoResponse("staging")
 	handlers.ManifestHandler(w, r)
@@ -172,6 +177,7 @@ func TestNotValidCertificatesForManifest(t *testing.T) {
 	r.Header.Add("expo-protocol-version", "1")
 	r.Header.Add("expo-expect-signature", "true")
 	r.Header.Add("expo-channel-name", "staging")
+	r.Header.Add("expo-app-id", "test-app-id")
 	mockWorkingExpoResponse("staging")
 	handlers.ManifestHandler(w, r)
 
@@ -191,6 +197,7 @@ func TestNoUpdatesForManifest(t *testing.T) {
 	r.Header.Add("expo-protocol-version", "1")
 	r.Header.Add("expo-expect-signature", "true")
 	r.Header.Add("expo-channel-name", "staging")
+	r.Header.Add("expo-app-id", "test-app-id")
 	mockWorkingExpoResponse("staging")
 	handlers.ManifestHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200 when manifest is retrieved")
@@ -273,7 +280,7 @@ func TestSkippingNotValidUpdatesAndCache(t *testing.T) {
 
 			return httpmock.NewStringResponse(404, "Unknown operation"), nil
 		})
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("branch-4", "1", "android")
+	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "branch-4", "1", "android")
 	if err != nil {
 		t.Errorf("Error getting latest update: %v", err)
 	}
@@ -282,9 +289,9 @@ func TestSkippingNotValidUpdatesAndCache(t *testing.T) {
 	file, _ := resolvedBucket.GetFile(*lastUpdate, ".check")
 	defer file.Reader.Close()
 	cache := cache2.GetCache()
-	cacheKey := update.ComputeLastUpdateCacheKey("branch-4", "1", "android")
+	cacheKey := update.ComputeLastUpdateCacheKey("test-app-id", "branch-4", "1", "android")
 	value := cache.Get(cacheKey)
-	assert.Equal(t, "{\"branch\":\"branch-4\",\"runtimeVersion\":\"1\",\"updateId\":\"1674170951\",\"createdAt\":1674170951000000}", value, "Expected a specific value")
+	assert.Equal(t, "{\"appId\":\"test-app-id\",\"branch\":\"branch-4\",\"runtimeVersion\":\"1\",\"updateId\":\"1674170951\",\"createdAt\":1674170951000000}", value, "Expected a specific value")
 	assert.NotNil(t, file.Reader, "Expected a file")
 }
 
@@ -302,6 +309,7 @@ func TestValidRequestForStagingManifest(t *testing.T) {
 	r.Header.Add("expo-protocol-version", "1")
 	r.Header.Add("expo-expect-signature", "true")
 	r.Header.Add("expo-channel-name", "staging")
+	r.Header.Add("expo-app-id", "test-app-id")
 	handlers.ManifestHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200 when manifest is retrieved")
 	parts, err := ParseMultipartMixedResponse(w.Header().Get("Content-Type"), w.Body.Bytes())
@@ -346,6 +354,7 @@ func TestNoUpdatesResponseForManifest(t *testing.T) {
 	r.Header.Add("expo-expect-signature", "true")
 	r.Header.Add("expo-current-update-id", "04b793a0-b6ab-fd4f-308c-b91d812adec2")
 	r.Header.Add("expo-channel-name", "staging")
+	r.Header.Add("expo-app-id", "test-app-id")
 	handlers.ManifestHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200 when manifest is retrieved")
 	parts, err := ParseMultipartMixedResponse(w.Header().Get("Content-Type"), w.Body.Bytes())
@@ -434,6 +443,7 @@ func TestRollbackResponseforManifest(t *testing.T) {
 	r.Header.Add("expo-current-update-id", "04b793a0-b6ab-fd4f-308c-b91d812adec2")
 	r.Header.Add("expo-embedded-update-id", "embedded-update-id")
 	r.Header.Add("expo-channel-name", "rollbackenv")
+	r.Header.Add("expo-app-id", "test-app-id")
 	handlers.ManifestHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200 when manifest is retrieved")
 	parts, err := ParseMultipartMixedResponse(w.Header().Get("Content-Type"), w.Body.Bytes())
@@ -521,6 +531,7 @@ func TestValidRequestForProductionManifest(t *testing.T) {
 	r.Header.Add("expo-protocol-version", "1")
 	r.Header.Add("expo-expect-signature", "true")
 	r.Header.Add("expo-channel-name", "production")
+	r.Header.Add("expo-app-id", "test-app-id")
 	handlers.ManifestHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200 when manifest is retrieved")
 	parts, err := ParseMultipartMixedResponse(w.Header().Get("Content-Type"), w.Body.Bytes())
@@ -610,6 +621,7 @@ func TestEmptyRequestForAndroid(t *testing.T) {
 	r.Header.Add("expo-protocol-version", "1")
 	r.Header.Add("expo-expect-signature", "true")
 	r.Header.Add("expo-channel-name", "production")
+	r.Header.Add("expo-app-id", "test-app-id")
 	handlers.ManifestHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200 when manifest is retrieved")
 	parts, err := ParseMultipartMixedResponse(w.Header().Get("Content-Type"), w.Body.Bytes())
@@ -645,11 +657,11 @@ func TestPreWarmManifestCache(t *testing.T) {
 	cache := cache2.GetCache()
 
 	// Verify caches are empty before prewarm
-	lastUpdateKey := update.ComputeLastUpdateCacheKey("branch-1", "1", "android")
+	lastUpdateKey := update.ComputeLastUpdateCacheKey("test-app-id", "branch-1", "1", "android")
 	assert.Equal(t, "", cache.Get(lastUpdateKey), "lastUpdate cache should be empty before prewarm")
 
 	// Run PreWarm synchronously (not as goroutine) for testing
-	update.PreWarmManifestCache("branch-1", "1", "android")
+	update.PreWarmManifestCache("test-app-id", "branch-1", "1", "android")
 
 	// Verify lastUpdate cache was populated
 	lastUpdateCached := cache.Get(lastUpdateKey)
@@ -659,10 +671,10 @@ func TestPreWarmManifestCache(t *testing.T) {
 	var cachedUpdate types.Update
 	err := json.Unmarshal([]byte(lastUpdateCached), &cachedUpdate)
 	assert.NoError(t, err)
-	metadataKey := update.ComputeMetadataCacheKey("branch-1", "1", cachedUpdate.UpdateId)
+	metadataKey := update.ComputeMetadataCacheKey("test-app-id", "branch-1", "1", cachedUpdate.UpdateId)
 	assert.NotEqual(t, "", cache.Get(metadataKey), "metadata cache should be populated after prewarm")
 
 	// Verify manifest cache was populated
-	manifestKey := update.ComputeUpdataManifestCacheKey("branch-1", "1", cachedUpdate.UpdateId, "android")
+	manifestKey := update.ComputeUpdataManifestCacheKey("test-app-id", "branch-1", "1", cachedUpdate.UpdateId, "android")
 	assert.NotEqual(t, "", cache.Get(manifestKey), "manifest cache should be populated after prewarm")
 }

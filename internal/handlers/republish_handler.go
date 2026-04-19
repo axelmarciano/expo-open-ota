@@ -16,6 +16,7 @@ import (
 func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	vars := mux.Vars(r)
+	appId := vars["APP_ID"]
 	branchName := vars["BRANCH"]
 	platform := r.URL.Query().Get("platform")
 	if platform == "" || (platform != "ios" && platform != "android") {
@@ -59,7 +60,7 @@ func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
 		return
 	}
-	update, err := update2.GetUpdate(branchName, runtimeVersion, updateId)
+	update, err := update2.GetUpdate(appId, branchName, runtimeVersion, updateId)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error getting update: %v", requestID, err)
 		http.Error(w, "Error getting update", http.StatusBadRequest)

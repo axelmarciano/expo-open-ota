@@ -15,25 +15,34 @@ type validatingBucket struct {
 	Inner Bucket
 }
 
-func (v *validatingBucket) GetBranches() ([]string, error) {
-	return v.Inner.GetBranches()
+func (v *validatingBucket) GetBranches(appId string) ([]string, error) {
+	if err := validateSegment("appId", appId); err != nil {
+		return nil, err
+	}
+	return v.Inner.GetBranches(appId)
 }
 
-func (v *validatingBucket) GetRuntimeVersions(branch string) ([]RuntimeVersionWithStats, error) {
+func (v *validatingBucket) GetRuntimeVersions(appId, branch string) ([]RuntimeVersionWithStats, error) {
+	if err := validateSegment("appId", appId); err != nil {
+		return nil, err
+	}
 	if err := validateSegment("branch", branch); err != nil {
 		return nil, err
 	}
-	return v.Inner.GetRuntimeVersions(branch)
+	return v.Inner.GetRuntimeVersions(appId, branch)
 }
 
-func (v *validatingBucket) GetUpdates(branch, runtimeVersion string) ([]types.Update, error) {
+func (v *validatingBucket) GetUpdates(appId, branch, runtimeVersion string) ([]types.Update, error) {
+	if err := validateSegment("appId", appId); err != nil {
+		return nil, err
+	}
 	if err := validateSegment("branch", branch); err != nil {
 		return nil, err
 	}
 	if err := validateSegment("runtimeVersion", runtimeVersion); err != nil {
 		return nil, err
 	}
-	return v.Inner.GetUpdates(branch, runtimeVersion)
+	return v.Inner.GetUpdates(appId, branch, runtimeVersion)
 }
 
 func (v *validatingBucket) GetFile(update types.Update, assetPath string) (*types.BucketFile, error) {
@@ -46,7 +55,10 @@ func (v *validatingBucket) GetFile(update types.Update, assetPath string) (*type
 	return v.Inner.GetFile(update, assetPath)
 }
 
-func (v *validatingBucket) RequestUploadUrlForFileUpdate(branch, runtimeVersion, updateId, fileName string) (string, error) {
+func (v *validatingBucket) RequestUploadUrlForFileUpdate(appId, branch, runtimeVersion, updateId, fileName string) (string, error) {
+	if err := validateSegment("appId", appId); err != nil {
+		return "", err
+	}
 	if err := validateSegment("branch", branch); err != nil {
 		return "", err
 	}
@@ -59,7 +71,7 @@ func (v *validatingBucket) RequestUploadUrlForFileUpdate(branch, runtimeVersion,
 	if err := validateRelativePath("fileName", fileName); err != nil {
 		return "", err
 	}
-	return v.Inner.RequestUploadUrlForFileUpdate(branch, runtimeVersion, updateId, fileName)
+	return v.Inner.RequestUploadUrlForFileUpdate(appId, branch, runtimeVersion, updateId, fileName)
 }
 
 func (v *validatingBucket) UploadFileIntoUpdate(update types.Update, fileName string, file io.Reader) error {
@@ -72,7 +84,10 @@ func (v *validatingBucket) UploadFileIntoUpdate(update types.Update, fileName st
 	return v.Inner.UploadFileIntoUpdate(update, fileName, file)
 }
 
-func (v *validatingBucket) DeleteUpdateFolder(branch, runtimeVersion, updateId string) error {
+func (v *validatingBucket) DeleteUpdateFolder(appId, branch, runtimeVersion, updateId string) error {
+	if err := validateSegment("appId", appId); err != nil {
+		return err
+	}
 	if err := validateSegment("branch", branch); err != nil {
 		return err
 	}
@@ -82,7 +97,7 @@ func (v *validatingBucket) DeleteUpdateFolder(branch, runtimeVersion, updateId s
 	if err := validateSegment("updateId", updateId); err != nil {
 		return err
 	}
-	return v.Inner.DeleteUpdateFolder(branch, runtimeVersion, updateId)
+	return v.Inner.DeleteUpdateFolder(appId, branch, runtimeVersion, updateId)
 }
 
 func (v *validatingBucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId string) (*types.Update, error) {

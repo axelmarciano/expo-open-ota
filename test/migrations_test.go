@@ -14,15 +14,15 @@ type dummyMigrationsBucket struct {
 	actionsRecorded   []string
 }
 
-func (b *dummyMigrationsBucket) DeleteUpdateFolder(_, _, _ string) error {
+func (b *dummyMigrationsBucket) DeleteUpdateFolder(_, _, _, _ string) error {
 	b.actionsRecorded = append(b.actionsRecorded, "DeleteUpdateFolder")
 	return nil
 }
-func (b *dummyMigrationsBucket) RequestUploadUrlForFileUpdate(_, _, _, _ string) (string, error) {
+func (b *dummyMigrationsBucket) RequestUploadUrlForFileUpdate(_, _, _, _, _ string) (string, error) {
 	b.actionsRecorded = append(b.actionsRecorded, "RequestUploadUrlForFileUpdate")
 	return "", nil
 }
-func (b *dummyMigrationsBucket) GetUpdates(_, _ string) ([]types.Update, error) {
+func (b *dummyMigrationsBucket) GetUpdates(_, _, _ string) ([]types.Update, error) {
 	b.actionsRecorded = append(b.actionsRecorded, "GetUpdates")
 	return nil, nil
 }
@@ -30,11 +30,11 @@ func (b *dummyMigrationsBucket) GetFile(_ types.Update, _ string) (*types.Bucket
 	b.actionsRecorded = append(b.actionsRecorded, "GetFile")
 	return nil, nil
 }
-func (b *dummyMigrationsBucket) GetBranches() ([]string, error) {
+func (b *dummyMigrationsBucket) GetBranches(_ string) ([]string, error) {
 	b.actionsRecorded = append(b.actionsRecorded, "GetBranches")
 	return nil, nil
 }
-func (b *dummyMigrationsBucket) GetRuntimeVersions(_ string) ([]bucket.RuntimeVersionWithStats, error) {
+func (b *dummyMigrationsBucket) GetRuntimeVersions(_, _ string) ([]bucket.RuntimeVersionWithStats, error) {
 	b.actionsRecorded = append(b.actionsRecorded, "GetRuntimeVersions")
 	return nil, nil
 }
@@ -68,11 +68,11 @@ func TestShouldNotRunAppliedMigrations(t *testing.T) {
 		Id:   "20250415_fake_migrationA",
 		Time: time.Date(2025, 4, 15, 0, 0, 0, 0, time.UTC),
 		UpFunc: func(b bucket.Bucket) error {
-			b.DeleteUpdateFolder("", "", "")
+			b.DeleteUpdateFolder("", "", "", "")
 			return nil
 		},
 		DownFunc: func(b bucket.Bucket) error {
-			b.GetBranches()
+			b.GetBranches("")
 			return nil
 		},
 	}
@@ -108,11 +108,11 @@ func TestShouldRunMultipleMigrationsAsc(t *testing.T) {
 		Id:   "20250415_fake_migrationA",
 		Time: time.Date(2025, 4, 15, 0, 0, 0, 0, time.UTC),
 		UpFunc: func(b bucket.Bucket) error {
-			b.DeleteUpdateFolder("", "", "")
+			b.DeleteUpdateFolder("", "", "", "")
 			return nil
 		},
 		DownFunc: func(b bucket.Bucket) error {
-			b.GetBranches()
+			b.GetBranches("")
 			return nil
 		},
 	}
@@ -124,7 +124,7 @@ func TestShouldRunMultipleMigrationsAsc(t *testing.T) {
 			return nil
 		},
 		DownFunc: func(b bucket.Bucket) error {
-			b.GetRuntimeVersions("")
+			b.GetRuntimeVersions("", "")
 			return nil
 		},
 	}

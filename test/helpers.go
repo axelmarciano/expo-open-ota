@@ -46,33 +46,40 @@ func GlobalAfterEach(t *testing.T) {
 		if err != nil {
 			t.Errorf("Error finding project root: %v", err)
 		}
-		updatesPath := filepath.Join(projectRoot, "./updates/DO_NOT_USE")
-		updates, err := os.ReadDir(updatesPath)
-		if err != nil {
-			t.Errorf("Error reading updates directory: %v", err)
-		}
-		for _, update := range updates {
-			if update.IsDir() {
-				err = os.RemoveAll(filepath.Join(updatesPath, update.Name()))
-				if err != nil {
-					t.Errorf("Error removing update directory: %v", err)
+		// Clean both legacy path (./updates/DO_NOT_USE) and v2 multi-app path
+		// (./updates/test-app-id/DO_NOT_USE) — tests mix both depending on how
+		// they set LOCAL_BUCKET_BASE_PATH.
+		for _, updatesPath := range []string{
+			filepath.Join(projectRoot, "./updates/DO_NOT_USE"),
+			filepath.Join(projectRoot, "./updates/test-app-id/DO_NOT_USE"),
+		} {
+			updates, err := os.ReadDir(updatesPath)
+			if err != nil {
+				continue
+			}
+			for _, update := range updates {
+				if update.IsDir() {
+					err = os.RemoveAll(filepath.Join(updatesPath, update.Name()))
+					if err != nil {
+						t.Errorf("Error removing update directory: %v", err)
+					}
 				}
 			}
 		}
-		// Also remove all folders > 1674170951 in ./test/test-updates/branch-1/1
-		updatesPath = filepath.Join(projectRoot, "./test/test-updates/branch-1/1")
-		updates, err = os.ReadDir(updatesPath)
+		// Also remove all folders > 1674170951 in ./test/test-updates/test-app-id/branch-1/1
+		fixturePath := filepath.Join(projectRoot, "./test/test-updates/test-app-id/branch-1/1")
+		fixtureUpdates, err := os.ReadDir(fixturePath)
 		if err != nil {
 			t.Errorf("Error reading updates directory: %v", err)
 		}
-		for _, update := range updates {
+		for _, update := range fixtureUpdates {
 			if update.IsDir() {
 				updateTime, err := strconv.Atoi(update.Name())
 				if err != nil {
 					continue
 				}
 				if updateTime > 1674170951 {
-					err = os.RemoveAll(filepath.Join(updatesPath, update.Name()))
+					err = os.RemoveAll(filepath.Join(fixturePath, update.Name()))
 					if err != nil {
 						t.Errorf("Error removing update directory: %v", err)
 					}

@@ -170,8 +170,9 @@ func GetChannelsHandler(w http.ResponseWriter, r *http.Request) {
 
 
 func GetBranchesHandler(w http.ResponseWriter, r *http.Request) {
+	appId := mux.Vars(r)["APP_ID"]
 	resolvedBucket := bucket.GetBucket()
-	branches, err := resolvedBucket.GetBranches()
+	branches, err := resolvedBucket.GetBranches(appId)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -205,6 +206,7 @@ func GetBranchesHandler(w http.ResponseWriter, r *http.Request) {
 
 func GetRuntimeVersionsHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
+	appId := vars["APP_ID"]
 	branchName := vars["BRANCH"]
 	cacheKey := dashboard.ComputeGetRuntimeVersionsCacheKey(branchName)
 	cache := cache2.GetCache()
@@ -217,7 +219,7 @@ func GetRuntimeVersionsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resolvedBucket := bucket.GetBucket()
-	runtimeVersions, err := resolvedBucket.GetRuntimeVersions(branchName)
+	runtimeVersions, err := resolvedBucket.GetRuntimeVersions(appId, branchName)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(err.Error())
@@ -240,6 +242,7 @@ func GetRuntimeVersionsHandler(w http.ResponseWriter, r *http.Request) {
 
 func GetUpdateDetails(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
+	appId := vars["APP_ID"]
 	branchName := vars["BRANCH"]
 	runtimeVersion := vars["RUNTIME_VERSION"]
 	updateId := vars["UPDATE_ID"]
@@ -253,7 +256,7 @@ func GetUpdateDetails(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(updateDetailsResponse)
 		return
 	}
-	update, err := update2.GetUpdate(branchName, runtimeVersion, updateId)
+	update, err := update2.GetUpdate(appId, branchName, runtimeVersion, updateId)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -296,6 +299,7 @@ func GetUpdateDetails(w http.ResponseWriter, r *http.Request) {
 
 func GetUpdatesHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
+	appId := vars["APP_ID"]
 	branchName := vars["BRANCH"]
 	runtimeVersion := vars["RUNTIME_VERSION"]
 	cacheKey := dashboard.ComputeGetUpdatesCacheKey(branchName, runtimeVersion)
@@ -309,7 +313,7 @@ func GetUpdatesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resolvedBucket := bucket.GetBucket()
-	updates, err := resolvedBucket.GetUpdates(branchName, runtimeVersion)
+	updates, err := resolvedBucket.GetUpdates(appId, branchName, runtimeVersion)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return

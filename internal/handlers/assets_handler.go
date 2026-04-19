@@ -5,9 +5,10 @@ import (
 	cdn2 "expo-open-ota/internal/cdn"
 	"expo-open-ota/internal/compression"
 	"expo-open-ota/internal/services"
-	"github.com/google/uuid"
 	"log"
 	"net/http"
+
+	"github.com/google/uuid"
 )
 
 func AssetsHandler(w http.ResponseWriter, r *http.Request) {
@@ -27,6 +28,7 @@ func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req := assets.AssetsRequest{
+		AppId:          r.Header.Get("expo-app-id"),
 		Branch:         branchMap.BranchName,
 		AssetName:      r.URL.Query().Get("asset"),
 		RuntimeVersion: r.URL.Query().Get("runtimeVersion"),

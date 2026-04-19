@@ -50,6 +50,9 @@ func validateUpdate(u *types.Update) error {
 	if u == nil {
 		return fmt.Errorf("update must not be nil")
 	}
+	if err := validateSegment("appId", u.AppId); err != nil {
+		return err
+	}
 	if err := validateSegment("branch", u.Branch); err != nil {
 		return err
 	}
@@ -98,13 +101,13 @@ type RuntimeVersionWithStats struct {
 }
 
 type Bucket interface {
-	GetBranches() ([]string, error)
-	GetRuntimeVersions(branch string) ([]RuntimeVersionWithStats, error)
-	GetUpdates(branch string, runtimeVersion string) ([]types.Update, error)
+	GetBranches(appId string) ([]string, error)
+	GetRuntimeVersions(appId string, branch string) ([]RuntimeVersionWithStats, error)
+	GetUpdates(appId string, branch string, runtimeVersion string) ([]types.Update, error)
 	GetFile(update types.Update, assetPath string) (*types.BucketFile, error)
-	RequestUploadUrlForFileUpdate(branch string, runtimeVersion string, updateId string, fileName string) (string, error)
+	RequestUploadUrlForFileUpdate(appId string, branch string, runtimeVersion string, updateId string, fileName string) (string, error)
 	UploadFileIntoUpdate(update types.Update, fileName string, file io.Reader) error
-	DeleteUpdateFolder(branch string, runtimeVersion string, updateId string) error
+	DeleteUpdateFolder(appId string, branch string, runtimeVersion string, updateId string) error
 	CreateUpdateFrom(previousUpdate *types.Update, newUpdateId string) (*types.Update, error)
 	RetrieveMigrationHistory() ([]string, error)
 	ApplyMigration(migrationId string) error
@@ -189,7 +192,7 @@ type FileUploadRequest struct {
 	FilePath         string `json:"filePath"`
 }
 
-func RequestUploadUrlsForFileUpdates(branch string, runtimeVersion string, updateId string, fileNames []string) ([]FileUploadRequest, error) {
+func RequestUploadUrlsForFileUpdates(appId string, branch string, runtimeVersion string, updateId string, fileNames []string) ([]FileUploadRequest, error) {
 	uniqueFileNames := make(map[string]struct{})
 	for _, fileName := range fileNames {
 		uniqueFileNames[fileName] = struct{}{}
@@ -206,7 +209,7 @@ func RequestUploadUrlsForFileUpdates(branch string, runtimeVersion string, updat
 	for fileName := range uniqueFileNames {
 		go func(fileName string) {
 			defer wg.Done()
-			requestUploadUrl, err := bucket.RequestUploadUrlForFileUpdate(branch, runtimeVersion, updateId, fileName)
+			requestUploadUrl, err := bucket.RequestUploadUrlForFileUpdate(appId, branch, runtimeVersion, updateId, fileName)
 			if err != nil {
 				errChan <- err
 				return

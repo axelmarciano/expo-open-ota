@@ -17,12 +17,12 @@ type stubBucket struct {
 
 func (s *stubBucket) mark() { s.called = true }
 
-func (s *stubBucket) GetBranches() ([]string, error) { s.mark(); return nil, nil }
-func (s *stubBucket) GetRuntimeVersions(branch string) ([]RuntimeVersionWithStats, error) {
+func (s *stubBucket) GetBranches(appId string) ([]string, error) { s.mark(); return nil, nil }
+func (s *stubBucket) GetRuntimeVersions(appId, branch string) ([]RuntimeVersionWithStats, error) {
 	s.mark()
 	return nil, nil
 }
-func (s *stubBucket) GetUpdates(branch, runtimeVersion string) ([]types.Update, error) {
+func (s *stubBucket) GetUpdates(appId, branch, runtimeVersion string) ([]types.Update, error) {
 	s.mark()
 	return nil, nil
 }
@@ -30,7 +30,7 @@ func (s *stubBucket) GetFile(update types.Update, assetPath string) (*types.Buck
 	s.mark()
 	return nil, nil
 }
-func (s *stubBucket) RequestUploadUrlForFileUpdate(branch, runtimeVersion, updateId, fileName string) (string, error) {
+func (s *stubBucket) RequestUploadUrlForFileUpdate(appId, branch, runtimeVersion, updateId, fileName string) (string, error) {
 	s.mark()
 	return "", nil
 }
@@ -38,7 +38,7 @@ func (s *stubBucket) UploadFileIntoUpdate(update types.Update, fileName string, 
 	s.mark()
 	return nil
 }
-func (s *stubBucket) DeleteUpdateFolder(branch, runtimeVersion, updateId string) error {
+func (s *stubBucket) DeleteUpdateFolder(appId, branch, runtimeVersion, updateId string) error {
 	s.mark()
 	return nil
 }
@@ -51,7 +51,7 @@ func (s *stubBucket) ApplyMigration(migrationId string) error       { s.mark(); 
 func (s *stubBucket) RemoveMigrationFromHistory(id string) error    { s.mark(); return nil }
 
 func validUpdate() types.Update {
-	return types.Update{Branch: "main", RuntimeVersion: "1.0", UpdateId: "123"}
+	return types.Update{AppId: "app-1", Branch: "main", RuntimeVersion: "1.0", UpdateId: "123"}
 }
 
 func TestValidateSegment_RejectsTraversal(t *testing.T) {
@@ -105,7 +105,7 @@ func TestValidateRelativePath_AcceptsNestedPaths(t *testing.T) {
 func TestValidatingBucket_GetFile_RejectsTraversalInBranch(t *testing.T) {
 	stub := &stubBucket{}
 	v := &validatingBucket{Inner: stub}
-	update := types.Update{Branch: "../evil", RuntimeVersion: "1.0", UpdateId: "123"}
+	update := types.Update{AppId: "app-1", Branch: "../evil", RuntimeVersion: "1.0", UpdateId: "123"}
 	_, err := v.GetFile(update, "asset.png")
 	assert.Error(t, err)
 	assert.False(t, stub.called, "inner bucket should not be called when validation fails")
@@ -130,7 +130,7 @@ func TestValidatingBucket_UploadFileIntoUpdate_RejectsTraversalInFileName(t *tes
 func TestValidatingBucket_DeleteUpdateFolder_RejectsSlashInUpdateId(t *testing.T) {
 	stub := &stubBucket{}
 	v := &validatingBucket{Inner: stub}
-	err := v.DeleteUpdateFolder("main", "1.0", "123/../456")
+	err := v.DeleteUpdateFolder("app-1", "main", "1.0", "123/../456")
 	assert.Error(t, err)
 	assert.False(t, stub.called)
 }
@@ -138,7 +138,7 @@ func TestValidatingBucket_DeleteUpdateFolder_RejectsSlashInUpdateId(t *testing.T
 func TestValidatingBucket_RequestUploadUrl_RejectsTraversalInFileName(t *testing.T) {
 	stub := &stubBucket{}
 	v := &validatingBucket{Inner: stub}
-	_, err := v.RequestUploadUrlForFileUpdate("main", "1.0", "123", "../etc/passwd")
+	_, err := v.RequestUploadUrlForFileUpdate("app-1", "main", "1.0", "123", "../etc/passwd")
 	assert.Error(t, err)
 	assert.False(t, stub.called)
 }
@@ -146,7 +146,7 @@ func TestValidatingBucket_RequestUploadUrl_RejectsTraversalInFileName(t *testing
 func TestValidatingBucket_CreateUpdateFrom_RejectsTraversalInPreviousUpdate(t *testing.T) {
 	stub := &stubBucket{}
 	v := &validatingBucket{Inner: stub}
-	prev := &types.Update{Branch: "../evil", RuntimeVersion: "1.0", UpdateId: "123"}
+	prev := &types.Update{AppId: "app-1", Branch: "../evil", RuntimeVersion: "1.0", UpdateId: "123"}
 	_, err := v.CreateUpdateFrom(prev, "456")
 	assert.Error(t, err)
 	assert.False(t, stub.called)
