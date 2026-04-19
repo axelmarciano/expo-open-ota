@@ -143,7 +143,7 @@ export default class Publish extends Command {
     const erroredPlatforms: { platform: string; reason: string }[] = [];
     await Promise.all(
       runtimeVersions.map(async ({ runtimeVersion, platform }) => {
-        const rollbackUrl = new URL(`${baseUrl}/rollback/${branch}`);
+        const rollbackUrl = new URL(`${baseUrl}/${appId}/rollback/${branch}`);
         rollbackUrl.searchParams.set('commitHash', commitHash ?? '');
         rollbackUrl.searchParams.set('platform', platform);
         rollbackUrl.searchParams.set('runtimeVersion', runtimeVersion ?? '');
@@ -152,7 +152,6 @@ export default class Publish extends Command {
           method: 'POST',
           headers: {
             ...getAuthExpoHeaders(credentials),
-            'expo-app-id': appId,
           },
         });
         if (!response.ok) {

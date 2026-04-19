@@ -7,12 +7,13 @@ import (
 	"expo-open-ota/internal/metrics"
 	"expo-open-ota/internal/middleware"
 	"fmt"
-	"github.com/gorilla/mux"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/gorilla/mux"
 )
 
 func HealthCheck(w http.ResponseWriter, r *http.Request) {
@@ -42,13 +43,16 @@ func NewRouter() *mux.Router {
 	}).Methods(http.MethodGet)
 
 	r.HandleFunc("/hc", HealthCheck).Methods(http.MethodGet)
+
+
+	r.HandleFunc("/{APP_ID}/requestUploadUrl/{BRANCH}", handlers.RequestUploadUrlHandler).Methods(http.MethodPost)
+	r.HandleFunc("/{APP_ID}/uploadLocalFile", handlers.RequestUploadLocalFileHandler).Methods(http.MethodPut)
+	r.HandleFunc("/{APP_ID}/markUpdateAsUploaded/{BRANCH}", handlers.MarkUpdateAsUploadedHandler).Methods(http.MethodPost)
+	r.HandleFunc("/{APP_ID}/rollback/{BRANCH}", handlers.RollbackHandler).Methods(http.MethodPost)
+	r.HandleFunc("/{APP_ID}/republish/{BRANCH}", handlers.RepublishHandler).Methods(http.MethodPost)
+
 	r.HandleFunc("/manifest", handlers.ManifestHandler).Methods(http.MethodGet)
 	r.HandleFunc("/assets", handlers.AssetsHandler).Methods(http.MethodGet)
-	r.HandleFunc("/requestUploadUrl/{BRANCH}", handlers.RequestUploadUrlHandler).Methods(http.MethodPost)
-	r.HandleFunc("/uploadLocalFile", handlers.RequestUploadLocalFileHandler).Methods(http.MethodPut)
-	r.HandleFunc("/markUpdateAsUploaded/{BRANCH}", handlers.MarkUpdateAsUploadedHandler).Methods(http.MethodPost)
-	r.HandleFunc("/rollback/{BRANCH}", handlers.RollbackHandler).Methods(http.MethodPost)
-	r.HandleFunc("/republish/{BRANCH}", handlers.RepublishHandler).Methods(http.MethodPost)
 
 	corsSubrouter := r.PathPrefix("/auth").Subrouter()
 	corsSubrouter.HandleFunc("/login", handlers.LoginHandler).Methods(http.MethodPost)
@@ -97,11 +101,11 @@ func NewRouter() *mux.Router {
 	authSubrouter := r.PathPrefix("/api").Subrouter()
 	authSubrouter.Use(middleware.AuthMiddleware)
 	authSubrouter.HandleFunc("/settings", handlers.GetSettingsHandler).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/branches", handlers.GetBranchesHandler).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/channels", handlers.GetChannelsHandler).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersions", handlers.GetRuntimeVersionsHandler).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates", handlers.GetUpdatesHandler).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates/{UPDATE_ID}", handlers.GetUpdateDetails).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/branch/{BRANCH}/updateChannelBranchMapping", handlers.UpdateChannelBranchMappingHandler).Methods(http.MethodPost)
+	authSubrouter.HandleFunc("/apps/{APP_ID}/branches", handlers.GetBranchesHandler).Methods(http.MethodGet)
+	authSubrouter.HandleFunc("/apps/{APP_ID}/channels", handlers.GetChannelsHandler).Methods(http.MethodGet)
+	authSubrouter.HandleFunc("/apps/{APP_ID}/branch/{BRANCH}/runtimeVersions", handlers.GetRuntimeVersionsHandler).Methods(http.MethodGet)
+	authSubrouter.HandleFunc("/apps/{APP_ID}/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates", handlers.GetUpdatesHandler).Methods(http.MethodGet)
+	authSubrouter.HandleFunc("/apps/{APP_ID}/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates/{UPDATE_ID}", handlers.GetUpdateDetails).Methods(http.MethodGet)
+	authSubrouter.HandleFunc("/apps/{APP_ID}/branch/{BRANCH}/updateChannelBranchMapping", handlers.UpdateChannelBranchMappingHandler).Methods(http.MethodPost)
 	return r
 }

@@ -11,11 +11,12 @@ import (
 	"expo-open-ota/internal/types"
 	update2 "expo-open-ota/internal/update"
 	"fmt"
-	"github.com/gorilla/mux"
 	"net/http"
 	"sort"
 	"strconv"
 	"time"
+
+	"github.com/gorilla/mux"
 )
 
 type BranchMapping struct {
@@ -166,6 +167,7 @@ func GetChannelsHandler(w http.ResponseWriter, r *http.Request) {
 	marshaledResponse, _ := json.Marshal(channels)
 	cache.Set(cacheKey, string(marshaledResponse), &ttlMs)
 }
+
 
 func GetBranchesHandler(w http.ResponseWriter, r *http.Request) {
 	resolvedBucket := bucket.GetBucket()

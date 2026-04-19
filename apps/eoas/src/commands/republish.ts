@@ -83,12 +83,11 @@ export default class Publish extends Command {
       Log.error('Invalid URL', e);
       process.exit(1);
     }
-    const runtimeVersionsEndpoint = `${baseUrl}/api/branch/${branch}/runtimeVersions`;
+    const runtimeVersionsEndpoint = `${baseUrl}/api/apps/${appId}/branches/${branch}/runtimeVersions`;
     const response = await fetchWithRetries(runtimeVersionsEndpoint, {
       headers: {
         ...getAuthExpoHeaders(credentials),
         'use-expo-auth': 'true',
-        'expo-app-id': appId,
       },
     });
     if (!response.ok) {
@@ -119,12 +118,11 @@ export default class Publish extends Command {
       })),
     });
     Log.log(`Selected runtime version: ${selectedRuntimeVersion.runtimeVersion}`);
-    const updatesEndpoint = `${baseUrl}/api/branch/${branch}/runtimeVersion/${selectedRuntimeVersion.runtimeVersion}/updates`;
+    const updatesEndpoint = `${baseUrl}/api/apps/${appId}/branches/${branch}/runtimeVersion/${selectedRuntimeVersion.runtimeVersion}/updates`;
     const updatesResponse = await fetchWithRetries(updatesEndpoint, {
       headers: {
         ...getAuthExpoHeaders(credentials),
         'use-expo-auth': 'true',
-        'expo-app-id': appId,
       },
     });
     if (!updatesResponse.ok) {
@@ -153,7 +151,7 @@ export default class Publish extends Command {
       })),
     });
     Log.log(`Re-publishing update: ${selectedUpdated.update.updateUUID}`);
-    const republishUrl = new URL(`${baseUrl}/republish/${branch}`);
+    const republishUrl = new URL(`${baseUrl}/${appId}/republish/${branch}`);
     republishUrl.searchParams.set('platform', platform);
     republishUrl.searchParams.set('runtimeVersion', selectedRuntimeVersion.runtimeVersion);
     republishUrl.searchParams.set('updateId', selectedUpdated.update.updateId);
@@ -164,7 +162,6 @@ export default class Publish extends Command {
       headers: {
         ...getAuthExpoHeaders(credentials),
         'Content-Type': 'application/json',
-        'expo-app-id': appId,
       },
     });
     if (!republishResponse.ok) {

@@ -277,13 +277,12 @@ export default class Publish extends Command {
               body: {
                 fileNames: files.map(file => file.path),
               },
-              requestUploadUrl: `${serverUrl}/requestUploadUrl/${branch}`,
+              requestUploadUrl: `${serverUrl}/${appId}/requestUploadUrl/${branch}`,
               auth: credentials,
               runtimeVersion,
               platform,
               commitHash,
               message: resolvedMessage,
-              appId,
             })),
             runtimeVersion,
             platform,
@@ -294,7 +293,7 @@ export default class Publish extends Command {
       await Promise.all(
         allItems.map(async itm => {
           const isLocalBucketFileUpload = itm.requestUploadUrl.startsWith(
-            `${serverUrl}/uploadLocalFile`
+            `${serverUrl}/${appId}/uploadLocalFile`
           );
           const formData = new FormData();
           let file: fs.ReadStream;
@@ -310,7 +309,6 @@ export default class Publish extends Command {
               headers: {
                 ...formData.getHeaders(),
                 ...getAuthExpoHeaders(credentials),
-                'expo-app-id': appId,
               },
               body: formData,
             });
@@ -356,7 +354,7 @@ export default class Publish extends Command {
     const markAsFinishedSpinner = ora('🔗 Marking the updates as finished...').start();
     const results = await Promise.all(
       uploadUrls.map(async ({ updateId, platform, runtimeVersion }) => {
-        const markAsUploadedUrl = new URL(`${serverUrl}/markUpdateAsUploaded/${branch}`);
+        const markAsUploadedUrl = new URL(`${serverUrl}/${appId}/markUpdateAsUploaded/${branch}`);
         markAsUploadedUrl.searchParams.set('platform', platform);
         markAsUploadedUrl.searchParams.set('updateId', updateId);
         markAsUploadedUrl.searchParams.set('runtimeVersion', runtimeVersion);
@@ -366,7 +364,6 @@ export default class Publish extends Command {
           headers: {
             ...getAuthExpoHeaders(credentials),
             'Content-Type': 'application/json',
-            'expo-app-id': appId,
           },
         });
         // If success and status code = 200
