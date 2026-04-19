@@ -21,6 +21,11 @@ import (
 
 type GCSBucket struct {
     BucketName string
+    KeyPrefix  string
+}
+
+func (b *GCSBucket) prefixedKey(key string) string {
+    return b.KeyPrefix + key
 }
 
 func (b *GCSBucket) bucketHandle(ctx context.Context) (*storage.BucketHandle, error) {
@@ -40,7 +45,7 @@ func (b *GCSBucket) DeleteUpdateFolder(branch, runtimeVersion, updateId string) 
     if err != nil {
         return err
     }
-    prefix := fmt.Sprintf("%s/%s/%s/", branch, runtimeVersion, updateId)
+    prefix := b.prefixedKey(fmt.Sprintf("%s/%s/%s/", branch, runtimeVersion, updateId))
     it := bh.Objects(ctx, &storage.Query{Prefix: prefix})
     sem := make(chan struct{}, runtime.NumCPU())
     var wg sync.WaitGroup
@@ -82,7 +87,8 @@ func (b *GCSBucket) GetRuntimeVersions(branch string) ([]RuntimeVersionWithStats
     if err != nil {
         return nil, err
     }
-    q := &storage.Query{Prefix: branch + "/", Delimiter: "/"}
+    branchPrefix := b.prefixedKey(branch + "/")
+    q := &storage.Query{Prefix: branchPrefix, Delimiter: "/"}
     it := bh.Objects(ctx, q)
     var runtimeVersions []RuntimeVersionWithStats
     for {
@@ -96,8 +102,8 @@ func (b *GCSBucket) GetRuntimeVersions(branch string) ([]RuntimeVersionWithStats
         if attrs.Prefix == "" { // skip objects
             continue
         }
-        rvPrefix := attrs.Prefix // e.g., branch/runtime/
-        rv := strings.TrimSuffix(strings.TrimPrefix(rvPrefix, branch+"/"), "/")
+        rvPrefix := attrs.Prefix // e.g., [keyPrefix/]branch/runtime/
+        rv := strings.TrimSuffix(strings.TrimPrefix(rvPrefix, branchPrefix), "/")
 
         // list update folders under this runtimeVersion
         updatesIt := bh.Objects(ctx, &storage.Query{Prefix: rvPrefix, Delimiter: "/"})
@@ -139,7 +145,7 @@ func (b *GCSBucket) GetBranches() ([]string, error) {
     if err != nil {
         return nil, err
     }
-    it := bh.Objects(ctx, &storage.Query{Delimiter: "/"})
+    it := bh.Objects(ctx, &storage.Query{Prefix: b.KeyPrefix, Delimiter: "/"})
     var branches []string
     for {
         attrs, err := it.Next()
@@ -152,7 +158,7 @@ func (b *GCSBucket) GetBranches() ([]string, error) {
         if attrs.Prefix == "" {
             continue
         }
-        prefix := strings.TrimSuffix(attrs.Prefix, "/")
+        prefix := strings.TrimSuffix(strings.TrimPrefix(attrs.Prefix, b.KeyPrefix), "/")
         branches = append(branches, prefix)
     }
     return branches, nil
@@ -164,7 +170,7 @@ func (b *GCSBucket) GetUpdates(branch string, runtimeVersion string) ([]types.Up
     if err != nil {
         return nil, err
     }
-    prefix := branch + "/" + runtimeVersion + "/"
+    prefix := b.prefixedKey(branch + "/" + runtimeVersion + "/")
     it := bh.Objects(ctx, &storage.Query{Prefix: prefix, Delimiter: "/"})
     var updates []types.Update
     for {
@@ -197,7 +203,7 @@ func (b *GCSBucket) GetFile(update types.Update, assetPath string) (*types.Bucke
     if err != nil {
         return nil, err
     }
-    key := update.Branch + "/" + update.RuntimeVersion + "/" + update.UpdateId + "/" + assetPath
+    key := b.prefixedKey(update.Branch + "/" + update.RuntimeVersion + "/" + update.UpdateId + "/" + assetPath)
     obj := bh.Object(key)
     r, err := obj.NewReader(ctx)
     if err != nil {
@@ -218,7 +224,7 @@ func (b *GCSBucket) RequestUploadUrlForFileUpdate(branch string, runtimeVersion 
     if b.BucketName == "" {
         return "", errors.New("BucketName not set")
     }
-    key := fmt.Sprintf("%s/%s/%s/%s", branch, runtimeVersion, updateId, fileName)
+    key := b.prefixedKey(fmt.Sprintf("%s/%s/%s/%s", branch, runtimeVersion, updateId, fileName))
     url, err := services.GCSSignedURL(b.BucketName, key, "PUT", "", 15*time.Minute)
     if err != nil {
         return "", fmt.Errorf("error generating signed URL: %w", err)
@@ -232,7 +238,7 @@ func (b *GCSBucket) UploadFileIntoUpdate(update types.Update, fileName string, f
     if err != nil {
         return err
     }
-    key := fmt.Sprintf("%s/%s/%s/%s", update.Branch, update.RuntimeVersion, update.UpdateId, fileName)
+    key := b.prefixedKey(fmt.Sprintf("%s/%s/%s/%s", update.Branch, update.RuntimeVersion, update.UpdateId, fileName))
     w := bh.Object(key).NewWriter(ctx)
     if _, err := io.Copy(w, file); err != nil {
         _ = w.Close()
@@ -262,8 +268,8 @@ func (b *GCSBucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId s
     if err != nil {
         return nil, err
     }
-    sourcePrefix := fmt.Sprintf("%s/%s/%s/", previousUpdate.Branch, previousUpdate.RuntimeVersion, previousUpdate.UpdateId)
-    targetPrefix := fmt.Sprintf("%s/%s/%s/", previousUpdate.Branch, previousUpdate.RuntimeVersion, newUpdateId)
+    sourcePrefix := b.prefixedKey(fmt.Sprintf("%s/%s/%s/", previousUpdate.Branch, previousUpdate.RuntimeVersion, previousUpdate.UpdateId))
+    targetPrefix := b.prefixedKey(fmt.Sprintf("%s/%s/%s/", previousUpdate.Branch, previousUpdate.RuntimeVersion, newUpdateId))
 
     it := bh.Objects(ctx, &storage.Query{Prefix: sourcePrefix})
     var wg sync.WaitGroup
@@ -326,7 +332,7 @@ func (b *GCSBucket) RetrieveMigrationHistory() ([]string, error) {
     if err != nil {
         return nil, err
     }
-    obj := bh.Object(".migrationhistory")
+    obj := bh.Object(b.prefixedKey(".migrationhistory"))
     r, err := obj.NewReader(ctx)
     if err != nil {
         if errors.Is(err, storage.ErrObjectNotExist) {
@@ -368,7 +374,7 @@ func (b *GCSBucket) ApplyMigration(migrationId string) error {
         current += "\n"
     }
     data := []byte(current + migrationId + "\n")
-    w := bh.Object(".migrationhistory").NewWriter(ctx)
+    w := bh.Object(b.prefixedKey(".migrationhistory")).NewWriter(ctx)
     if _, err := w.Write(data); err != nil {
         _ = w.Close()
         return err
@@ -403,7 +409,7 @@ func (b *GCSBucket) RemoveMigrationFromHistory(migrationId string) error {
     if len(filtered) > 0 {
         content = strings.Join(filtered, "\n") + "\n"
     }
-    w := bh.Object(".migrationhistory").NewWriter(ctx)
+    w := bh.Object(b.prefixedKey(".migrationhistory")).NewWriter(ctx)
     if _, err := w.Write([]byte(content)); err != nil {
         _ = w.Close()
         return err

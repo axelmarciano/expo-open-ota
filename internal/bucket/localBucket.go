@@ -23,14 +23,22 @@ import (
 )
 
 type LocalBucket struct {
-	BasePath string
+	BasePath  string
+	KeyPrefix string
+}
+
+func (b *LocalBucket) rootPath() string {
+	if b.KeyPrefix == "" {
+		return b.BasePath
+	}
+	return filepath.Join(b.BasePath, b.KeyPrefix)
 }
 
 func (b *LocalBucket) DeleteUpdateFolder(branch string, runtimeVersion string, updateId string) error {
 	if b.BasePath == "" {
 		return errors.New("BasePath not set")
 	}
-	dirPath := filepath.Join(b.BasePath, branch, runtimeVersion, updateId)
+	dirPath := filepath.Join(b.rootPath(), branch, runtimeVersion, updateId)
 	return os.RemoveAll(dirPath)
 }
 
@@ -38,7 +46,7 @@ func (b *LocalBucket) RequestUploadUrlForFileUpdate(branch string, runtimeVersio
 	if b.BasePath == "" {
 		return "", errors.New("BasePath not set")
 	}
-	dirPath := filepath.Join(b.BasePath, branch, runtimeVersion, updateId)
+	dirPath := filepath.Join(b.rootPath(), branch, runtimeVersion, updateId)
 	err := os.MkdirAll(dirPath, os.ModePerm)
 	if err != nil {
 		return "", err
@@ -70,7 +78,7 @@ func (b *LocalBucket) GetUpdates(branch string, runtimeVersion string) ([]types.
 	if b.BasePath == "" {
 		return nil, errors.New("BasePath not set")
 	}
-	dirPath := filepath.Join(b.BasePath, branch, runtimeVersion)
+	dirPath := filepath.Join(b.rootPath(), branch, runtimeVersion)
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		return []types.Update{}, nil
@@ -97,7 +105,7 @@ func (b *LocalBucket) GetFile(update types.Update, assetPath string) (*types.Buc
 		return nil, errors.New("BasePath not set")
 	}
 
-	expectedBase := filepath.Join(b.BasePath, update.Branch, update.RuntimeVersion, update.UpdateId)
+	expectedBase := filepath.Join(b.rootPath(), update.Branch, update.RuntimeVersion, update.UpdateId)
 	filePath := filepath.Join(expectedBase, assetPath)
 	if !strings.HasPrefix(filePath, expectedBase) {
 		return nil, errors.New("invalid asset path")
@@ -126,7 +134,7 @@ func (b *LocalBucket) GetBranches() ([]string, error) {
 	if b.BasePath == "" {
 		return nil, errors.New("BasePath not set")
 	}
-	entries, err := os.ReadDir(b.BasePath)
+	entries, err := os.ReadDir(b.rootPath())
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +151,7 @@ func (b *LocalBucket) GetRuntimeVersions(branch string) ([]RuntimeVersionWithSta
 	if b.BasePath == "" {
 		return nil, errors.New("BasePath not set")
 	}
-	dirPath := filepath.Join(b.BasePath, branch)
+	dirPath := filepath.Join(b.rootPath(), branch)
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		return nil, err
@@ -188,7 +196,7 @@ func (b *LocalBucket) GetRuntimeVersions(branch string) ([]RuntimeVersionWithSta
 }
 
 func (b *LocalBucket) UploadFileIntoUpdate(update types.Update, fileName string, file io.Reader) error {
-	filePath := filepath.Join(b.BasePath, update.Branch, update.RuntimeVersion, update.UpdateId, fileName)
+	filePath := filepath.Join(b.rootPath(), update.Branch, update.RuntimeVersion, update.UpdateId, fileName)
 	err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm)
 	if err != nil {
 		return err
@@ -254,8 +262,8 @@ func (b *LocalBucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId
 		return nil, errors.New("newUpdateId is empty")
 	}
 
-	previousUpdatePath := filepath.Join(b.BasePath, previousUpdate.Branch, previousUpdate.RuntimeVersion, previousUpdate.UpdateId)
-	newUpdatePath := filepath.Join(b.BasePath, previousUpdate.Branch, previousUpdate.RuntimeVersion, newUpdateId)
+	previousUpdatePath := filepath.Join(b.rootPath(), previousUpdate.Branch, previousUpdate.RuntimeVersion, previousUpdate.UpdateId)
+	newUpdatePath := filepath.Join(b.rootPath(), previousUpdate.Branch, previousUpdate.RuntimeVersion, newUpdateId)
 
 	err := os.MkdirAll(newUpdatePath, os.ModePerm)
 	if err != nil {
@@ -343,7 +351,7 @@ func (b *LocalBucket) RetrieveMigrationHistory() ([]string, error) {
 	if b.BasePath == "" {
 		return nil, errors.New("BasePath not set")
 	}
-	migrationHistoryPath := filepath.Join(b.BasePath, ".migrationhistory")
+	migrationHistoryPath := filepath.Join(b.rootPath(), ".migrationhistory")
 	file, err := os.Open(migrationHistoryPath)
 	if err != nil {
 		return nil, nil
@@ -365,7 +373,7 @@ func (b *LocalBucket) ApplyMigration(migrationId string) error {
 		return errors.New("BasePath not set")
 	}
 
-	migrationHistoryPath := filepath.Join(b.BasePath, ".migrationhistory")
+	migrationHistoryPath := filepath.Join(b.rootPath(), ".migrationhistory")
 
 	migrations, err := b.RetrieveMigrationHistory()
 	if err != nil && !os.IsNotExist(err) {
@@ -395,7 +403,7 @@ func (b *LocalBucket) RemoveMigrationFromHistory(migrationId string) error {
 		return errors.New("BasePath not set")
 	}
 
-	migrationHistoryPath := filepath.Join(b.BasePath, ".migrationhistory")
+	migrationHistoryPath := filepath.Join(b.rootPath(), ".migrationhistory")
 
 	migrations, err := b.RetrieveMigrationHistory()
 	if err != nil && !os.IsNotExist(err) {

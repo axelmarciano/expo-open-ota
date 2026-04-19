@@ -10,6 +10,21 @@ import (
 	"sync"
 )
 
+// resolveKeyPrefix returns the bucket key prefix, normalized to end with "/"
+// when non-empty. It reads BUCKET_KEY_PREFIX first and falls back to the
+// legacy S3_KEY_PREFIX env var.
+func resolveKeyPrefix() string {
+	prefix := config.GetEnv("BUCKET_KEY_PREFIX")
+	if prefix == "" {
+		// TODO: remove S3_KEY_PREFIX backward-compat once users migrated to BUCKET_KEY_PREFIX
+		prefix = config.GetEnv("S3_KEY_PREFIX")
+	}
+	if prefix != "" && prefix[len(prefix)-1] != '/' {
+		prefix += "/"
+	}
+	return prefix
+}
+
 type RuntimeVersionWithStats struct {
 	RuntimeVersion  string `json:"runtimeVersion"`
 	LastUpdatedAt   string `json:"lastUpdatedAt"`
@@ -62,26 +77,22 @@ func GetBucket() Bucket {
 	once.Do(func() {
 		if bucketInstance == nil {
 			bucketType := ResolveBucketType()
+			keyPrefix := resolveKeyPrefix()
 			switch bucketType {
 			case S3BucketType:
-				bucketName := config.GetEnv("S3_BUCKET_NAME")
-				keyPrefix := config.GetEnv("S3_KEY_PREFIX")
-				if keyPrefix != "" && keyPrefix[len(keyPrefix)-1] != '/' {
-					keyPrefix += "/"
-				}
 				bucketInstance = &S3Bucket{
-					BucketName: bucketName,
+					BucketName: config.GetEnv("S3_BUCKET_NAME"),
 					KeyPrefix:  keyPrefix,
 				}
 			case GCSBucketType:
-				bucketName := config.GetEnv("GCS_BUCKET_NAME")
 				bucketInstance = &GCSBucket{
-					BucketName: bucketName,
+					BucketName: config.GetEnv("GCS_BUCKET_NAME"),
+					KeyPrefix:  keyPrefix,
 				}
 			case LocalBucketType:
-				basePath := config.GetEnv("LOCAL_BUCKET_BASE_PATH")
 				bucketInstance = &LocalBucket{
-					BasePath: basePath,
+					BasePath:  config.GetEnv("LOCAL_BUCKET_BASE_PATH"),
+					KeyPrefix: keyPrefix,
 				}
 			default:
 				panic(fmt.Sprintf("Unknown bucket type: %s", bucketType))

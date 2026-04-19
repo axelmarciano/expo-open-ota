@@ -111,6 +111,10 @@ environment:
     required:
       - key: "storageMode"
         is: "s3"
+  - name: "BUCKET_KEY_PREFIX"
+    value: ""
+    required: false
+  # TODO: remove S3_KEY_PREFIX once users have migrated to BUCKET_KEY_PREFIX
   - name: "S3_KEY_PREFIX"
     value: ""
     required: false

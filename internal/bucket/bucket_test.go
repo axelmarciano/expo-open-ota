@@ -101,8 +101,8 @@ func TestGetS3BucketWithKeyPrefix(t *testing2.T) {
 	defer teardown()
 	os.Setenv("STORAGE_MODE", "s3")
 	os.Setenv("S3_BUCKET_NAME", "test")
-	os.Setenv("S3_KEY_PREFIX", "myapp")
-	defer os.Unsetenv("S3_KEY_PREFIX")
+	os.Setenv("BUCKET_KEY_PREFIX", "myapp")
+	defer os.Unsetenv("BUCKET_KEY_PREFIX")
 	bucket := GetBucket()
 	s3b, ok := bucket.(*S3Bucket)
 	assert.True(t, ok)
@@ -114,8 +114,8 @@ func TestGetS3BucketKeyPrefixAlreadyHasSlash(t *testing2.T) {
 	defer teardown()
 	os.Setenv("STORAGE_MODE", "s3")
 	os.Setenv("S3_BUCKET_NAME", "test")
-	os.Setenv("S3_KEY_PREFIX", "myapp/")
-	defer os.Unsetenv("S3_KEY_PREFIX")
+	os.Setenv("BUCKET_KEY_PREFIX", "myapp/")
+	defer os.Unsetenv("BUCKET_KEY_PREFIX")
 	bucket := GetBucket()
 	s3b, ok := bucket.(*S3Bucket)
 	assert.True(t, ok)
@@ -127,11 +127,69 @@ func TestGetS3BucketWithoutKeyPrefix(t *testing2.T) {
 	defer teardown()
 	os.Setenv("STORAGE_MODE", "s3")
 	os.Setenv("S3_BUCKET_NAME", "test")
+	os.Unsetenv("BUCKET_KEY_PREFIX")
 	os.Unsetenv("S3_KEY_PREFIX")
 	bucket := GetBucket()
 	s3b, ok := bucket.(*S3Bucket)
 	assert.True(t, ok)
 	assert.Equal(t, "", s3b.KeyPrefix)
+}
+
+// TODO: remove once S3_KEY_PREFIX backward-compat is dropped.
+func TestGetS3BucketWithLegacyS3KeyPrefix(t *testing2.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("STORAGE_MODE", "s3")
+	os.Setenv("S3_BUCKET_NAME", "test")
+	os.Unsetenv("BUCKET_KEY_PREFIX")
+	os.Setenv("S3_KEY_PREFIX", "legacy")
+	defer os.Unsetenv("S3_KEY_PREFIX")
+	bucket := GetBucket()
+	s3b, ok := bucket.(*S3Bucket)
+	assert.True(t, ok)
+	assert.Equal(t, "legacy/", s3b.KeyPrefix)
+}
+
+// TODO: remove once S3_KEY_PREFIX backward-compat is dropped.
+func TestBucketKeyPrefixTakesPrecedenceOverLegacy(t *testing2.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("STORAGE_MODE", "s3")
+	os.Setenv("S3_BUCKET_NAME", "test")
+	os.Setenv("BUCKET_KEY_PREFIX", "new")
+	os.Setenv("S3_KEY_PREFIX", "legacy")
+	defer os.Unsetenv("BUCKET_KEY_PREFIX")
+	defer os.Unsetenv("S3_KEY_PREFIX")
+	bucket := GetBucket()
+	s3b, ok := bucket.(*S3Bucket)
+	assert.True(t, ok)
+	assert.Equal(t, "new/", s3b.KeyPrefix)
+}
+
+func TestGetGCSBucketWithKeyPrefix(t *testing2.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("STORAGE_MODE", "gcs")
+	os.Setenv("GCS_BUCKET_NAME", "test-bucket")
+	os.Setenv("BUCKET_KEY_PREFIX", "myapp")
+	defer os.Unsetenv("BUCKET_KEY_PREFIX")
+	bucket := GetBucket()
+	gcsb, ok := bucket.(*GCSBucket)
+	assert.True(t, ok)
+	assert.Equal(t, "myapp/", gcsb.KeyPrefix)
+}
+
+func TestGetLocalBucketWithKeyPrefix(t *testing2.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("STORAGE_MODE", "local")
+	os.Setenv("LOCAL_BUCKET_BASE_PATH", "test")
+	os.Setenv("BUCKET_KEY_PREFIX", "myapp")
+	defer os.Unsetenv("BUCKET_KEY_PREFIX")
+	bucket := GetBucket()
+	lb, ok := bucket.(*LocalBucket)
+	assert.True(t, ok)
+	assert.Equal(t, "myapp/", lb.KeyPrefix)
 }
 
 func TestGetLocalBucket(t *testing2.T) {
