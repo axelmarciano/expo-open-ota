@@ -12,6 +12,7 @@ import {
   RequestedPlatform,
   getPrivateExpoConfigAsync,
   getPublicExpoConfigAsync,
+  requireExpoAppId,
   resolveServerUrl,
 } from '../lib/expoConfig';
 import { fetchWithRetries } from '../lib/fetch';
@@ -138,6 +139,7 @@ export default class Publish extends Command {
       Log.error(e.message);
       process.exit(1);
     });
+    const appId = requireExpoAppId(config);
     if (!nonInteractive) {
       const confirmed = await confirmAsync({
         message: `Is this the correct URL of your self-hosted update server? ${serverUrl}`,
@@ -220,13 +222,17 @@ export default class Publish extends Command {
     const exportSpinner = ora('📦 Exporting project files...').start();
     try {
       const specifiedPlatform = platform === RequestedPlatform.All ? [] : ['--platform', platform];
-      const { stdout } = await spawnAsync(packageRunner, ['expo', 'export', '--output-dir', outputDir, ...specifiedPlatform], {
-        cwd: projectDir,
-        env: {
-          ...process.env,
-          EXPO_NO_DOTENV: '1',
-        },
-      });
+      const { stdout } = await spawnAsync(
+        packageRunner,
+        ['expo', 'export', '--output-dir', outputDir, ...specifiedPlatform],
+        {
+          cwd: projectDir,
+          env: {
+            ...process.env,
+            EXPO_NO_DOTENV: '1',
+          },
+        }
+      );
       exportSpinner.succeed('🚀 Project exported successfully');
       Log.withInfo(stdout);
     } catch (e) {
@@ -277,6 +283,7 @@ export default class Publish extends Command {
               platform,
               commitHash,
               message: resolvedMessage,
+              appId,
             })),
             runtimeVersion,
             platform,
@@ -303,6 +310,7 @@ export default class Publish extends Command {
               headers: {
                 ...formData.getHeaders(),
                 ...getAuthExpoHeaders(credentials),
+                'expo-app-id': appId,
               },
               body: formData,
             });
@@ -358,6 +366,7 @@ export default class Publish extends Command {
           headers: {
             ...getAuthExpoHeaders(credentials),
             'Content-Type': 'application/json',
+            'expo-app-id': appId,
           },
         });
         // If success and status code = 200

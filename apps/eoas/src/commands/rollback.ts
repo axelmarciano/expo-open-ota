@@ -6,6 +6,7 @@ import {
   RequestedPlatform,
   getExpoConfigUpdateUrl,
   getPrivateExpoConfigAsync,
+  requireExpoAppId,
 } from '../lib/expoConfig';
 import { fetchWithRetries } from '../lib/fetch';
 import Log from '../lib/log';
@@ -88,6 +89,7 @@ export default class Publish extends Command {
       );
       process.exit(1);
     }
+    const appId = requireExpoAppId(privateConfig);
     let baseUrl: string;
     try {
       const parsedUrl = new URL(updateUrl);
@@ -150,6 +152,7 @@ export default class Publish extends Command {
           method: 'POST',
           headers: {
             ...getAuthExpoHeaders(credentials),
+            'expo-app-id': appId,
           },
         });
         if (!response.ok) {

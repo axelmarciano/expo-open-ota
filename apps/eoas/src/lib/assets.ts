@@ -103,6 +103,7 @@ export async function requestUploadUrls({
   requestUploadUrl,
   auth,
   runtimeVersion,
+  appId,
   platform,
   commitHash,
   message,
@@ -114,6 +115,7 @@ export async function requestUploadUrls({
   platform: string;
   commitHash?: string;
   message?: string;
+  appId: string;
 }): Promise<{ uploadRequests: RequestUploadUrlItem[]; updateId: string }> {
   const uploadUrl = new URL(requestUploadUrl);
   uploadUrl.searchParams.set('runtimeVersion', runtimeVersion);
@@ -130,6 +132,7 @@ export async function requestUploadUrls({
     headers: {
       ...getAuthExpoHeaders(auth),
       'Content-Type': 'application/json',
+      'expo-app-id': appId,
     },
     body: JSON.stringify(requestBody),
   });
