@@ -207,7 +207,7 @@ func TestToRetrieveBundleAsset(t *testing.T) {
 	assert.Empty(t, responseWithUrl.Body, "Expected empty body")
 	parsedUrl, err := url.Parse(responseWithUrl.URL)
 	require.NoError(t, err, "Error while parsing the URL")
-	expectedBaseURL := "https://cdn.expoopenota.com/branch-1/1/1674170951/bundles/android-82adadb1fb6e489d04ad95fd79670deb.js"
+	expectedBaseURL := "https://cdn.expoopenota.com/test-app-id/branch-1/1/1674170951/bundles/android-82adadb1fb6e489d04ad95fd79670deb.js"
 	assert.Equal(t, expectedBaseURL, parsedUrl.Scheme+"://"+parsedUrl.Host+parsedUrl.Path, "URL should match the expected base URL")
 	queryParams := parsedUrl.Query()
 	assert.NotEmpty(t, queryParams.Get("Policy"), "Policy should not be empty")

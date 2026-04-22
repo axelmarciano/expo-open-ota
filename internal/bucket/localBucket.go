@@ -65,7 +65,9 @@ func (b *LocalBucket) RequestUploadUrlForFileUpdate(appId string, branch string,
 	if err != nil {
 		return "", fmt.Errorf("invalid base URL: %w", err)
 	}
-	parsedURL.Path, err = url.JoinPath(parsedURL.Path, "uploadLocalFile")
+	// The route is registered under the /{APP_ID} subrouter in router.go,
+	// so the URL must include the appId segment or the client PUT 404s.
+	parsedURL.Path, err = url.JoinPath(parsedURL.Path, appId, "uploadLocalFile")
 	if err != nil {
 		return "", fmt.Errorf("error joining path: %w", err)
 	}
@@ -221,26 +223,32 @@ func (b *LocalBucket) UploadFileIntoUpdate(update types.Update, fileName string,
 	return nil
 }
 
-func ValidateUploadTokenAndResolveFilePath(token string) (string, error) {
+// ValidateUploadTokenAndResolveFilePath decodes and verifies the JWT emitted
+// by RequestUploadUrlForFileUpdate. It returns the resolved filesystem path
+// plus the appId claim so the caller can confirm the token is scoped to the
+// same app as the URL — without that check, an attacker who obtained a leaked
+// token for AppA could PUT into AppB's bucket by hitting
+// /{AppB}/uploadLocalFile?token=<appA_token>.
+func ValidateUploadTokenAndResolveFilePath(token string) (filePath string, appId string, err error) {
 	claims := jwt.MapClaims{}
 	decodedToken, err := services.DecodeAndExtractJWTToken(config.GetEnv("JWT_SECRET"), token, claims)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if !decodedToken.Valid {
-		return "", errors.New("invalid token")
+		return "", "", errors.New("invalid token")
 	}
-	action := claims["action"].(string)
-	filePath := claims["filePath"].(string)
-	sub := claims["sub"].(string)
-	tokenAppId, _ := claims["appId"].(string)
-	if tokenAppId == "" || sub != services.FetchSelfExpoUsername(tokenAppId) {
-		return "", errors.New("invalid token sub")
+	action, _ := claims["action"].(string)
+	filePath, _ = claims["filePath"].(string)
+	sub, _ := claims["sub"].(string)
+	appId, _ = claims["appId"].(string)
+	if appId == "" || sub != services.FetchSelfExpoUsername(appId) {
+		return "", "", errors.New("invalid token sub")
 	}
 	if action != "uploadLocalFile" {
-		return "", errors.New("invalid token action")
+		return "", "", errors.New("invalid token action")
 	}
-	return filePath, nil
+	return filePath, appId, nil
 }
 
 func HandleUploadFile(filePath string, body multipart.File) (bool, error) {

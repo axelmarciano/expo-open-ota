@@ -30,10 +30,14 @@ func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	expoAuth := helpers.GetExpoAuth(r)
-	expoAccount, err := services.FetchExpoUserAccountInformations(expoAuth)
+	// ValidateExpoAuth(appId, ...) enforces that the caller's Expo session
+	// matches the app identified by APP_ID — without the appId check,
+	// FetchExpoUserAccountInformations alone would accept any authenticated
+	// Expo user against any app (cross-tenant authz bypass).
+	expoAccount, err := services.ValidateExpoAuth(appId, expoAuth)
 	if err != nil {
-		log.Printf("[RequestID: %s] Error fetching expo account informations: %v", requestID, err)
-		http.Error(w, "Error fetching expo account informations", http.StatusUnauthorized)
+		log.Printf("[RequestID: %s] Error validating expo auth: %v", requestID, err)
+		http.Error(w, "Error validating expo auth", http.StatusUnauthorized)
 		return
 	}
 	if expoAccount == nil {

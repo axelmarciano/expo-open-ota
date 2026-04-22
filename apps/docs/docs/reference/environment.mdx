@@ -58,9 +58,14 @@ path that matches how many apps you host — both use the exact same runtime.
 above are used to build a single-app config. If neither path is configured
 the server fails to start with a clear boot error.
 
-:::note
-The flat env var names are the exact v1 names — a v1 single-app deployment
-upgrades to v2 with zero config changes.
+:::caution v2 is a breaking upgrade
+The **env var names are identical to v1** on the single-app path, but the
+server still requires **client-side changes** (every app must now send an
+`expo-app-id` header — see the [Migration guide](/docs/advanced/migration-v1-to-v2))
+**and** the underlying bucket layout changed from `{prefix}/{branch}/…` to
+`{prefix}/{appId}/{branch}/…`. Existing v1 bucket data is not read by a v2
+server without a one-time data re-path. The Migration guide has the
+procedure.
 :::
 
 ### ⚡ **Cache Configuration**
@@ -118,3 +123,8 @@ global and are configured via env vars below.
 | --- | --- | --- | --- | --- |
 | `USE_DASHBOARD` | ❌ | Enable the dashboard | `true` | [Ref](/docs/dashboard) |
 | `ADMIN_PASSWORD` | ✅ if USE_DASHBOARD is set | Admin password | `Random string` | [Ref](/docs/dashboard) |
+
+#### **Migration**
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
+| `SKIP_V1_TO_V2_BUCKET_MIGRATION` | ❌ | Set to `true` to opt out of the automatic one-shot bucket re-path that moves v1 data under `{appId}/` on first v2 boot. Useful when you want to re-path the data manually. Only meaningful on the single-app flat-env path. | `true` | [Ref](/docs/advanced/migration-v1-to-v2) |

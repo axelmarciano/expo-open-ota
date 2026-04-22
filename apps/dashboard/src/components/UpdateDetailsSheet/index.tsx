@@ -12,6 +12,7 @@ import { api } from '@/lib/api.ts';
 import { Skeleton } from '@/components/ui/skeleton.tsx';
 import { ApiError } from '@/components/APIError';
 import { Badge } from '@/components/ui/badge.tsx';
+import { useSelectedApp } from '@/lib/SelectedAppContext';
 
 interface Update {
   updateUUID: string;
@@ -35,9 +36,10 @@ const UpdateDetails = ({
   branch: string;
   runtimeVersion: string;
 }) => {
+  const { selectedAppId } = useSelectedApp();
   const { data, isLoading, error } = useQuery({
-    queryKey: [`update-details-${update?.updateUUID}`],
-    enabled: !!update?.updateId,
+    queryKey: ['update-details', selectedAppId, update?.updateUUID],
+    enabled: !!update?.updateId && !!selectedAppId,
     queryFn: () => api.getUpdateDetails(branch, runtimeVersion, update?.updateId as string),
   });
   const updateDetails = data;

@@ -161,10 +161,19 @@ func RequestUploadLocalFileHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No token provided", http.StatusBadRequest)
 		return
 	}
-	filePath, err := bucket.ValidateUploadTokenAndResolveFilePath(token)
+	filePath, tokenAppId, err := bucket.ValidateUploadTokenAndResolveFilePath(token)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating upload token: %v", requestID, err)
 		http.Error(w, "Error validating upload token", http.StatusBadRequest)
+		return
+	}
+	// Defense against a leaked-token cross-app write: the token claim must
+	// match the app id on the URL. Without this check, a valid token scoped
+	// to AppA could be replayed via /{AppB}/uploadLocalFile to land bytes
+	// under AppA's bucket tree from an AppB-authenticated session.
+	if tokenAppId != appId {
+		log.Printf("[RequestID: %s] Token appId mismatch: token=%q url=%q", requestID, tokenAppId, appId)
+		http.Error(w, "Upload token does not match this app", http.StatusForbidden)
 		return
 	}
 	if r.Body == nil {

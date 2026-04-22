@@ -42,7 +42,7 @@ func TestToRollbackWithBadBearer(t *testing.T) {
 	w, _, _, r := createRollbackRequest(projectRoot, "DO_NOT_USE", "1", "Authorization", "Bearer expo_bad_token", "ios", "hash")
 	handlers.RollbackHandler(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error fetching expo account informations\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Error validating expo auth\n", w.Body.String(), "Expected error message")
 }
 
 func TestGoodRollback(t *testing.T) {

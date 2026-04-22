@@ -5,11 +5,13 @@ import { DataTable } from '@/components/DataTable';
 import { SelectBranch } from '@/pages/Channels/components/SelectBranch';
 import { useCallback, useState } from 'react';
 import { useToast } from '@/hooks/use-toast.ts';
+import { useSelectedApp } from '@/lib/SelectedAppContext';
 
 export const Channels = () => {
+  const { selectedAppId } = useSelectedApp();
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: [`channels`],
-    enabled: true,
+    queryKey: ['channels', selectedAppId],
+    enabled: !!selectedAppId,
     queryFn: () => api.getChannels(),
   });
   const { toast } = useToast();

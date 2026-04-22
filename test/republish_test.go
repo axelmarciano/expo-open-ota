@@ -38,7 +38,7 @@ func TestToRepublishRollbackWithBadBearer(t *testing.T) {
 	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_bad_token", "ios", "hash", "1737455526")
 	handlers.RepublishHandler(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error fetching expo account informations\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Error validating expo auth\n", w.Body.String(), "Expected error message")
 }
 
 func copyDir(src string, dst string) error {

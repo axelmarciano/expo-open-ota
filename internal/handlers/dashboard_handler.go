@@ -109,7 +109,7 @@ func GetSettingsHandler(w http.ResponseWriter, r *http.Request) {
 
 func GetChannelsHandler(w http.ResponseWriter, r *http.Request) {
 	appId := mux.Vars(r)["APP_ID"]
-	cacheKey := dashboard.ComputeGetChannelsCacheKey()
+	cacheKey := dashboard.ComputeGetChannelsCacheKey(appId)
 	cache := cache2.GetCache()
 	if cacheValue := cache.Get(cacheKey); cacheValue != "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -197,7 +197,7 @@ func GetRuntimeVersionsHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	appId := vars["APP_ID"]
 	branchName := vars["BRANCH"]
-	cacheKey := dashboard.ComputeGetRuntimeVersionsCacheKey(branchName)
+	cacheKey := dashboard.ComputeGetRuntimeVersionsCacheKey(appId, branchName)
 	cache := cache2.GetCache()
 	if cacheValue := cache.Get(cacheKey); cacheValue != "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -235,7 +235,7 @@ func GetUpdateDetails(w http.ResponseWriter, r *http.Request) {
 	branchName := vars["BRANCH"]
 	runtimeVersion := vars["RUNTIME_VERSION"]
 	updateId := vars["UPDATE_ID"]
-	cacheKey := dashboard.ComputeGetUpdateDetailsCacheKey(branchName, runtimeVersion, updateId)
+	cacheKey := dashboard.ComputeGetUpdateDetailsCacheKey(appId, branchName, runtimeVersion, updateId)
 	cache := cache2.GetCache()
 	if cacheValue := cache.Get(cacheKey); cacheValue != "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -291,7 +291,7 @@ func GetUpdatesHandler(w http.ResponseWriter, r *http.Request) {
 	appId := vars["APP_ID"]
 	branchName := vars["BRANCH"]
 	runtimeVersion := vars["RUNTIME_VERSION"]
-	cacheKey := dashboard.ComputeGetUpdatesCacheKey(branchName, runtimeVersion)
+	cacheKey := dashboard.ComputeGetUpdatesCacheKey(appId, branchName, runtimeVersion)
 	cache := cache2.GetCache()
 	if cacheValue := cache.Get(cacheKey); cacheValue != "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -393,8 +393,8 @@ func UpdateChannelBranchMappingHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(marshaledResponse)
 
-	branchesCacheKey := dashboard.ComputeGetBranchesCacheKey()
-	channelsCacheKey := dashboard.ComputeGetChannelsCacheKey()
+	branchesCacheKey := dashboard.ComputeGetBranchesCacheKey(appId)
+	channelsCacheKey := dashboard.ComputeGetChannelsCacheKey(appId)
 	cache := cache2.GetCache()
 	cache.Delete(branchesCacheKey)
 	cache.Delete(channelsCacheKey)

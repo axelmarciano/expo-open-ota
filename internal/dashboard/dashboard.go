@@ -10,22 +10,24 @@ func IsDashboardEnabled() bool {
 	return config.GetEnv("USE_DASHBOARD") == "true"
 }
 
-func ComputeGetRuntimeVersionsCacheKey(branch string) string {
-	return fmt.Sprintf("dashboard:%s:request:getRuntimeVersions:%s", version.Version, branch)
+// Dashboard cache keys must include the appId so entries from one app aren't
+// served to another within the TTL (multi-tenant cache bleeding).
+func ComputeGetRuntimeVersionsCacheKey(appId, branch string) string {
+	return fmt.Sprintf("dashboard:%s:%s:request:getRuntimeVersions:%s", version.Version, appId, branch)
 }
 
-func ComputeGetBranchesCacheKey() string {
-	return fmt.Sprintf("dashboard:%s:request:getBranches", version.Version)
+func ComputeGetBranchesCacheKey(appId string) string {
+	return fmt.Sprintf("dashboard:%s:%s:request:getBranches", version.Version, appId)
 }
 
-func ComputeGetChannelsCacheKey() string {
-	return fmt.Sprintf("dashboard:%s:request:getChannels", version.Version)
+func ComputeGetChannelsCacheKey(appId string) string {
+	return fmt.Sprintf("dashboard:%s:%s:request:getChannels", version.Version, appId)
 }
 
-func ComputeGetUpdatesCacheKey(branch string, runtimeVersion string) string {
-	return fmt.Sprintf("dashboard:%s:request:getUpdates:%s:%s", version.Version, branch, runtimeVersion)
+func ComputeGetUpdatesCacheKey(appId, branch, runtimeVersion string) string {
+	return fmt.Sprintf("dashboard:%s:%s:request:getUpdates:%s:%s", version.Version, appId, branch, runtimeVersion)
 }
 
-func ComputeGetUpdateDetailsCacheKey(branch string, runtimeVersion string, updateID string) string {
-	return fmt.Sprintf("dashboard:%s:request:getUpdateDetails:%s:%s:%s", version.Version, branch, runtimeVersion, updateID)
+func ComputeGetUpdateDetailsCacheKey(appId, branch, runtimeVersion, updateID string) string {
+	return fmt.Sprintf("dashboard:%s:%s:request:getUpdateDetails:%s:%s:%s", version.Version, appId, branch, runtimeVersion, updateID)
 }

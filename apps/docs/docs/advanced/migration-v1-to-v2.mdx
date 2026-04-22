@@ -1,0 +1,143 @@
+---
+sidebar_position: 3
+---
+
+# Migrating from v1 to v2
+
+v2 of **Expo Open OTA** introduces multi-app support on a single server. The server-side env var names are unchanged on the single-app path, **but v2 is still a breaking upgrade**:
+
+1. The **bucket/storage layout changed** from `{prefix}/{branch}/{runtimeVersion}/{updateId}/…` to `{prefix}/{appId}/{branch}/{runtimeVersion}/{updateId}/…`. A v2 server pointed at a v1 bucket **will not see any previously published updates** — your apps effectively lose OTA coverage until data is re-pathed.
+2. Every Expo client must be updated to send the new `expo-app-id` HTTP header. Since this header is baked into the native bundle, it requires a **native rebuild and app store re-submission**.
+
+:::danger Not a zero-downtime in-place upgrade
+Bucket data must be moved AND clients must be rebuilt. Skipping either step results in broken OTA for existing users. Plan this upgrade alongside a regular app release cycle, not as a hotfix.
+:::
+
+:::danger Native rebuild is mandatory
+Even if your server-side `.env` is unchanged, **the Expo client will get `400 No app id provided` from v2 until you add `'expo-app-id'` to `updates.requestHeaders` in `app.config.ts` AND ship a new native build** (iOS `.ipa` / Android `.apk`/`.aab`). A JS-only OTA update is not enough — `requestHeaders` are baked into `Expo.plist` / `AndroidManifest.xml` at build time.
+:::
+
+## What changed on the wire
+
+| Concern | v1 | v2 |
+| --- | --- | --- |
+| Server identifies the app by | `EXPO_APP_ID` env var (one per deploy) | `expo-app-id` HTTP header sent by the client |
+| Config shape | Flat env vars | Flat env vars (single-app, unchanged) **OR** `EXPO_APPS_JSON` (multi-app) |
+| Manifest/asset URL | `/manifest`, `/assets`, `/rollback/{branch}`, … | Same for manifest/assets (`expo-app-id` comes in a header). Publish/rollback/republish/upload routes are now scoped under `/{APP_ID}/…` — handled transparently by the `eoas` CLI. |
+| Dashboard API | `/api/branches`, `/api/channels`, `/api/branch/{branch}/…` | `/api/apps/{APP_ID}/branches`, `/api/apps/{APP_ID}/channels`, `/api/apps/{APP_ID}/branch/{branch}/…` |
+
+## Step-by-step migration
+
+### Single-app deployments
+
+1. **Upgrade the server image** to the v2 release. No env var changes are required on the single-app path — v2 reads the same `EXPO_APP_ID`, `EXPO_ACCESS_TOKEN`, `KEYS_STORAGE_TYPE`, and key-storage env vars as v1.
+
+    :::tip Automatic bucket re-path
+    On first boot, the v2 server runs the `20260422_v2_scope_data_under_appid` migration which **automatically moves your v1 bucket data into the new `{appId}/…` layout**. It only touches directories that match the v1 branch shape (`{branch}/{runtimeVersion}/{updateId}/.check`), leaves `.migrationhistory` at the bucket root, and records its success in the migration ledger so it runs exactly once. An interrupted run picks up where it left off on the next boot.
+
+    If you'd rather re-path the data yourself (e.g. you have a huge bucket and want to do it offline with `aws s3 mv`), set `SKIP_V1_TO_V2_BUCKET_MIGRATION=true` before first boot — the migration records itself as applied but skips the work. See [Manual bucket re-path](#manual-bucket-re-path) below for the commands.
+
+    The automatic migration is **only** run when `EXPO_APP_ID` is set (single-app flat-env path). Multi-app upgrades are ambiguous — the server cannot know which v1 branch belonged to which configured app — so they require a manual re-path per app.
+    :::
+
+2. **Upgrade the `eoas` CLI** (`npm i -D eoas@latest`). The CLI now writes `expo-app-id` into your `app.config.ts` automatically when you run `npx eoas init`.
+3. **Add `expo-app-id` to every client app's `app.config.ts`:**
+
+    ```ts title="app.config.ts"
+    export default ({ config }) => ({
+      ...config,
+      updates: {
+        url: 'https://ota.mysite.com/manifest',
+        requestHeaders: {
+          'expo-channel-name': process.env.RELEASE_CHANNEL,
+          // New in v2 — value must match the server-side EXPO_APP_ID
+          'expo-app-id': 'a45ed151-0387-4419-a97c-d008d8f214c7',
+        },
+        // ...
+      },
+    });
+    ```
+
+4. **Regenerate native code and rebuild each platform:**
+
+    ```bash title="cd ./my-expo-project"
+    npx expo prebuild --clean        # rewrites ios/ and android/ from app.config.ts
+    npx expo run:ios                 # or run:android — rebuild the native binary
+    ```
+
+    After this, verify that `ios/<app>/Supporting/Expo.plist` contains the new header:
+
+    ```xml
+    <key>EXUpdatesRequestHeaders</key>
+    <dict>
+      <key>expo-channel-name</key>
+      <string>production</string>
+      <key>expo-app-id</key>
+      <string>a45ed151-0387-4419-a97c-d008d8f214c7</string>
+    </dict>
+    ```
+
+    Same check on Android: `android/app/src/main/AndroidManifest.xml` must carry a matching `meta-data` entry for `expo.modules.updates.EXPO_UPDATES_REQUEST_HEADERS`.
+
+5. **Ship the new native build** through the App Store / Play Store / internal distribution. OTA updates alone will **not** roll out this header change — clients with the v1 binary keep sending no `expo-app-id` and will see `400 No app id provided` against the v2 server.
+
+6. Once the new binary is in your users' hands, regular OTA updates resume as usual via `npx eoas publish --branch=<branch>`.
+
+:::tip Rolling upgrade
+If you can't rebuild every client at once, keep a v1 server instance alive for the legacy fleet and point the v2 server at a new URL for the rebuilt clients. Once adoption of the new binary is high enough, retire v1.
+:::
+
+### Migrating to multi-app
+
+Once you're on v2 and want to host a second Expo project on the same server:
+
+1. Compose an `EXPO_APPS_JSON` that contains your existing app as the first entry and the new app as the second. See the [Multi-app](/docs/advanced/multi-app) page for the full schema.
+2. Set `EXPO_APPS_JSON` on the server. You can leave the old flat env vars (`EXPO_APP_ID`, `EXPO_ACCESS_TOKEN`, `KEYS_STORAGE_TYPE`, …) in place — they're ignored when `EXPO_APPS_JSON` is set.
+3. In the second app's `app.config.ts`, set `'expo-app-id'` to the new app's `id` and run `npx eoas init` to wire the rest (URL, certificate, channel header). Then rebuild natively as described above.
+4. Publish updates targeting the new app: the `eoas` CLI picks up the right `expo-app-id` from the config automatically.
+
+## Manual bucket re-path
+
+Use these commands if you set `SKIP_V1_TO_V2_BUCKET_MIGRATION=true` and want to move v1 data into the `{appId}/` layout yourself, or if you're migrating a multi-app install (where the automatic migration intentionally skips — the server can't guess which branch belongs to which app). Replace `<APP_ID>` with the exact value of your `EXPO_APP_ID` (single-app) or one of your `apps[].id` (multi-app), and **take the v1 server offline before starting** to prevent concurrent writes into the old paths.
+
+```bash title="Local filesystem"
+cd "$LOCAL_BUCKET_BASE_PATH"
+# Only move the branch directories, not any existing .migrationhistory file.
+mkdir -p "<APP_ID>"
+for d in */; do
+  [ "$d" = "<APP_ID>/" ] && continue
+  mv -- "$d" "<APP_ID>/"
+done
+```
+
+```bash title="S3 (AWS CLI)"
+# Dry-run first to preview the moves, then drop --dryrun.
+aws s3 mv "s3://$S3_BUCKET_NAME/" "s3://$S3_BUCKET_NAME/<APP_ID>/" \
+  --recursive --exclude ".migrationhistory" --dryrun
+```
+
+```bash title="GCS (gsutil)"
+gsutil -m mv "gs://$GCS_BUCKET_NAME/**" "gs://$GCS_BUCKET_NAME/<APP_ID>/"
+```
+
+After the move, your layout should be `{prefix}<APP_ID>/{branch}/{runtimeVersion}/{updateId}/…`. Leave `.migrationhistory` at the bucket root — the server reads it from there.
+
+## Troubleshooting
+
+### Client gets `400 No app id provided`
+
+- The `expo-app-id` header isn't in the client's native bundle. Check `ios/<app>/Supporting/Expo.plist` and `android/app/src/main/AndroidManifest.xml` — if the header isn't there, you set `requestHeaders` in `app.config.ts` but haven't run `npx expo prebuild --clean` and rebuilt the native binary.
+
+### Client gets `400 Error validating expo auth`
+
+- The `expo-app-id` header value doesn't match any configured app on the server. Double-check that:
+  - On single-app: `EXPO_APP_ID` on the server equals the `expo-app-id` in the client's `app.config.ts`.
+  - On multi-app: one of the `apps[].id` entries in `EXPO_APPS_JSON` equals the client's `expo-app-id`.
+
+### Server fails to boot with `no apps config found`
+
+- Neither `EXPO_APPS_JSON` nor `EXPO_APP_ID` is set. Set one of them per the [Prerequisites page](/docs/getting-started/prerequisites) (single-app) or [Multi-app](/docs/advanced/multi-app) page.
+
+### Dashboard shows `404 page not found`
+
+- The dashboard is hitting the new `/api/apps/{APP_ID}/…` routes. If you see 404s after a v2 upgrade, you're likely running the v1 dashboard bundle against a v2 server — redeploy the server (which ships the updated dashboard bundle) or clear your browser's cached asset for `/dashboard/`.

@@ -295,7 +295,7 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 		assert.Nil(t, err, "Expected valid URL")
 		assert.Equal(t, "http", parsedUrl.Scheme, "Expected HTTP scheme")
 		assert.Equal(t, "localhost:3000", parsedUrl.Host, "Expected localhost:3000 host")
-		assert.Equal(t, "/uploadLocalFile", parsedUrl.Path, "Expected /uploadLocalFile path")
+		assert.Equal(t, "/test-app-id/uploadLocalFile", parsedUrl.Path, "Expected /{appId}/uploadLocalFile path")
 		token := parsedUrl.Query().Get("token")
 		assert.NotEmpty(t, token, "Expected non-empty token")
 		claims := jwt.MapClaims{}

@@ -40,7 +40,7 @@ func getSigner(key string) (crypto.Signer, error) {
 	return privateKey, nil
 }
 
-func (c *CloudfrontCDN) ComputeRedirectionURLForAsset(branch, runtimeVersion, updateId, asset string) (string, error) {
+func (c *CloudfrontCDN) ComputeRedirectionURLForAsset(appId, branch, runtimeVersion, updateId, asset string) (string, error) {
 	domain := getCloudfrontDomain()
 	keyPairId := getCloudfrontKeyPairId()
 	privateCloudfrontCert := keyStore.GetPrivateCloudfrontKey()
@@ -54,7 +54,9 @@ func (c *CloudfrontCDN) ComputeRedirectionURLForAsset(branch, runtimeVersion, up
 		return "", fmt.Errorf("error parsing private key: %w", err)
 	}
 
-	endpoint := fmt.Sprintf("%s/%s/%s/%s", branch, runtimeVersion, updateId, asset)
+	// Must match the v2 bucket layout exactly — if the CloudFront origin is
+	// an S3 bucket, the object sits at {keyPrefix}{appId}/{branch}/...
+	endpoint := fmt.Sprintf("%s/%s/%s/%s/%s", appId, branch, runtimeVersion, updateId, asset)
 	resource := fmt.Sprintf("%s/%s", domain, endpoint)
 
 	policy := sign.NewCannedPolicy(resource, time.Now().Add(10*time.Minute))

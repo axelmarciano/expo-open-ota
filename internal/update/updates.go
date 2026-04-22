@@ -78,9 +78,9 @@ func StoreUpdateUUIDInMetadata(update types.Update) error {
 
 func MarkUpdateAsChecked(update types.Update) error {
 	cache := cache2.GetCache()
-	branchesCacheKey := dashboard.ComputeGetBranchesCacheKey()
-	runTimeVersionsCacheKey := dashboard.ComputeGetRuntimeVersionsCacheKey(update.Branch)
-	updatesCacheKey := dashboard.ComputeGetUpdatesCacheKey(update.Branch, update.RuntimeVersion)
+	branchesCacheKey := dashboard.ComputeGetBranchesCacheKey(update.AppId)
+	runTimeVersionsCacheKey := dashboard.ComputeGetRuntimeVersionsCacheKey(update.AppId, update.Branch)
+	updatesCacheKey := dashboard.ComputeGetUpdatesCacheKey(update.AppId, update.Branch, update.RuntimeVersion)
 	storedMetadata, err := RetrieveUpdateStoredMetadata(update)
 	if err != nil || storedMetadata == nil {
 		return err

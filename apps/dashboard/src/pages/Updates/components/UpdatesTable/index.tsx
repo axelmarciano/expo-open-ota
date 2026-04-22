@@ -16,6 +16,7 @@ import apple from '@/assets/apple.svg';
 import android from '@/assets/android.svg';
 import { UpdateDetailsRef, UpdateDetailsSheet } from '@/components/UpdateDetailsSheet';
 import { useRef } from 'react';
+import { useSelectedApp } from '@/lib/SelectedAppContext';
 
 export const UpdatesTable = ({
   branch,
@@ -25,9 +26,11 @@ export const UpdatesTable = ({
   runtimeVersion: string;
 }) => {
   const sheetRef = useRef<UpdateDetailsRef>(null);
+  const { selectedAppId } = useSelectedApp();
   const { data, isLoading, error } = useQuery({
-    queryKey: ['updates'],
+    queryKey: ['updates', selectedAppId, branch, runtimeVersion],
     queryFn: () => api.getUpdates(branch, runtimeVersion),
+    enabled: !!selectedAppId,
   });
 
   return (

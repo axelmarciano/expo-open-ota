@@ -83,7 +83,7 @@ export default class Publish extends Command {
       Log.error('Invalid URL', e);
       process.exit(1);
     }
-    const runtimeVersionsEndpoint = `${baseUrl}/api/apps/${appId}/branches/${branch}/runtimeVersions`;
+    const runtimeVersionsEndpoint = `${baseUrl}/api/apps/${appId}/branch/${branch}/runtimeVersions`;
     const response = await fetchWithRetries(runtimeVersionsEndpoint, {
       headers: {
         ...getAuthExpoHeaders(credentials),
@@ -118,7 +118,7 @@ export default class Publish extends Command {
       })),
     });
     Log.log(`Selected runtime version: ${selectedRuntimeVersion.runtimeVersion}`);
-    const updatesEndpoint = `${baseUrl}/api/apps/${appId}/branches/${branch}/runtimeVersion/${selectedRuntimeVersion.runtimeVersion}/updates`;
+    const updatesEndpoint = `${baseUrl}/api/apps/${appId}/branch/${branch}/runtimeVersion/${selectedRuntimeVersion.runtimeVersion}/updates`;
     const updatesResponse = await fetchWithRetries(updatesEndpoint, {
       headers: {
         ...getAuthExpoHeaders(credentials),

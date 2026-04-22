@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
@@ -36,9 +36,32 @@ export function SelectedAppProvider({ children }: { children: ReactNode }) {
   const apps = useMemo(() => settingsQuery.data?.APPS ?? [], [settingsQuery.data]);
   const [selectedAppId, setSelectedAppIdState] = useState<string | null>(null);
 
+  const setSelectedAppId = useCallback(
+    (appId: string) => {
+      setSelectedAppIdState(appId);
+      api.setAppId(appId);
+      localStorage.setItem(STORAGE_KEY, appId);
+      // Invalidate every per-app query so tables re-fetch under the new app
+      // immediately. Pages that read non-app data (settings, login) are
+      // scoped to their own keys and untouched.
+      queryClient.invalidateQueries({
+        predicate: q => {
+          const key = q.queryKey[0];
+          return key !== 'settings';
+        },
+      });
+    },
+    [queryClient]
+  );
+
   // Initial resolution: pick the stored app if it's still in the list,
   // otherwise default to the first one. Runs whenever `apps` changes (e.g.,
   // someone re-deployed with a new app list while the dashboard was open).
+  // Routing through setSelectedAppId here (not a direct state write) is
+  // important: it invalidates any per-app query that was already fired
+  // before settings resolved, so those queries — which threw "No app
+  // selected" from api.appScope() — actually retry with an appId set
+  // instead of waiting for react-query's default retry budget to kick in.
   useEffect(() => {
     if (!apps.length) {
       if (selectedAppId !== null) {
@@ -51,29 +74,13 @@ export function SelectedAppProvider({ children }: { children: ReactNode }) {
     const stored = localStorage.getItem(STORAGE_KEY);
     const initial = stored && appIds.includes(stored) ? stored : appIds[0];
     if (initial !== selectedAppId) {
-      setSelectedAppIdState(initial);
-      api.setAppId(initial);
+      setSelectedAppId(initial);
     }
     // `selectedAppId` intentionally omitted from deps — we only want this to
     // resolve on the (settings data, apps array) change, not on every user
-    // selection (which is handled by setSelectedAppId below).
+    // selection (which is handled by setSelectedAppId itself).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apps]);
-
-  const setSelectedAppId = (appId: string) => {
-    setSelectedAppIdState(appId);
-    api.setAppId(appId);
-    localStorage.setItem(STORAGE_KEY, appId);
-    // Invalidate every per-app query so tables re-fetch under the new app
-    // immediately. Pages that read non-app data (settings, login) are scoped
-    // to their own keys and untouched.
-    queryClient.invalidateQueries({
-      predicate: q => {
-        const key = q.queryKey[0];
-        return key !== 'settings';
-      },
-    });
-  };
+  }, [apps, setSelectedAppId]);
 
   const value = useMemo<SelectedAppContextValue>(
     () => ({
