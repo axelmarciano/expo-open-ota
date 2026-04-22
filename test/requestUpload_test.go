@@ -105,6 +105,7 @@ func performUpload(t *testing.T, projectRoot, branch, runtimeVersion, sampleUpda
 			uploadReq := httptest.NewRequest("PUT", "/uploadLocalFile?token="+token, body)
 			uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
 			uploadReq.Header.Set("Authorization", "Bearer expo_test_token")
+			uploadReq = mux.SetURLVars(uploadReq, map[string]string{"APP_ID": "test-app-id"})
 			handlers.RequestUploadLocalFileHandler(ws[index], uploadReq)
 			if ws[index].Code != 200 {
 				errs <- fmt.Errorf("File upload for %s returned status %d", req.FileName, ws[index].Code)
@@ -348,6 +349,7 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 			uploadFileReq := httptest.NewRequest("PUT", "/uploadLocalFile?token="+token, body)
 			uploadFileReq.Header.Set("Content-Type", writer.FormDataContentType())
 			uploadFileReq.Header.Set("Authorization", "Bearer expo_test_token")
+			uploadFileReq = mux.SetURLVars(uploadFileReq, map[string]string{"APP_ID": "test-app-id"})
 			handlers.RequestUploadLocalFileHandler(ws[index], uploadFileReq)
 			if ws[index].Code != 200 {
 				errs <- fmt.Errorf("Upload failed with status %d", ws[index].Code)

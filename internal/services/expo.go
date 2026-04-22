@@ -46,7 +46,7 @@ type BranchMapping struct {
 	} `json:"data"`
 }
 
-func ValidateExpoAuth(expoAuth types.ExpoAuth) (*ExpoUserAccount, error) {
+func ValidateExpoAuth(appId string, expoAuth types.ExpoAuth) (*ExpoUserAccount, error) {
 	if expoAuth.Token == nil && expoAuth.SessionSecret == nil {
 		return nil, errors.New("no valid Expo auth provided")
 	}
@@ -57,19 +57,22 @@ func ValidateExpoAuth(expoAuth types.ExpoAuth) (*ExpoUserAccount, error) {
 	if expoAccount == nil {
 		return nil, errors.New("no expo account found")
 	}
-	selfExpoUsername := FetchSelfExpoUsername()
+	selfExpoUsername := FetchSelfExpoUsername(appId)
 	if selfExpoUsername != expoAccount.Username {
 		return nil, errors.New("expo account does not match self expo username")
 	}
 	return expoAccount, nil
 }
 
-func GetExpoAccessToken() string {
-	return config.GetEnv("EXPO_ACCESS_TOKEN")
-}
-
-func GetExpoAppId() string {
-	return config.GetEnv("EXPO_APP_ID")
+// GetExpoAccessToken returns the Expo access token configured for the given
+// app in the v2 apps config. Returns "" if the app is unknown so callers
+// that treat it as "missing token" produce the same auth-failure path.
+func GetExpoAccessToken(appId string) string {
+	app, err := config.GetAppConfig(appId)
+	if err != nil {
+		return ""
+	}
+	return app.AccessToken
 }
 
 func SetAuthHeaders(expoAuth types.ExpoAuth, req *http.Request) {
@@ -122,7 +125,7 @@ func makeGraphQLRequest(ctx context.Context, query string, variables map[string]
 	return json.NewDecoder(resp.Body).Decode(result)
 }
 
-func FetchExpoChannels() ([]ExpoChannel, error) {
+func FetchExpoChannels(appId string) ([]ExpoChannel, error) {
 	query := `
 		query FetchAppChannel($appId: String!) {
 			app {
@@ -136,8 +139,7 @@ func FetchExpoChannels() ([]ExpoChannel, error) {
 			}
 		}
 	`
-	appId := GetExpoAppId()
-	expoToken := GetExpoAccessToken()
+	expoToken := GetExpoAccessToken(appId)
 	variables := map[string]interface{}{
 		"appId": appId,
 	}
@@ -163,7 +165,7 @@ func FetchExpoChannels() ([]ExpoChannel, error) {
 	return resp.Data.App.ById.UpdateChannels, nil
 }
 
-func UpdateChannelBranchMapping(channelName, branchId string) error {
+func UpdateChannelBranchMapping(appId, channelName, branchId string) error {
 	fmt.Println("Updating channel branch mapping for channel:", channelName, "to branch:", branchId)
 	query := `
 		mutation UpdateChannelBranchMapping($channelId: ID!, $branchMapping: String!) {
@@ -197,7 +199,7 @@ func UpdateChannelBranchMapping(channelName, branchId string) error {
 		"branchMapping": string(branchMappingBytes),
 	}
 
-	token := GetExpoAccessToken()
+	token := GetExpoAccessToken(appId)
 	headers := map[string]string{}
 	if config.IsTestMode() {
 		headers["operationName"] = "UpdateChannelBranchMapping"
@@ -209,7 +211,7 @@ func UpdateChannelBranchMapping(channelName, branchId string) error {
 	}, &resp, headers)
 }
 
-func FetchExpoBranches() ([]string, error) {
+func FetchExpoBranches(appId string) ([]string, error) {
 	query := `
 		query FetchAppChannel($appId: String!) {
 			app {
@@ -223,8 +225,7 @@ func FetchExpoBranches() ([]string, error) {
 			}
 		}
 	`
-	appId := GetExpoAppId()
-	expoToken := GetExpoAccessToken()
+	expoToken := GetExpoAccessToken(appId)
 	variables := map[string]interface{}{
 		"appId": appId,
 	}
@@ -287,8 +288,8 @@ func FetchExpoUserAccountInformations(expoAuth types.ExpoAuth) (*ExpoUserAccount
 	return &resp.Data.Me, nil
 }
 
-func FetchSelfExpoUsername() string {
-	token := GetExpoAccessToken()
+func FetchSelfExpoUsername(appId string) string {
+	token := GetExpoAccessToken(appId)
 	expoAccount, err := FetchExpoUserAccountInformations(types.ExpoAuth{
 		Token: &token,
 	})
@@ -298,13 +299,13 @@ func FetchSelfExpoUsername() string {
 	return expoAccount.Username
 }
 
-func ComputeChannelMappingCacheKey(channelName string) string {
-	return fmt.Sprintf("channelMapping:%s:%s", version.Version, channelName)
+func ComputeChannelMappingCacheKey(appId, channelName string) string {
+	return fmt.Sprintf("channelMapping:%s:%s:%s", version.Version, appId, channelName)
 }
 
-func FetchExpoChannelMapping(channelName string) (*ExpoChannelMapping, error) {
+func FetchExpoChannelMapping(appId, channelName string) (*ExpoChannelMapping, error) {
 	cache := cache2.GetCache()
-	cacheKey := ComputeChannelMappingCacheKey(channelName)
+	cacheKey := ComputeChannelMappingCacheKey(appId, channelName)
 	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
 		var mapping ExpoChannelMapping
 		if err := json.Unmarshal([]byte(cachedValue), &mapping); err != nil {
@@ -333,8 +334,7 @@ func FetchExpoChannelMapping(channelName string) (*ExpoChannelMapping, error) {
 		}
 	`
 
-	appId := GetExpoAppId()
-	expoToken := GetExpoAccessToken()
+	expoToken := GetExpoAccessToken(appId)
 	variables := map[string]interface{}{
 		"appId":       appId,
 		"channelName": channelName,
@@ -405,7 +405,7 @@ func FetchExpoChannelMapping(channelName string) (*ExpoChannelMapping, error) {
 	return result, nil
 }
 
-func FetchExpoBranchesMapping() ([]ExpoBranchMapping, error) {
+func FetchExpoBranchesMapping(appId string) ([]ExpoBranchMapping, error) {
 	query := `
 		query FetchAppChannel($appId: String!) {
 			app {
@@ -425,8 +425,7 @@ func FetchExpoBranchesMapping() ([]ExpoBranchMapping, error) {
 		}
 	`
 
-	appId := GetExpoAppId()
-	expoToken := GetExpoAccessToken()
+	expoToken := GetExpoAccessToken(appId)
 	variables := map[string]interface{}{"appId": appId}
 
 	headers := map[string]string{}
@@ -499,7 +498,7 @@ func FetchExpoBranchesMapping() ([]ExpoBranchMapping, error) {
 	return branchMappings, nil
 }
 
-func CreateBranch(branch string) error {
+func CreateBranch(appId, branch string) error {
 	query := `
 		mutation CreateUpdateBranchForAppMutation($appId: ID!, $name: String!) {
 		  updateBranch {
@@ -509,12 +508,11 @@ func CreateBranch(branch string) error {
 		  }
 		}
 	`
-	appId := GetExpoAppId()
 	variables := map[string]interface{}{
 		"appId": appId,
 		"name":  branch,
 	}
-	token := GetExpoAccessToken()
+	token := GetExpoAccessToken(appId)
 	headers := map[string]string{}
 	if config.IsTestMode() {
 		headers["operationName"] = "CreateBranch"

@@ -41,7 +41,7 @@ func MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	expoAuth := helpers.GetExpoAuth(r)
-	expoAccount, err := services.ValidateExpoAuth(expoAuth)
+	expoAccount, err := services.ValidateExpoAuth(appId, expoAuth)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating expo auth: %v", requestID, err)
 		http.Error(w, "Error validating expo auth", http.StatusUnauthorized)
@@ -64,7 +64,7 @@ func MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No update id provided", http.StatusBadRequest)
 		return
 	}
-	err = branch.UpsertBranch(branchName)
+	err = branch.UpsertBranch(appId, branchName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
 		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
@@ -147,8 +147,9 @@ func RequestUploadLocalFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	requestID := uuid.New().String()
+	appId := mux.Vars(r)["APP_ID"]
 	expoAuth := helpers.GetExpoAuth(r)
-	expoAccount, err := services.ValidateExpoAuth(expoAuth)
+	expoAccount, err := services.ValidateExpoAuth(appId, expoAuth)
 	if err != nil || expoAccount == nil {
 		log.Printf("[RequestID: %s] Error validating expo auth: %v", requestID, err)
 		http.Error(w, "Error validating expo auth", http.StatusUnauthorized)
@@ -208,7 +209,7 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	expoAuth := helpers.GetExpoAuth(r)
-	expoAccount, err := services.ValidateExpoAuth(expoAuth)
+	expoAccount, err := services.ValidateExpoAuth(appId, expoAuth)
 	if err != nil || expoAccount == nil {
 		log.Printf("[RequestID: %s] Error validating expo auth: %v", requestID, err)
 		http.Error(w, "Error validating expo auth", http.StatusUnauthorized)
@@ -242,7 +243,7 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = branch.UpsertBranch(branchName)
+	err = branch.UpsertBranch(appId, branchName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
 		http.Error(w, "Error upserting branch", http.StatusInternalServerError)

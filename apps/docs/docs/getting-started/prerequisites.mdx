@@ -10,6 +10,15 @@ To get started with **Expo Open OTA**, you need to review the following prerequi
 Some of the environment variables required for the server are listed below. You can set them in a `.env` file in the root of the project or keep them in a safe place to prepare for deployment.
 :::
 
+:::info Single-app or Multi-app?
+**Expo Open OTA can serve one or many Expo projects from the same server.** You pick the mode by *how you configure the server*, not by running something different:
+
+- **Single-app** — set the flat env vars (`EXPO_APP_ID`, `EXPO_ACCESS_TOKEN`, `KEYS_STORAGE_TYPE`, …). This is the exact v1 layout and the path most self-hosters want. → [Single-app — flat env vars](#single-app--flat-env-vars)
+- **Multi-app** — set a single `EXPO_APPS_JSON` env var with one entry per app. Use this the moment you host 2+ apps. → [Multi-app config](#multi-app-config)
+
+Throughout this page, the **Expo token** and **project ID** are described for one project — in multi-app mode you repeat the same pair for each entry.
+:::
+
 ## Expo Token & Project ID
 
 To interact with the Expo API, you need an **Expo token** and **project ID**. These credentials authenticate update publishing
@@ -22,9 +31,10 @@ and allow the server to fetch the release channel-to-branch mappings.
 3. Enter a name for your token and click **Create**.
 4. Copy the generated token and store it in a safe place.
 
-:::info
-This token will be used as the `EXPO_ACCESS_TOKEN` environment variable.
-:::
+Where this token goes:
+
+- **Single-app** → env var `EXPO_ACCESS_TOKEN`
+- **Multi-app** → `apps[].accessToken` inside `EXPO_APPS_JSON`
 
 ### How to Get Your Project ID
 
@@ -51,9 +61,177 @@ This token will be used as the `EXPO_ACCESS_TOKEN` environment variable.
 3. Click on the project you want to get the ID for.
 4. The project ID is displayed on the top of the page.
 
-:::info
-This ID will be used as the `EXPO_APP_ID` environment variable.
+Where this ID goes:
+
+- **Single-app** → env var `EXPO_APP_ID`
+- **Multi-app** → `apps[].id` inside `EXPO_APPS_JSON`
+
+Either way, clients send it as the `expo-app-id` HTTP header on every manifest and asset request — that's how the server knows which app a request is for.
+
+## App configuration
+
+A single Expo Open OTA server can host one or many Expo projects. Pick the
+path that matches your deployment — both use the same runtime code and the
+same signing logic.
+
+- **Single-app path** — a handful of flat env vars. Ideal for hobby projects,
+  single-product teams, and PaaS platforms with a UI-driven env var editor
+  (Railway, Heroku). This is also the **exact v1 layout**, so existing v1
+  deployments upgrade to v2 without touching any env var.
+- **Multi-app path** — one structured `EXPO_APPS_JSON` env var that describes
+  every app. Use it the moment you host 2+ apps on the same server.
+
+Resolution order at boot:
+
+1. If `EXPO_APPS_JSON` is set → parse it and register every entry.
+2. Otherwise if `EXPO_APP_ID` is set → build a single-app config from the flat
+   env vars.
+3. Otherwise → the server fails to start with a clear error pointing at both
+   paths.
+
+The server never merges the two sources. `EXPO_APPS_JSON` strictly wins when
+set, which guarantees that adding a second app is a one-env-var edit, not a
+"delete these old ones and set these new ones" migration.
+
+### Single-app — flat env vars
+
+```bash
+# Identity
+EXPO_APP_ID=a45ed151-0387-4419-a97c-d008d8f214c7
+EXPO_ACCESS_TOKEN=expo_xxx
+
+# Key storage (pick one)
+KEYS_STORAGE_TYPE=local                # or: aws-secrets-manager | environment
+PUBLIC_LOCAL_EXPO_KEY_PATH=/keys/public.pem
+PRIVATE_LOCAL_EXPO_KEY_PATH=/keys/private.pem
+```
+
+Mode-specific variables:
+
+| `KEYS_STORAGE_TYPE` | Required env vars |
+| --- | --- |
+| `local` (default) | `PUBLIC_LOCAL_EXPO_KEY_PATH`, `PRIVATE_LOCAL_EXPO_KEY_PATH` |
+| `aws-secrets-manager` | `AWSSM_EXPO_PUBLIC_KEY_SECRET_ID`, `AWSSM_EXPO_PRIVATE_KEY_SECRET_ID` |
+| `environment` | `PUBLIC_EXPO_KEY_B64`, `PRIVATE_EXPO_KEY_B64` |
+
+That's it. No JSON, no file mounts. Copy-paste this into your Railway / Fly /
+Render env var UI and you're done.
+
+### Multi-app config
+
+For 2+ apps, set `EXPO_APPS_JSON` to a JSON array. Each entry has an `id`, an
+`accessToken`, and a `keys` block with a `mode` discriminator that selects
+the other fields. An optional `name` can be set as a human-readable label —
+the dashboard displays it in the app selector instead of the raw `id`, which
+is especially handy when the `id` is an EAS project UUID.
+
+```json
+[
+  {
+    "id": "a45ed151-0387-4419-a97c-d008d8f214c7",
+    "name": "Production",
+    "accessToken": "expo_xxx",
+    "keys": {
+      "mode": "local",
+      "publicPath": "/keys/app1-public.pem",
+      "privatePath": "/keys/app1-private.pem"
+    }
+  },
+  {
+    "id": "b56fe262-1498-5520-ba08-e119e9325d8",
+    "name": "Staging",
+    "accessToken": "expo_yyy",
+    "keys": {
+      "mode": "aws-secrets-manager",
+      "publicSecretId": "/eoota/app2/public",
+      "privateSecretId": "/eoota/app2/private"
+    }
+  },
+  {
+    "id": "c67fe373-25a9-6631-cb19-f22afa436e9",
+    "accessToken": "expo_zzz",
+    "keys": {
+      "mode": "environment",
+      "publicB64": "LS0tLS1CRUdJTi...",
+      "privateB64": "LS0tLS1CRUdJTi..."
+    }
+  }
+]
+```
+
+:::note
+`name` is optional and display-only. Request routing always goes by `id`
+(matched against the `expo-app-id` header clients send), so renaming an app
+after deployment has no client-side impact.
 :::
+
+#### Key storage modes
+
+The `keys.mode` field selects how the Expo signing keys are resolved. Setting
+fields from a different mode than the one declared is rejected at boot.
+
+| `mode` | Required fields | Use case |
+| --- | --- | --- |
+| `local` | `publicPath`, `privatePath` | Keys on the filesystem (mounted k8s Secret, dev machine). |
+| `aws-secrets-manager` | `publicSecretId`, `privateSecretId` | Keys in AWS Secrets Manager; fetched on demand with your server's IAM role. |
+| `environment` | `publicB64`, `privateB64` | PEM content base64-encoded and inlined in the JSON itself. |
+
+#### Pasting it into your platform
+
+- **Railway / Heroku** — paste the JSON into a single `EXPO_APPS_JSON`
+  environment variable. Railway handles multi-line values in the UI, so the
+  JSON can stay formatted; it's stored verbatim.
+- **Render** — use a regular env var, or upload `apps.json` as a Secret File
+  and set `EXPO_APPS_JSON="$(cat /etc/secrets/apps.json)"` in a start-up
+  script.
+- **Kubernetes / Helm** — define `apps` as a structured list in
+  `values.yaml`, render it into a `Secret` (`stringData: apps.json: {{ toJson .Values.apps | nindent 4 }}`),
+  mount the Secret into the pod at `/etc/eoota/apps.json`, and set
+  `EXPO_APPS_JSON="$(cat /etc/eoota/apps.json)"` via your entrypoint — or
+  simply inline the rendered string into `EXPO_APPS_JSON` with Helm's
+  templating.
+- **Fly.io** — `fly secrets set EXPO_APPS_JSON="$(cat apps.json)"`.
+- **Docker / bare metal** — regular env var, or `--env-file`.
+
+#### Validation rules enforced at boot
+
+The server refuses to start (and prints the offending entry path) if:
+
+- `EXPO_APPS_JSON` is not valid JSON.
+- The array is empty.
+- An entry's `id` is empty, contains `/`, `\`, or whitespace.
+- An entry's `accessToken` is empty.
+- `keys.mode` is missing or is anything other than `local`, `aws-secrets-manager`, or `environment`.
+- Fields from a different mode than the declared one are set.
+- The required fields for the declared mode are missing.
+- Two entries share the same `id`.
+
+Errors look like: `EXPO_APPS_JSON: apps[2].keys: mode=local requires publicPath and privatePath`.
+
+:::caution
+`EXPO_APPS_JSON` contains access tokens and — in `environment` mode — the
+private signing keys in plaintext. Treat the env var like any other secret:
+store it in your platform's secret store (Kubernetes `Secret`, AWS SM, Fly
+secrets, Railway shared variables), avoid echoing it in CI logs, and never
+commit it to git. If you need a non-secret file alternative, switch the
+`keys.mode` to `local` or `aws-secrets-manager` so the JSON only holds
+pointers, not material.
+:::
+
+### Migrating from v1 to v2
+
+If your v1 deployment has a single app, **you do not need to change anything**.
+v2 reads the same `EXPO_APP_ID`, `EXPO_ACCESS_TOKEN`, `KEYS_STORAGE_TYPE`, and
+key-storage env vars as v1.
+
+If you want to host a second app on the same server:
+
+1. Move your existing single-app env vars into a first `EXPO_APPS_JSON` entry.
+2. Add a second entry with the new app's `id`, `accessToken`, and `keys`.
+3. Remove (or leave — they are ignored) the flat env vars.
+4. Clients must send an `expo-app-id` header matching one of the configured
+   `id`s on every manifest and asset request (the `eoas` CLI already does
+   this for you).
 
 ## JWT Secret
 

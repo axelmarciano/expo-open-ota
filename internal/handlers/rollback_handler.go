@@ -46,7 +46,7 @@ func RollbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No runtime version provided", http.StatusBadRequest)
 		return
 	}
-	errUpsert := branch.UpsertBranch(branchName)
+	errUpsert := branch.UpsertBranch(appId, branchName)
 	if errUpsert != nil {
 		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, errUpsert)
 		http.Error(w, "Error upserting branch", http.StatusInternalServerError)

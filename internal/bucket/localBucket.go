@@ -52,10 +52,11 @@ func (b *LocalBucket) RequestUploadUrlForFileUpdate(appId string, branch string,
 		return "", err
 	}
 	token, err := services.GenerateJWTToken(config.GetEnv("JWT_SECRET"), jwt.MapClaims{
-		"sub":      services.FetchSelfExpoUsername(),
+		"sub":      services.FetchSelfExpoUsername(appId),
 		"exp":      time.Now().Add(time.Minute * 10).Unix(),
 		"filePath": filepath.Join(dirPath, fileName),
 		"action":   "uploadLocalFile",
+		"appId":    appId,
 	})
 	if err != nil {
 		return "", err
@@ -232,7 +233,8 @@ func ValidateUploadTokenAndResolveFilePath(token string) (string, error) {
 	action := claims["action"].(string)
 	filePath := claims["filePath"].(string)
 	sub := claims["sub"].(string)
-	if sub != services.FetchSelfExpoUsername() {
+	tokenAppId, _ := claims["appId"].(string)
+	if tokenAppId == "" || sub != services.FetchSelfExpoUsername(tokenAppId) {
 		return "", errors.New("invalid token sub")
 	}
 	if action != "uploadLocalFile" {

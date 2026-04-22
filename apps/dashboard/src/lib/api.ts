@@ -1,7 +1,14 @@
 import { getRefreshToken, getToken, logout, setTokens } from '@/lib/auth.ts';
 
+// All per-app routes (branches, channels, runtime versions, updates,
+// updateChannelBranchMapping) are scoped under /api/apps/{appId} on the
+// server. The dashboard keeps the currently-selected app id on the ApiClient
+// instance so call sites don't all have to pass it explicitly — the
+// SelectedAppContext is the single source of truth and calls setAppId()
+// whenever the user switches apps.
 export class ApiClient {
   private baseUrl: string;
+  private appId: string | null = null;
 
   constructor() {
     // @ts-ignore using window.env for vite
@@ -9,6 +16,24 @@ export class ApiClient {
     if (!this.baseUrl) {
       throw new Error('Missing VITE_OTA_API_URL environment variable');
     }
+  }
+
+  public setAppId(appId: string | null) {
+    this.appId = appId;
+  }
+
+  public getAppId(): string | null {
+    return this.appId;
+  }
+
+  private appScope(): string {
+    if (!this.appId) {
+      // Guarded separately from the server 400 so the failure mode is a
+      // clear console error instead of a confusing "No app id provided"
+      // coming back from the server.
+      throw new Error('No app selected — set one via SelectedAppContext before making app-scoped calls.');
+    }
+    return `/api/apps/${encodeURIComponent(this.appId)}`;
   }
 
   private populateHeaders(headers: Headers) {
@@ -76,7 +101,7 @@ export class ApiClient {
       releaseChannel: string;
     }
   ) {
-    return this.request(`/api/branch/${branchName}/updateChannelBranchMapping`, {
+    return this.request(`${this.appScope()}/branch/${encodeURIComponent(branchName)}/updateChannelBranchMapping`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -90,7 +115,7 @@ export class ApiClient {
         branchName?: string | null;
         branchId?: string | null;
       }[]
-    >('/api/channels', {
+    >(`${this.appScope()}/channels`, {
       method: 'GET',
     });
   }
@@ -101,7 +126,7 @@ export class ApiClient {
         branchId: string;
         releaseChannel?: string | null;
       }[]
-    >('/api/branches', {
+    >(`${this.appScope()}/branches`, {
       method: 'GET',
     });
   }
@@ -113,7 +138,7 @@ export class ApiClient {
         createdAt: string;
         numberOfUpdates: number;
       }[]
-    >(`/api/branch/${branch}/runtimeVersions`, {
+    >(`${this.appScope()}/branch/${encodeURIComponent(branch)}/runtimeVersions`, {
       method: 'GET',
     });
   }
@@ -127,7 +152,7 @@ export class ApiClient {
         commitHash: string;
         message?: string;
       }[]
-    >(`/api/branch/${branch}/runtimeVersion/${runtimeVersion}/updates`, {
+    >(`${this.appScope()}/branch/${encodeURIComponent(branch)}/runtimeVersion/${encodeURIComponent(runtimeVersion)}/updates`, {
       method: 'GET',
     });
   }
@@ -141,27 +166,22 @@ export class ApiClient {
       message?: string;
       type: number;
       expoConfig: string;
-    }>(`/api/branch/${branch}/runtimeVersion/${runtimeVersion}/updates/${updateId}`, {
-      method: 'GET',
-    });
+    }>(
+      `${this.appScope()}/branch/${encodeURIComponent(branch)}/runtimeVersion/${encodeURIComponent(runtimeVersion)}/updates/${encodeURIComponent(updateId)}`,
+      {
+        method: 'GET',
+      }
+    );
   }
   public async getSettings() {
     return this.request<{
       BASE_URL: string;
-      EXPO_APP_ID: string;
-      EXPO_ACCESS_TOKEN: string;
       CACHE_MODE: string;
       REDIS_HOST: string;
       REDIS_PORT: string;
       STORAGE_MODE: string;
       S3_BUCKET_NAME: string;
       LOCAL_BUCKET_BASE_PATH: string;
-      KEYS_STORAGE_TYPE: string;
-      AWSSM_EXPO_PUBLIC_KEY_SECRET_ID: string;
-      AWSSM_EXPO_PRIVATE_KEY_SECRET_ID: string;
-      PUBLIC_EXPO_KEY_B64: string;
-      PUBLIC_LOCAL_EXPO_KEY_PATH: string;
-      PRIVATE_LOCAL_EXPO_KEY_PATH: string;
       AWS_REGION: string;
       AWS_BASE_ENDPOINT: string;
       AWS_ACCESS_KEY_ID: string;
@@ -171,6 +191,7 @@ export class ApiClient {
       AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID: string;
       PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH: string;
       PROMETHEUS_ENABLED: string;
+      APPS: { id: string; name?: string }[];
     }>(`/api/settings`, {
       method: 'GET',
     });

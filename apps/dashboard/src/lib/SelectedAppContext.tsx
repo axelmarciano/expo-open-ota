@@ -1,0 +1,102 @@
+import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { api } from '@/lib/api';
+
+const STORAGE_KEY = 'eoota.selectedAppId';
+
+export type AppDescriptor = {
+  id: string;
+  name?: string;
+};
+
+type SelectedAppContextValue = {
+  apps: AppDescriptor[];
+  selectedAppId: string | null;
+  setSelectedAppId: (appId: string) => void;
+  isLoading: boolean;
+  error: Error | null;
+};
+
+const SelectedAppContext = createContext<SelectedAppContextValue | undefined>(undefined);
+
+// SelectedAppProvider is the single source of truth for the currently-viewed
+// app in the dashboard. It fetches the list from /api/settings once, picks an
+// initial app (localStorage if still valid, first app otherwise), and keeps
+// the ApiClient's appId in sync so every call site that uses `api.getX()`
+// automatically scopes to the right app. Changing the selection invalidates
+// every react-query cache entry so tables re-fetch against the new app.
+export function SelectedAppProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
+
+  const settingsQuery = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => api.getSettings(),
+  });
+
+  const apps = useMemo(() => settingsQuery.data?.APPS ?? [], [settingsQuery.data]);
+  const [selectedAppId, setSelectedAppIdState] = useState<string | null>(null);
+
+  // Initial resolution: pick the stored app if it's still in the list,
+  // otherwise default to the first one. Runs whenever `apps` changes (e.g.,
+  // someone re-deployed with a new app list while the dashboard was open).
+  useEffect(() => {
+    if (!apps.length) {
+      if (selectedAppId !== null) {
+        setSelectedAppIdState(null);
+        api.setAppId(null);
+      }
+      return;
+    }
+    const appIds = apps.map(a => a.id);
+    const stored = localStorage.getItem(STORAGE_KEY);
+    const initial = stored && appIds.includes(stored) ? stored : appIds[0];
+    if (initial !== selectedAppId) {
+      setSelectedAppIdState(initial);
+      api.setAppId(initial);
+    }
+    // `selectedAppId` intentionally omitted from deps — we only want this to
+    // resolve on the (settings data, apps array) change, not on every user
+    // selection (which is handled by setSelectedAppId below).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apps]);
+
+  const setSelectedAppId = (appId: string) => {
+    setSelectedAppIdState(appId);
+    api.setAppId(appId);
+    localStorage.setItem(STORAGE_KEY, appId);
+    // Invalidate every per-app query so tables re-fetch under the new app
+    // immediately. Pages that read non-app data (settings, login) are scoped
+    // to their own keys and untouched.
+    queryClient.invalidateQueries({
+      predicate: q => {
+        const key = q.queryKey[0];
+        return key !== 'settings';
+      },
+    });
+  };
+
+  const value = useMemo<SelectedAppContextValue>(
+    () => ({
+      apps,
+      selectedAppId,
+      setSelectedAppId,
+      isLoading: settingsQuery.isLoading,
+      error: settingsQuery.error,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [apps, selectedAppId, settingsQuery.isLoading, settingsQuery.error]
+  );
+
+  return <SelectedAppContext.Provider value={value}>{children}</SelectedAppContext.Provider>;
+}
+
+// useSelectedApp is the hook every page/component uses to read or change the
+// current app. Throws if called outside the provider so missing wiring is
+// caught at render time, not by a silent "undefined appId" network error.
+export function useSelectedApp(): SelectedAppContextValue {
+  const ctx = useContext(SelectedAppContext);
+  if (!ctx) {
+    throw new Error('useSelectedApp must be used inside a <SelectedAppProvider>');
+  }
+  return ctx;
+}

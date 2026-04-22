@@ -2,6 +2,7 @@ package test
 
 import (
 	"encoding/json"
+	"expo-open-ota/config"
 	"expo-open-ota/internal/bucket"
 	cache2 "expo-open-ota/internal/cache"
 	"expo-open-ota/internal/cdn"
@@ -420,15 +421,32 @@ func SetValidConfiguration() {
 		panic(err)
 	}
 	os.Setenv("BASE_URL", "http://localhost:3000")
-	os.Setenv("PUBLIC_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/public-key-test.pem"))
-	os.Setenv("PRIVATE_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/private-key-test.pem"))
 	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "/test/test-updates"))
-	os.Setenv("EXPO_APP_ID", "EXPO_APP_ID")
-	os.Setenv("EXPO_ACCESS_TOKEN", "EXPO_ACCESS_TOKEN")
 	os.Setenv("JWT_SECRET", "test_jwt_secret")
 	os.Setenv("PRIVATE_CLOUDFRONT_KEY_PATH", "")
 	os.Setenv("CLOUDFRONT_DOMAIN", "")
 	os.Setenv("CLOUDFRONT_KEY_PAIR_ID", "")
 	os.Setenv("USE_DASHBOARD", "true")
 	os.Setenv("ADMIN_PASSWORD", "admin")
+
+	// v2 multi-app config: a single test-app-id entry pointing at the
+	// existing test keys, reproducing the legacy local-file key storage
+	// behavior the old env vars provided.
+	appsJSON, err := json.Marshal([]config.AppConfig{{
+		Id:          "test-app-id",
+		AccessToken: "EXPO_ACCESS_TOKEN",
+		Keys: config.KeysConfig{
+			Mode:        config.KeysModeLocal,
+			PublicPath:  filepath.Join(projectRoot, "/test/keys/public-key-test.pem"),
+			PrivatePath: filepath.Join(projectRoot, "/test/keys/private-key-test.pem"),
+		},
+	}})
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("EXPO_APPS_JSON", string(appsJSON))
+	config.ResetAppsForTest()
+	if err := config.LoadApps(); err != nil {
+		panic(err)
+	}
 }

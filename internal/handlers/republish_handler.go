@@ -54,7 +54,7 @@ func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No updateId provided", http.StatusBadRequest)
 		return
 	}
-	err = branch.UpsertBranch(branchName)
+	err = branch.UpsertBranch(appId, branchName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
 		http.Error(w, "Error upserting branch", http.StatusInternalServerError)

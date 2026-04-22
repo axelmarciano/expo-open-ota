@@ -54,20 +54,12 @@ type UpdateDetails struct {
 
 type SettingsEnv struct {
 	BASE_URL                               string `json:"BASE_URL"`
-	EXPO_APP_ID                            string `json:"EXPO_APP_ID"`
-	EXPO_ACCESS_TOKEN                      string `json:"EXPO_ACCESS_TOKEN"`
 	CACHE_MODE                             string `json:"CACHE_MODE"`
 	REDIS_HOST                             string `json:"REDIS_HOST"`
 	REDIS_PORT                             string `json:"REDIS_PORT"`
 	STORAGE_MODE                           string `json:"STORAGE_MODE"`
 	S3_BUCKET_NAME                         string `json:"S3_BUCKET_NAME"`
 	LOCAL_BUCKET_BASE_PATH                 string `json:"LOCAL_BUCKET_BASE_PATH"`
-	KEYS_STORAGE_TYPE                      string `json:"KEYS_STORAGE_TYPE"`
-	AWSSM_EXPO_PUBLIC_KEY_SECRET_ID        string `json:"AWSSM_EXPO_PUBLIC_KEY_SECRET_ID"`
-	AWSSM_EXPO_PRIVATE_KEY_SECRET_ID       string `json:"AWSSM_EXPO_PRIVATE_KEY_SECRET_ID"`
-	PUBLIC_EXPO_KEY_B64                    string `json:"PUBLIC_EXPO_KEY_B64"`
-	PUBLIC_LOCAL_EXPO_KEY_PATH             string `json:"PUBLIC_LOCAL_EXPO_KEY_PATH"`
-	PRIVATE_LOCAL_EXPO_KEY_PATH            string `json:"PRIVATE_LOCAL_EXPO_KEY_PATH"`
 	AWS_REGION                             string `json:"AWS_REGION"`
 	AWS_BASE_ENDPOINT                      string `json:"AWS_BASE_ENDPOINT"`
 	AWS_ACCESS_KEY_ID                      string `json:"AWS_ACCESS_KEY_ID"`
@@ -77,6 +69,11 @@ type SettingsEnv struct {
 	AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID string `json:"AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID"`
 	PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH      string `json:"PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH"`
 	PROMETHEUS_ENABLED                     string `json:"PROMETHEUS_ENABLED"`
+	// Apps lists the apps configured via EXPO_APPS_JSON or the flat env var
+	// fallback. Each entry carries just the id and optional display name —
+	// tokens and keys are never surfaced here because this endpoint is read
+	// by the dashboard UI.
+	Apps []config.AppDescriptor `json:"APPS"`
 }
 
 func maskSecret(value string) string {
@@ -87,26 +84,16 @@ func maskSecret(value string) string {
 }
 
 func GetSettingsHandler(w http.ResponseWriter, r *http.Request) {
-
-	// Retrieve all in config.GetEnv & return as JSON
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(SettingsEnv{
 		BASE_URL:                               config.GetEnv("BASE_URL"),
-		EXPO_APP_ID:                            config.GetEnv("EXPO_APP_ID"),
-		EXPO_ACCESS_TOKEN:                      maskSecret(config.GetEnv("EXPO_ACCESS_TOKEN")),
 		CACHE_MODE:                             config.GetEnv("CACHE_MODE"),
 		REDIS_HOST:                             config.GetEnv("REDIS_HOST"),
 		REDIS_PORT:                             config.GetEnv("REDIS_PORT"),
 		STORAGE_MODE:                           config.GetEnv("STORAGE_MODE"),
 		S3_BUCKET_NAME:                         config.GetEnv("S3_BUCKET_NAME"),
 		LOCAL_BUCKET_BASE_PATH:                 config.GetEnv("LOCAL_BUCKET_BASE_PATH"),
-		KEYS_STORAGE_TYPE:                      config.GetEnv("KEYS_STORAGE_TYPE"),
-		AWSSM_EXPO_PUBLIC_KEY_SECRET_ID:        config.GetEnv("AWSSM_EXPO_PUBLIC_KEY_SECRET_ID"),
-		AWSSM_EXPO_PRIVATE_KEY_SECRET_ID:       config.GetEnv("AWSSM_EXPO_PRIVATE_KEY_SECRET_ID"),
-		PUBLIC_EXPO_KEY_B64:                    config.GetEnv("PUBLIC_EXPO_KEY_B64"),
-		PUBLIC_LOCAL_EXPO_KEY_PATH:             config.GetEnv("PUBLIC_LOCAL_EXPO_KEY_PATH"),
-		PRIVATE_LOCAL_EXPO_KEY_PATH:            config.GetEnv("PRIVATE_LOCAL_EXPO_KEY_PATH"),
 		AWS_REGION:                             config.GetEnv("AWS_REGION"),
 		AWS_BASE_ENDPOINT:                      config.GetEnv("AWS_BASE_ENDPOINT"),
 		AWS_ACCESS_KEY_ID:                      maskSecret(config.GetEnv("AWS_ACCESS_KEY_ID")),
@@ -116,10 +103,12 @@ func GetSettingsHandler(w http.ResponseWriter, r *http.Request) {
 		AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID: config.GetEnv("AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID"),
 		PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH:      config.GetEnv("PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH"),
 		PROMETHEUS_ENABLED:                     config.GetEnv("PROMETHEUS_ENABLED"),
+		Apps:                                   config.ListApps(),
 	})
 }
 
 func GetChannelsHandler(w http.ResponseWriter, r *http.Request) {
+	appId := mux.Vars(r)["APP_ID"]
 	cacheKey := dashboard.ComputeGetChannelsCacheKey()
 	cache := cache2.GetCache()
 	if cacheValue := cache.Get(cacheKey); cacheValue != "" {
@@ -130,12 +119,12 @@ func GetChannelsHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(channels)
 		return
 	}
-	allChannels, err := services.FetchExpoChannels()
+	allChannels, err := services.FetchExpoChannels(appId)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	branchesMapping, err := services.FetchExpoBranchesMapping()
+	branchesMapping, err := services.FetchExpoBranchesMapping(appId)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -177,7 +166,7 @@ func GetBranchesHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	branchesMapping, err := services.FetchExpoBranchesMapping()
+	branchesMapping, err := services.FetchExpoBranchesMapping(appId)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -373,6 +362,7 @@ func GetUpdatesHandler(w http.ResponseWriter, r *http.Request) {
 
 func UpdateChannelBranchMappingHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
+	appId := vars["APP_ID"]
 	branchId := vars["BRANCH"]
 	var requestBody struct {
 		ReleaseChannel string `json:"releaseChannel"`
@@ -391,7 +381,7 @@ func UpdateChannelBranchMappingHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Release channel is empty"))
 		return
 	}
-	err = services.UpdateChannelBranchMapping(releaseChannel, branchId)
+	err = services.UpdateChannelBranchMapping(appId, releaseChannel, branchId)
 	if err != nil {
 		fmt.Println("Error updating channel branch mapping:", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -408,6 +398,6 @@ func UpdateChannelBranchMappingHandler(w http.ResponseWriter, r *http.Request) {
 	cache := cache2.GetCache()
 	cache.Delete(branchesCacheKey)
 	cache.Delete(channelsCacheKey)
-	channelMappingCacheKey := services.ComputeChannelMappingCacheKey(releaseChannel)
+	channelMappingCacheKey := services.ComputeChannelMappingCacheKey(appId, releaseChannel)
 	cache.Delete(channelMappingCacheKey)
 }

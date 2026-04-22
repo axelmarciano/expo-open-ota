@@ -5,13 +5,13 @@ import (
 	"expo-open-ota/internal/services"
 )
 
-func UpsertBranch(branch string) error {
-	branches, err := services.FetchExpoBranches()
+func UpsertBranch(appId, branch string) error {
+	branches, err := services.FetchExpoBranches(appId)
 	if err != nil {
 		return err
 	}
 	if !helpers.StringInSlice(branch, branches) {
-		return services.CreateBranch(branch)
+		return services.CreateBranch(appId, branch)
 	}
 	return nil
 }

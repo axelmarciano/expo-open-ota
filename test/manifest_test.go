@@ -2,6 +2,7 @@ package test
 
 import (
 	"encoding/json"
+	"expo-open-ota/config"
 	"expo-open-ota/internal/bucket"
 	cache2 "expo-open-ota/internal/cache"
 	"expo-open-ota/internal/handlers"
@@ -163,10 +164,25 @@ func TestNotValidCertificatesForManifest(t *testing.T) {
 	defer teardown()
 	projectRoot, _ := findProjectRoot()
 	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "/test/test-updates"))
-	os.Setenv("EXPO_APP_ID", "EXPO_APP_ID")
-	os.Setenv("EXPO_ACCESS_TOKEN", "EXPO_ACCESS_TOKEN")
-	os.Setenv("PUBLIC_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/not.pem"))
-	os.Setenv("PRIVATE_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/exists.pem"))
+	// Override the shared EXPO_APPS_JSON (set by SetValidConfiguration) with
+	// paths that point to a missing key file so the signing step fails.
+	brokenApps, _ := json.Marshal([]config.AppConfig{{
+		Id:          "test-app-id",
+		AccessToken: "EXPO_ACCESS_TOKEN",
+		Keys: config.KeysConfig{
+			Mode:        config.KeysModeLocal,
+			PublicPath:  filepath.Join(projectRoot, "/test/keys/not.pem"),
+			PrivatePath: filepath.Join(projectRoot, "/test/keys/exists.pem"),
+		},
+	}})
+	os.Setenv("EXPO_APPS_JSON", string(brokenApps))
+	config.ResetAppsForTest()
+	if err := config.LoadApps(); err != nil {
+		t.Fatalf("LoadApps: %v", err)
+	}
+	defer func() {
+		SetValidConfiguration()
+	}()
 
 	q := "http://localhost:3000/manifest"
 
@@ -215,7 +231,7 @@ func TestNoUpdatesForManifest(t *testing.T) {
 	signature := manifestPart.Headers["Expo-Signature"]
 	assert.NotNil(t, signature, "Expected a signature in the response")
 	assert.NotEqual(t, "", signature, "Expected a signature in the response")
-	validSignature := ValidateSignatureHeader(signature, body)
+	validSignature := ValidateSignatureHeader("test-app-id", signature, body)
 	assert.Equal(t, true, validSignature, "Expected a valid signature")
 
 	var directive types.RollbackDirective
@@ -326,7 +342,7 @@ func TestValidRequestForStagingManifest(t *testing.T) {
 	signature := manifestPart.Headers["Expo-Signature"]
 	assert.NotNil(t, signature, "Expected a signature in the response")
 	assert.NotEqual(t, "", signature, "Expected a signature in the response")
-	validSignature := ValidateSignatureHeader(signature, body)
+	validSignature := ValidateSignatureHeader("test-app-id", signature, body)
 	assert.Equal(t, true, validSignature, "Expected a valid signature")
 	var updateManifest types.UpdateManifest
 	err = json.Unmarshal([]byte(body), &updateManifest)
@@ -371,7 +387,7 @@ func TestNoUpdatesResponseForManifest(t *testing.T) {
 	signature := manifestPart.Headers["Expo-Signature"]
 	assert.NotNil(t, signature, "Expected a signature in the response")
 	assert.NotEqual(t, "", signature, "Expected a signature in the response")
-	validSignature := ValidateSignatureHeader(signature, body)
+	validSignature := ValidateSignatureHeader("test-app-id", signature, body)
 	assert.Equal(t, true, validSignature, "Expected a valid signature")
 
 	var directive types.RollbackDirective
@@ -460,7 +476,7 @@ func TestRollbackResponseforManifest(t *testing.T) {
 	signature := manifestPart.Headers["Expo-Signature"]
 	assert.NotNil(t, signature, "Expected a signature in the response")
 	assert.NotEqual(t, "", signature, "Expected a signature in the response")
-	validSignature := ValidateSignatureHeader(signature, body)
+	validSignature := ValidateSignatureHeader("test-app-id", signature, body)
 	assert.Equal(t, true, validSignature, "Expected a valid signature")
 
 	var directive types.RollbackDirective
@@ -548,7 +564,7 @@ func TestValidRequestForProductionManifest(t *testing.T) {
 	signature := manifestPart.Headers["Expo-Signature"]
 	assert.NotNil(t, signature, "Expected a signature in the response")
 	assert.NotEqual(t, "", signature, "Expected a signature in the response")
-	validSignature := ValidateSignatureHeader(signature, body)
+	validSignature := ValidateSignatureHeader("test-app-id", signature, body)
 	assert.Equal(t, true, validSignature, "Expected a valid signature")
 	var updateManifest types.UpdateManifest
 	err = json.Unmarshal([]byte(body), &updateManifest)
@@ -638,7 +654,7 @@ func TestEmptyRequestForAndroid(t *testing.T) {
 	signature := manifestPart.Headers["Expo-Signature"]
 	assert.NotNil(t, signature, "Expected a signature in the response")
 	assert.NotEqual(t, "", signature, "Expected a signature in the response")
-	validSignature := ValidateSignatureHeader(signature, body)
+	validSignature := ValidateSignatureHeader("test-app-id", signature, body)
 	assert.Equal(t, true, validSignature, "Expected a valid signature")
 	var updateManifest types.UpdateManifest
 	err = json.Unmarshal([]byte(body), &updateManifest)

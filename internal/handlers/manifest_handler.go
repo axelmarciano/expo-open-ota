@@ -35,11 +35,11 @@ func createMultipartResponse(headers map[string][]string, jsonContent interface{
 	return writer, &buf, nil
 }
 
-func signDirectiveOrManifest(content interface{}, expectSignatureHeader string) (string, error) {
+func signDirectiveOrManifest(appId string, content interface{}, expectSignatureHeader string) (string, error) {
 	if expectSignatureHeader == "" {
 		return "", nil
 	}
-	privateKey := keyStore.GetPrivateExpoKey()
+	privateKey := keyStore.GetPrivateExpoKey(appId)
 	contentJSON, err := json.Marshal(content)
 	if err != nil {
 		return "", fmt.Errorf("error stringifying content: %w", err)
@@ -66,8 +66,8 @@ func writeResponse(w http.ResponseWriter, writer *multipart.Writer, buf *bytes.B
 	}
 }
 
-func putResponse(w http.ResponseWriter, r *http.Request, content interface{}, fieldName string, runtimeVersion string, protocolVersion int64, requestID string) {
-	signedHash, err := signDirectiveOrManifest(content, r.Header.Get("expo-expect-signature"))
+func putResponse(w http.ResponseWriter, r *http.Request, appId string, content interface{}, fieldName string, runtimeVersion string, protocolVersion int64, requestID string) {
+	signedHash, err := signDirectiveOrManifest(appId, content, r.Header.Get("expo-expect-signature"))
 	if err != nil {
 		log.Printf("[RequestID: %s] Error signing content: %v", requestID, err)
 		http.Error(w, "Error signing content", http.StatusInternalServerError)
@@ -90,7 +90,7 @@ func putResponse(w http.ResponseWriter, r *http.Request, content interface{}, fi
 	writeResponse(w, writer, buf, protocolVersion, runtimeVersion, requestID)
 }
 
-func putUpdateInResponse(w http.ResponseWriter, r *http.Request, lastUpdate types.Update, platform string, protocolVersion int64, requestID string) {
+func putUpdateInResponse(w http.ResponseWriter, r *http.Request, appId string, lastUpdate types.Update, platform string, protocolVersion int64, requestID string) {
 	currentUpdateId := r.Header.Get("expo-current-update-id")
 	metadata, err := update.GetMetadata(lastUpdate)
 	if err != nil {
@@ -100,7 +100,7 @@ func putUpdateInResponse(w http.ResponseWriter, r *http.Request, lastUpdate type
 	}
 
 	if currentUpdateId != "" && currentUpdateId == crypto.ConvertSHA256HashToUUID(metadata.ID) && protocolVersion == 1 {
-		putNoUpdateAvailableInResponse(w, r, lastUpdate.RuntimeVersion, protocolVersion, requestID)
+		putNoUpdateAvailableInResponse(w, r, appId, lastUpdate.RuntimeVersion, protocolVersion, requestID)
 		return
 	}
 	manifest, err := update.ComposeUpdateManifest(&metadata, lastUpdate, platform)
@@ -113,10 +113,10 @@ func putUpdateInResponse(w http.ResponseWriter, r *http.Request, lastUpdate type
 		metrics.TrackUpdateDownload(platform, lastUpdate.RuntimeVersion, lastUpdate.Branch, manifest.Id, "update")
 	}
 	w.Header().Set("expo-manifest-filters", `branch="`+lastUpdate.Branch+`"`)
-	putResponse(w, r, manifest, "manifest", lastUpdate.RuntimeVersion, protocolVersion, requestID)
+	putResponse(w, r, appId, manifest, "manifest", lastUpdate.RuntimeVersion, protocolVersion, requestID)
 }
 
-func putRollbackInResponse(w http.ResponseWriter, r *http.Request, lastUpdate types.Update, platform string, protocolVersion int64, requestID string) {
+func putRollbackInResponse(w http.ResponseWriter, r *http.Request, appId string, lastUpdate types.Update, platform string, protocolVersion int64, requestID string) {
 	if protocolVersion == 0 {
 		http.Error(w, "Rollback not supported in protocol version 0", http.StatusBadRequest)
 		return
@@ -128,7 +128,7 @@ func putRollbackInResponse(w http.ResponseWriter, r *http.Request, lastUpdate ty
 	}
 	currentUpdateId := r.Header.Get("expo-current-update-id")
 	if currentUpdateId != "" && currentUpdateId == embeddedUpdateId {
-		putNoUpdateAvailableInResponse(w, r, lastUpdate.RuntimeVersion, protocolVersion, requestID)
+		putNoUpdateAvailableInResponse(w, r, appId, lastUpdate.RuntimeVersion, protocolVersion, requestID)
 		return
 	}
 	directive, err := update.CreateRollbackDirective(lastUpdate)
@@ -138,16 +138,16 @@ func putRollbackInResponse(w http.ResponseWriter, r *http.Request, lastUpdate ty
 		return
 	}
 	metrics.TrackUpdateDownload(platform, lastUpdate.RuntimeVersion, lastUpdate.Branch, lastUpdate.UpdateId, "rollback")
-	putResponse(w, r, directive, "directive", lastUpdate.RuntimeVersion, protocolVersion, requestID)
+	putResponse(w, r, appId, directive, "directive", lastUpdate.RuntimeVersion, protocolVersion, requestID)
 }
 
-func putNoUpdateAvailableInResponse(w http.ResponseWriter, r *http.Request, runtimeVersion string, protocolVersion int64, requestID string) {
+func putNoUpdateAvailableInResponse(w http.ResponseWriter, r *http.Request, appId string, runtimeVersion string, protocolVersion int64, requestID string) {
 	if protocolVersion == 0 {
 		http.Error(w, "NoUpdateAvailable directive not available in protocol version 0", http.StatusNoContent)
 		return
 	}
 	directive := update.CreateNoUpdateAvailableDirective()
-	putResponse(w, r, directive, "directive", runtimeVersion, protocolVersion, requestID)
+	putResponse(w, r, appId, directive, "directive", runtimeVersion, protocolVersion, requestID)
 }
 
 func ManifestHandler(w http.ResponseWriter, r *http.Request) {
@@ -165,7 +165,7 @@ func ManifestHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No channel name provided", http.StatusBadRequest)
 		return
 	}
-	branchMap, err := services.FetchExpoChannelMapping(channelName)
+	branchMap, err := services.FetchExpoChannelMapping(appId, channelName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error fetching channel mapping: %v", requestID, err)
 		http.Error(w, fmt.Sprintf("Error fetching channel mapping: %v", err), http.StatusInternalServerError)
@@ -225,14 +225,14 @@ func ManifestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if lastUpdate == nil {
 		log.Printf("[RequestID: %s] No update found for runtimeVersion: %s in branch: %s", requestID, runtimeVersion, branch)
-		putNoUpdateAvailableInResponse(w, r, runtimeVersion, protocolVersion, requestID)
+		putNoUpdateAvailableInResponse(w, r, appId, runtimeVersion, protocolVersion, requestID)
 		return
 	}
 
 	updateType := update.GetUpdateType(*lastUpdate)
 	if updateType == types.NormalUpdate {
-		putUpdateInResponse(w, r, *lastUpdate, platform, protocolVersion, requestID)
+		putUpdateInResponse(w, r, appId, *lastUpdate, platform, protocolVersion, requestID)
 	} else {
-		putRollbackInResponse(w, r, *lastUpdate, platform, protocolVersion, requestID)
+		putRollbackInResponse(w, r, appId, *lastUpdate, platform, protocolVersion, requestID)
 	}
 }

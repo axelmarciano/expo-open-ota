@@ -13,9 +13,15 @@ import (
 
 func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
+	appId := r.Header.Get("expo-app-id")
+	if appId == "" {
+		log.Printf("[RequestID: %s] No app id provided", requestID)
+		http.Error(w, "No app id provided", http.StatusBadRequest)
+		return
+	}
 	channelName := r.Header.Get("expo-channel-name")
 	preventCDNRedirection := r.Header.Get("prevent-cdn-redirection") == "true"
-	branchMap, err := services.FetchExpoChannelMapping(channelName)
+	branchMap, err := services.FetchExpoChannelMapping(appId, channelName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error fetching channel mapping: %v", requestID, err)
 		http.Error(w, "Error fetching channel mapping", http.StatusInternalServerError)
@@ -28,7 +34,7 @@ func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req := assets.AssetsRequest{
-		AppId:          r.Header.Get("expo-app-id"),
+		AppId:          appId,
 		Branch:         branchMap.BranchName,
 		AssetName:      r.URL.Query().Get("asset"),
 		RuntimeVersion: r.URL.Query().Get("runtimeVersion"),
