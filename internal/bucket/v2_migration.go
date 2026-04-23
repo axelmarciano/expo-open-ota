@@ -113,12 +113,20 @@ func (b *LocalBucket) looksLikeV1Branch(name string) bool {
 	return false
 }
 
-// MoveRootEntriesUnder copies every object whose key looks like it
-// belongs to a v1 branch (see isV1BranchKey below) into the new
-// {KeyPrefix}{appId}/ namespace, then deletes the source. Copy+delete is
-// S3's only move primitive; each object copy is its own atomic API call,
-// so interruptions leave the bucket in a consistent (maybe duplicated)
-// state and re-running the migration converges.
+// MoveRootEntriesUnder copies every object that belongs to a confirmed v1
+// branch into the new {KeyPrefix}{appId}/ namespace, then deletes the
+// source. Copy+delete is S3's only move primitive; each object copy is
+// its own atomic API call, so interruptions leave the bucket in a
+// consistent (maybe duplicated) state and re-running converges.
+//
+// Two-pass structural detection: first pass collects confirmed v1
+// (branch, rv, updateId) triples by looking for a v1-only marker file
+// (.check or update-metadata.json) at exactly segment 4. Second pass
+// moves only objects whose first 3 segments land in a confirmed triple.
+// This is the equivalent of looksLikeV1Branch for LocalBucket and is
+// what keeps a bucket co-hosting v2 data for other apps safe — those
+// keys have their marker at segment 5, so their triple never gets
+// confirmed and they are left alone.
 func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
 	client, err := services.GetS3Client()
 	if err != nil {
@@ -127,38 +135,59 @@ func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
 	ctx := context.TODO()
 	appPrefix := b.prefixedKey(appId + "/")
 
-	paginator := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
+	confirmed := map[string]bool{}
+	p1 := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
 		Bucket: aws.String(b.BucketName),
 		Prefix: aws.String(b.KeyPrefix),
 	})
-	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
+	for p1.HasMorePages() {
+		page, err := p1.NextPage(ctx)
 		if err != nil {
 			return fmt.Errorf("list objects: %w", err)
 		}
 		for _, obj := range page.Contents {
 			key := *obj.Key
 			if strings.HasPrefix(key, appPrefix) {
-				// Already under the appId prefix — probably from a
-				// previous partial migration run. Leave it.
+				continue
+			}
+			relKey := strings.TrimPrefix(key, b.KeyPrefix)
+			if triple, ok := v1BranchTripleFromMarker(relKey); ok {
+				confirmed[triple] = true
+			}
+		}
+	}
+	if len(confirmed) == 0 {
+		return nil
+	}
+
+	p2 := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(b.BucketName),
+		Prefix: aws.String(b.KeyPrefix),
+	})
+	for p2.HasMorePages() {
+		page, err := p2.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("list objects: %w", err)
+		}
+		for _, obj := range page.Contents {
+			key := *obj.Key
+			if strings.HasPrefix(key, appPrefix) {
 				continue
 			}
 			relKey := strings.TrimPrefix(key, b.KeyPrefix)
 			if relKey == ".migrationhistory" {
 				continue
 			}
-			if !isV1BranchKey(relKey) {
-				// Some other top-level entry (another appId, manual
-				// data, tenant sharing the bucket). Don't assume it's
-				// a branch to be re-parented.
+			if !inConfirmedTriple(relKey, confirmed) {
 				continue
 			}
 			newKey := appPrefix + relKey
 
-			// CopySource must be URL-escaped; the SDK doesn't escape it
-			// for us, and keys containing spaces/+/etc. silently fail the
-			// copy otherwise.
-			source := url.PathEscape(b.BucketName + "/" + key)
+			// CopySource is `bucket/key` with ONLY the key URL-escaped.
+			// url.PathEscape(bucket+"/"+key) would also escape the
+			// bucket/key separator, producing an invalid CopySource that
+			// S3 rejects with InvalidArgument.
+			source := b.BucketName + "/" + escapeKeyForCopySource(key)
 			if _, err := client.CopyObject(ctx, &s3.CopyObjectInput{
 				Bucket:     aws.String(b.BucketName),
 				CopySource: aws.String(source),
@@ -177,31 +206,59 @@ func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
 	return nil
 }
 
-// isV1BranchKey returns true when a (keyPrefix-stripped) object key has
-// the v1 shape {branch}/{runtimeVersion}/{updateId}/… — exactly 4
-// non-empty segments, with the 4th being a file path. v2 keys have 5+
-// segments ({appId}/{branch}/...), so this distinguishes them without a
-// separate stat call. We do NOT parse updateId as numeric: users with
-// custom update id schemes would be excluded from the migration for the
-// wrong reason.
-func isV1BranchKey(relKey string) bool {
+// v1BranchTripleFromMarker returns (triple, true) iff relKey is exactly
+// {branch}/{rv}/{updateId}/{marker} where {marker} is a v1-only sentinel
+// file. The 4-segment requirement is important: the same sentinel at
+// segment 5 ({appId}/{branch}/{rv}/{updateId}/.check) identifies a v2
+// branch belonging to some OTHER app and must not seed a triple here,
+// otherwise we'd re-parent that app's data under the current appId.
+func v1BranchTripleFromMarker(relKey string) (string, bool) {
 	parts := strings.Split(relKey, "/")
+	if len(parts) != 4 {
+		return "", false
+	}
+	if parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", false
+	}
+	if parts[3] != ".check" && parts[3] != "update-metadata.json" {
+		return "", false
+	}
+	return parts[0] + "/" + parts[1] + "/" + parts[2], true
+}
+
+// inConfirmedTriple returns true when relKey's first three segments
+// match a triple that was positively confirmed as v1 in pass 1. Any
+// depth under the triple is allowed — v1 nested assets like
+// branch/rv/updateId/assets/foo.png must be moved along with their
+// branch.
+func inConfirmedTriple(relKey string, confirmed map[string]bool) bool {
+	parts := strings.SplitN(relKey, "/", 4)
 	if len(parts) < 4 {
 		return false
 	}
-	for i := range 4 {
-		if parts[i] == "" {
-			return false
-		}
+	if parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return false
 	}
-	return true
+	return confirmed[parts[0]+"/"+parts[1]+"/"+parts[2]]
 }
 
-// MoveRootEntriesUnder mirrors the S3 strategy on GCS: iterate with the
-// existing prefix, copy each object to its new {appId}/-scoped key via
-// CopierFrom, then delete the source. GCS's native rewrite handles
-// cross-bucket and large-object semantics here since source and dest
-// share the same bucket.
+// escapeKeyForCopySource URL-escapes an S3 object key for use in the
+// CopySource header. The key is escaped per path segment so literal
+// slashes separating segments survive — url.PathEscape on the whole key
+// would turn them into %2F, which S3 accepts as part of the key but not
+// as a bucket/key separator.
+func escapeKeyForCopySource(key string) string {
+	segs := strings.Split(key, "/")
+	for i, s := range segs {
+		segs[i] = url.PathEscape(s)
+	}
+	return strings.Join(segs, "/")
+}
+
+// MoveRootEntriesUnder mirrors the S3 strategy on GCS: two-pass
+// structural detection (see S3.MoveRootEntriesUnder for the rationale),
+// then copy via CopierFrom and delete source. GCS's native rewrite
+// handles large-object semantics within a single bucket.
 func (b *GCSBucket) MoveRootEntriesUnder(appId string) error {
 	ctx := context.Background()
 	bh, err := b.bucketHandle(ctx)
@@ -210,9 +267,32 @@ func (b *GCSBucket) MoveRootEntriesUnder(appId string) error {
 	}
 	appPrefix := b.prefixedKey(appId + "/")
 
-	it := bh.Objects(ctx, &storage.Query{Prefix: b.KeyPrefix})
+	confirmed := map[string]bool{}
+	it1 := bh.Objects(ctx, &storage.Query{Prefix: b.KeyPrefix})
 	for {
-		attrs, err := it.Next()
+		attrs, err := it1.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("list objects: %w", err)
+		}
+		key := attrs.Name
+		if strings.HasPrefix(key, appPrefix) {
+			continue
+		}
+		relKey := strings.TrimPrefix(key, b.KeyPrefix)
+		if triple, ok := v1BranchTripleFromMarker(relKey); ok {
+			confirmed[triple] = true
+		}
+	}
+	if len(confirmed) == 0 {
+		return nil
+	}
+
+	it2 := bh.Objects(ctx, &storage.Query{Prefix: b.KeyPrefix})
+	for {
+		attrs, err := it2.Next()
 		if err == iterator.Done {
 			break
 		}
@@ -227,7 +307,7 @@ func (b *GCSBucket) MoveRootEntriesUnder(appId string) error {
 		if relKey == ".migrationhistory" {
 			continue
 		}
-		if !isV1BranchKey(relKey) {
+		if !inConfirmedTriple(relKey, confirmed) {
 			continue
 		}
 		newKey := appPrefix + relKey

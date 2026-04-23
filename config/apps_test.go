@@ -83,12 +83,14 @@ func TestValidateApp_AcceptsEachMode(t *testing.T) {
 
 func TestValidateApp_RejectsBadId(t *testing.T) {
 	cases := map[string]string{
-		"empty":          "",
-		"slash":          "foo/bar",
-		"backslash":      "foo\\bar",
-		"space":          "foo bar",
-		"tab":            "foo\tbar",
-		"newline":        "foo\nbar",
+		"empty":     "",
+		"slash":     "foo/bar",
+		"backslash": "foo\\bar",
+		"space":     "foo bar",
+		"tab":       "foo\tbar",
+		"newline":   "foo\nbar",
+		"dot":       ".",
+		"dotdot":    "..",
 	}
 	for name, badId := range cases {
 		t.Run(name, func(t *testing.T) {

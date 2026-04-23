@@ -156,27 +156,72 @@ func TestLocalBucket_MoveRootEntriesUnder_NoOpOnFullyV2Bucket(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(base, "app-1", "app-1"))
 }
 
-func TestIsV1BranchKey(t *testing.T) {
-	cases := map[string]bool{
-		// v1 shape: branch/rv/updateId/file
-		"branch-a/1/12345/.check":                  true,
-		"branch-a/1/12345/update-metadata.json":    true,
-		"branch-a/1.0.0/12345/bundles/x.js":        true,
-		// v2 shape: appId/branch/rv/updateId/file
-		"app-uuid/branch-a/1/12345/.check":         true, // 5 segments — still considered "has branch shape" but we skip via appPrefix guard before this is called
-		// Not enough segments
-		"branch-a":                 false,
-		"branch-a/1":               false,
-		"branch-a/1/12345":         false,
-		// Empty segments
-		"//12345/.check":           false,
-		"branch-a//12345/.check":   false,
+func TestV1BranchTripleFromMarker(t *testing.T) {
+	cases := map[string]struct {
+		triple string
+		ok     bool
+	}{
+		// Confirmed v1 markers at exactly segment 4.
+		"branch-a/1/12345/.check":               {"branch-a/1/12345", true},
+		"branch-a/1/12345/update-metadata.json": {"branch-a/1/12345", true},
+		"branch-a/1.0.0/12345/.check":           {"branch-a/1.0.0/12345", true},
+
+		// v2 key from another app — marker at segment 5. Must NOT confirm
+		// a triple, otherwise its data gets re-parented under our appId.
+		"other-app/branch-a/1/12345/.check":               {"", false},
+		"other-app/branch-a/1/12345/update-metadata.json": {"", false},
+
+		// v1 nested assets are not markers themselves — their triple is
+		// confirmed by a sibling .check / update-metadata.json object.
+		"branch-a/1/12345/bundles/x.js": {"", false},
+		"branch-a/1/12345/assets/x.png": {"", false},
+
+		// Shape mismatches.
+		"branch-a":               {"", false},
+		"branch-a/1":             {"", false},
+		"branch-a/1/12345":       {"", false},
+		"//12345/.check":         {"", false},
+		"branch-a//12345/.check": {"", false},
 	}
 	for k, want := range cases {
 		t.Run(k, func(t *testing.T) {
-			assert.Equal(t, want, isV1BranchKey(k))
+			got, ok := v1BranchTripleFromMarker(k)
+			assert.Equal(t, want.ok, ok)
+			assert.Equal(t, want.triple, got)
 		})
 	}
+}
+
+func TestInConfirmedTriple(t *testing.T) {
+	confirmed := map[string]bool{"branch-a/1/12345": true}
+
+	// v1 own-branch objects (flat and nested) — both belong to the triple.
+	assert.True(t, inConfirmedTriple("branch-a/1/12345/.check", confirmed))
+	assert.True(t, inConfirmedTriple("branch-a/1/12345/update-metadata.json", confirmed))
+	assert.True(t, inConfirmedTriple("branch-a/1/12345/bundles/x.js", confirmed))
+
+	// v2 keys from another app — first 3 segments do not match any
+	// confirmed triple.
+	assert.False(t, inConfirmedTriple("other-app/branch-a/1/12345/.check", confirmed))
+
+	// Unrelated branch.
+	assert.False(t, inConfirmedTriple("branch-b/1/67890/.check", confirmed))
+
+	// Too shallow to be a branch object at all.
+	assert.False(t, inConfirmedTriple("branch-a", confirmed))
+	assert.False(t, inConfirmedTriple("branch-a/1/12345", confirmed))
+}
+
+func TestEscapeKeyForCopySource(t *testing.T) {
+	// Slashes separating path segments must survive; everything else that
+	// needs URL escaping (spaces, +, unicode) must be percent-encoded.
+	assert.Equal(t, "a/b/c", escapeKeyForCopySource("a/b/c"))
+	assert.Equal(t, "foo%20bar/baz", escapeKeyForCopySource("foo bar/baz"))
+	// `+` is path-unreserved, so it survives un-escaped — url.PathEscape
+	// does not encode it. What matters is that it did not turn `/` into
+	// `%2F`.
+	assert.Equal(t, "a+b/c", escapeKeyForCopySource("a+b/c"))
+	assert.Equal(t, "branch/1/12345/update-metadata.json", escapeKeyForCopySource("branch/1/12345/update-metadata.json"))
 }
 
 func TestLocalBucket_MoveRootEntriesUnder_RespectsKeyPrefix(t *testing.T) {

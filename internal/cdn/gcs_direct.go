@@ -2,6 +2,7 @@ package cdn
 
 import (
 	"expo-open-ota/config"
+	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/services"
 	"fmt"
 	"time"
@@ -14,8 +15,10 @@ func (c *GCSDirectCDN) isCDNAvailable() bool {
 }
 
 func (c *GCSDirectCDN) ComputeRedirectionURLForAsset(appId, branch, runtimeVersion, updateId, asset string) (string, error) {
-	bucket := config.GetEnv("GCS_BUCKET_NAME")
-	// Same layout as the bucket backend: {appId}/{branch}/{rv}/{updateId}/{asset}.
-	key := fmt.Sprintf("%s/%s/%s/%s/%s", appId, branch, runtimeVersion, updateId, asset)
-	return services.GCSSignedURL(bucket, key, "GET", "", 15*time.Minute)
+	bucketName := config.GetEnv("GCS_BUCKET_NAME")
+	// Must match the full object key that the bucket backend writes:
+	// {BUCKET_KEY_PREFIX}{appId}/{branch}/{rv}/{updateId}/{asset}. Dropping
+	// the prefix here points the signed URL at a non-existent object.
+	key := bucket.ResolveKeyPrefix() + fmt.Sprintf("%s/%s/%s/%s/%s", appId, branch, runtimeVersion, updateId, asset)
+	return services.GCSSignedURL(bucketName, key, "GET", "", 15*time.Minute)
 }

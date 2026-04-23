@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { isAuthenticated } from '@/lib/auth.ts';
 
 const STORAGE_KEY = 'eoota.selectedAppId';
 
@@ -28,9 +29,15 @@ const SelectedAppContext = createContext<SelectedAppContextValue | undefined>(un
 export function SelectedAppProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
 
+  // Gated on auth: /api/settings requires a token, and the provider is
+  // mounted above the router so it renders even on /login. Firing the
+  // query unauthenticated either spams console errors or — with a stale
+  // refreshToken — drives the api refresh→logout fallback before the
+  // user has a chance to type their password.
   const settingsQuery = useQuery({
     queryKey: ['settings'],
     queryFn: () => api.getSettings(),
+    enabled: isAuthenticated(),
   });
 
   const apps = useMemo(() => settingsQuery.data?.APPS ?? [], [settingsQuery.data]);

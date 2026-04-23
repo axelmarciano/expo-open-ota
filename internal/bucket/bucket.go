@@ -65,11 +65,19 @@ func validateUpdate(u *types.Update) error {
 	return nil
 }
 
-// resolveKeyPrefix returns the bucket key prefix, normalized to end with "/"
+// ResolveKeyPrefix returns the bucket key prefix, normalized to end with "/"
 // when non-empty. It reads BUCKET_KEY_PREFIX first and falls back to the
 // legacy S3_KEY_PREFIX env var. Panics on unsafe values (absolute paths or
 // ".." segments) to fail-fast on operator misconfiguration that could let
 // the local backend escape its BasePath.
+//
+// Exported because the CDN builders need the same prefix when signing
+// object URLs — a CloudFront or GCS-direct URL that omits the prefix
+// points to a non-existent object and 404s.
+func ResolveKeyPrefix() string {
+	return resolveKeyPrefix()
+}
+
 func resolveKeyPrefix() string {
 	prefix := config.GetEnv("BUCKET_KEY_PREFIX")
 	if prefix == "" {

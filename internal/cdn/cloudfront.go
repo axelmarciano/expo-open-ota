@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"errors"
 	"expo-open-ota/config"
+	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/keyStore"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/feature/cloudfront/sign"
@@ -55,8 +56,11 @@ func (c *CloudfrontCDN) ComputeRedirectionURLForAsset(appId, branch, runtimeVers
 	}
 
 	// Must match the v2 bucket layout exactly — if the CloudFront origin is
-	// an S3 bucket, the object sits at {keyPrefix}{appId}/{branch}/...
-	endpoint := fmt.Sprintf("%s/%s/%s/%s/%s", appId, branch, runtimeVersion, updateId, asset)
+	// an S3 bucket, the object sits at {BUCKET_KEY_PREFIX}{appId}/{branch}/…
+	// Operators using BUCKET_KEY_PREFIX must NOT also configure a
+	// CloudFront Origin Path equal to the prefix; the path is part of the
+	// signed resource and would be applied twice.
+	endpoint := bucket.ResolveKeyPrefix() + fmt.Sprintf("%s/%s/%s/%s/%s", appId, branch, runtimeVersion, updateId, asset)
 	resource := fmt.Sprintf("%s/%s", domain, endpoint)
 
 	policy := sign.NewCannedPolicy(resource, time.Now().Add(10*time.Minute))

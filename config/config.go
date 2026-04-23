@@ -84,8 +84,9 @@ func LoadConfig() {
 		log.Fatalf("Invalid BASE_URL: %s", baseUrl)
 	}
 	// v2: per-app identity + keys live in the apps config (EXPO_APPS_JSON
-	// or EXPO_APPS_CONFIG_PATH). The legacy EXPO_APP_ID / EXPO_ACCESS_TOKEN
-	// / PUBLIC_LOCAL_EXPO_KEY_PATH etc. are no longer read here.
+	// for multi-app, or the legacy EXPO_APP_ID / EXPO_ACCESS_TOKEN /
+	// PUBLIC_LOCAL_EXPO_KEY_PATH etc. flat env vars for the single-app
+	// upgrade-in-place path).
 	if err := LoadApps(); err != nil {
 		log.Fatalf("Invalid apps config: %v\nSee https://axelmarciano.github.io/expo-open-ota/docs/getting-started/prerequisites for the v2 multi-app config format.", err)
 	}

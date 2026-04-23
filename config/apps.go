@@ -159,6 +159,13 @@ func validateApp(app *AppConfig, index int) error {
 	if strings.ContainsAny(app.Id, "/\\ \t\n") {
 		return fmt.Errorf("%s.id %q must not contain whitespace or path separators", prefix, app.Id)
 	}
+	// Reserved filesystem names — match validateSegment / isValidAppID so
+	// all three id-validation paths agree. An app id of "." or ".." would
+	// resolve to the bucket root (or its parent) when interpolated into
+	// {appId}/{branch}/… on the local backend.
+	if app.Id == "." || app.Id == ".." {
+		return fmt.Errorf("%s.id %q is reserved", prefix, app.Id)
+	}
 	if app.AccessToken == "" {
 		return fmt.Errorf("%s.accessToken is required", prefix)
 	}
