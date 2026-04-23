@@ -60,7 +60,19 @@ spec:
               {{- else if hasKey $env "required" }}
                 {{- range $condition := $env.required }}
                   {{- $keyValue := index $.Values $condition.key }}
-                  {{- if or (not $keyValue) (ne $keyValue $condition.is) }}
+                  {{- /*
+                    Coerce both sides to strings before comparing. --set foo=true
+                    makes helm parse `true` as a bool, but `is` is declared as a
+                    string ("true") — comparing bool vs string errors with
+                    "incompatible types for comparison", and plain `not false`
+                    also evaluates to true which would falsely skip the env var.
+                    Normalizing to strings makes --set and default values behave
+                    identically. The empty-string check below replaces the
+                    original `not $keyValue` and handles both missing keys and
+                    keys set to the empty string.
+                  */}}
+                  {{- $coerced := $keyValue | toString }}
+                  {{- if or (eq $coerced "") (ne $coerced ($condition.is | toString)) }}
                     {{- $isRequired = false }}
                   {{- end }}
                 {{- end }}

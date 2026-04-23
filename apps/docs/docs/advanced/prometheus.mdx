@@ -111,7 +111,7 @@ You can use the following dashboard to visualize the metrics exposed by the serv
             "uid": "$DS_PROM"
           },
           "editorMode": "code",
-          "expr": "max(\n  sum by (instance) (global_active_users_total)\n)",
+          "expr": "max(\n  sum by (instance) (global_active_users_total{appId=~\"$appId\"})\n)",
           "legendFormat": "Total Unique Active Users",
           "range": true,
           "refId": "A"
@@ -207,7 +207,7 @@ You can use the following dashboard to visualize the metrics exposed by the serv
             "uid": "$DS_PROM"
           },
           "editorMode": "code",
-          "expr": "max by (runtime, update) (\n  sum by (platform, runtime, branch, update, instance) (\n    active_users_total{platform=~\"$platform\", runtime=~\"$runtime\", branch=~\"$branch\", update=~\"$update\"}\n  )\n)",
+          "expr": "max by (runtime, update) (\n  sum by (appId, platform, runtime, branch, update, instance) (\n    active_users_total{appId=~\"$appId\", platform=~\"$platform\", runtime=~\"$runtime\", branch=~\"$branch\", update=~\"$update\"}\n  )\n)",
           "legendFormat": "{{platform}}",
           "range": true,
           "refId": "A"
@@ -303,7 +303,7 @@ You can use the following dashboard to visualize the metrics exposed by the serv
             "uid": "$DS_PROM"
           },
           "editorMode": "code",
-          "expr": "max by (platform) (\n  sum by (platform, instance) (\n    global_active_users_total{platform=~\"$platform\"}\n  )\n)",
+          "expr": "max by (platform) (\n  sum by (platform, instance) (\n    global_active_users_total{appId=~\"$appId\", platform=~\"$platform\"}\n  )\n)",
           "legendFormat": "{{platform}}",
           "range": true,
           "refId": "A"
@@ -412,7 +412,7 @@ You can use the following dashboard to visualize the metrics exposed by the serv
             "uid": "$DS_PROM"
           },
           "editorMode": "code",
-          "expr": "sum(update_error_users_total{platform=~\"$platform\", runtime=~\"$runtime\", branch=~\"$branch\", update=~\"$update\"})\n  by (update)",
+          "expr": "sum(update_error_users_total{appId=~\"$appId\", platform=~\"$platform\", runtime=~\"$runtime\", branch=~\"$branch\", update=~\"$update\"})\n  by (update)",
           "legendFormat": "{{platform}}",
           "range": true,
           "refId": "A"
@@ -508,7 +508,7 @@ You can use the following dashboard to visualize the metrics exposed by the serv
             "uid": "$DS_PROM"
           },
           "editorMode": "code",
-          "expr": "sum(update_error_users_total{platform=~\"$platform\", runtime=~\"$runtime\", branch=~\"$branch\", update=~\"$update\"})",
+          "expr": "sum(update_error_users_total{appId=~\"$appId\", platform=~\"$platform\", runtime=~\"$runtime\", branch=~\"$branch\", update=~\"$update\"})",
           "legendFormat": "{{platform}}",
           "range": true,
           "refId": "A"
@@ -616,7 +616,7 @@ You can use the following dashboard to visualize the metrics exposed by the serv
           "datasource": {
             "uid": "$DS_PROM"
           },
-          "expr": "sum(update_downloads_total{platform=~\"$platform\", runtime=~\"$runtime\", branch=~\"$branch\", update=~\"$update\"}) by (update)",
+          "expr": "sum(update_downloads_total{appId=~\"$appId\", platform=~\"$platform\", runtime=~\"$runtime\", branch=~\"$branch\", update=~\"$update\"}) by (update)",
           "legendFormat": "{{update}}",
           "refId": "A"
         }
@@ -711,7 +711,7 @@ You can use the following dashboard to visualize the metrics exposed by the serv
             "uid": "$DS_PROM"
           },
           "editorMode": "code",
-          "expr": "sum(update_downloads_total{platform=~\"$platform\", runtime=~\"$runtime\", branch=~\"$branch\", update=~\"$update\"}) by (runtime)",
+          "expr": "sum(update_downloads_total{appId=~\"$appId\", platform=~\"$platform\", runtime=~\"$runtime\", branch=~\"$branch\", update=~\"$update\"}) by (runtime)",
           "legendFormat": "{{update}}",
           "range": true,
           "refId": "A"
@@ -807,7 +807,7 @@ You can use the following dashboard to visualize the metrics exposed by the serv
             "uid": "$DS_PROM"
           },
           "editorMode": "code",
-          "expr": "sum by (update, runtime) (update_downloads_total{platform=~\"$platform\", runtime=~\"$runtime\", branch=~\"$branch\", update=~\"$update\", updateType=~\"$updateType|.*\"})",
+          "expr": "sum by (update, runtime) (update_downloads_total{appId=~\"$appId\", platform=~\"$platform\", runtime=~\"$runtime\", branch=~\"$branch\", update=~\"$update\", updateType=~\"$updateType|.*\"})",
           "legendFormat": "{{updateType}}",
           "range": true,
           "refId": "A"
@@ -839,6 +839,24 @@ You can use the following dashboard to visualize the metrics exposed by the serv
         "query": "prometheus",
         "refresh": 1,
         "type": "datasource"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "CcrOqjRnk"
+        },
+        "includeAll": true,
+        "label": "App",
+        "name": "appId",
+        "options": [],
+        "query": "label_values(active_users_total, appId)",
+        "refresh": 1,
+        "type": "query"
       },
       {
         "allValue": ".*",
