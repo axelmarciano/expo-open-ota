@@ -80,7 +80,7 @@ Paste the JSON into a single `EXPO_APPS_JSON` environment variable. Railway hand
 
 ### Render
 
-Use a regular env var, or upload `apps.json` as a **Secret File** and set `EXPO_APPS_JSON="$(cat /etc/secrets/apps.json)"` via a start-up script — Render mounts Secret Files at `/etc/secrets/<filename>` natively.
+Paste the JSON into a single `EXPO_APPS_JSON` environment variable. Render's env var UI accepts multi-line values and stores them verbatim.
 
 ### Kubernetes / Helm
 
