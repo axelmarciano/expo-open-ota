@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -39,8 +40,8 @@ func init() {
 }
 
 func up(b bucket.Bucket) error {
-	if os.Getenv("SKIP_V1_TO_V2_BUCKET_MIGRATION") == "true" {
-		log.Println("⏩ SKIP_V1_TO_V2_BUCKET_MIGRATION=true — skipping bucket re-path.")
+	if skip, _ := strconv.ParseBool(os.Getenv("SKIP_V1_TO_V2_BUCKET_MIGRATION")); skip {
+		log.Println("⏩ SKIP_V1_TO_V2_BUCKET_MIGRATION is set — skipping bucket re-path.")
 		return nil
 	}
 	// Multi-app deployments use EXPO_APPS_JSON; we cannot guess which v1

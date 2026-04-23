@@ -9,21 +9,42 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"unicode"
 )
 
+// maxSegmentLen bounds any single path segment (branch, runtimeVersion,
+// updateId, migrationId). Keeps DoS surface small on map keys and
+// filesystem paths while staying comfortably above realistic names
+// (UUIDs are 36, semver+build metadata under 100).
+const maxSegmentLen = 128
+
 // validateSegment ensures a single-segment identifier (branch, runtimeVersion,
-// updateId, migrationId) is safe to embed in a storage path / object key. No
-// empties, no path separators, no "." / "..". Defense-in-depth against path
-// traversal on the local backend and weird keys on S3/GCS.
+// updateId, migrationId) is safe to embed in a storage path / object key.
+// Defense-in-depth against path traversal on the local backend and weird
+// keys on S3/GCS. Rejects empties, path separators, "." / "..", null bytes,
+// control characters, and anything over maxSegmentLen.
 func validateSegment(name, value string) error {
 	if value == "" {
 		return fmt.Errorf("invalid %s: must not be empty", name)
+	}
+	if len(value) > maxSegmentLen {
+		return fmt.Errorf("invalid %s: exceeds max length %d", name, maxSegmentLen)
 	}
 	if strings.ContainsAny(value, "/\\") {
 		return fmt.Errorf("invalid %s: must not contain path separators", name)
 	}
 	if value == "." || value == ".." {
 		return fmt.Errorf("invalid %s: reserved name", name)
+	}
+	// Null bytes truncate keys in C-based filesystem syscalls; control
+	// characters break URL encoding / logging / key listing on S3/GCS.
+	for _, r := range value {
+		if r == 0x00 {
+			return fmt.Errorf("invalid %s: must not contain null bytes", name)
+		}
+		if unicode.IsControl(r) {
+			return fmt.Errorf("invalid %s: must not contain control characters", name)
+		}
 	}
 	return nil
 }

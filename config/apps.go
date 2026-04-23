@@ -1,12 +1,34 @@
 package config
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
+	"unicode"
 )
+
+// maxAppIdLen caps the app id length. Long enough for UUIDs (36), ULIDs (26),
+// Expo project ids (36), and reasonable slug prefixes; short enough that a
+// hostile or typo'd value can't DoS our path-building or map-keying paths.
+const maxAppIdLen = 64
+
+// reservedAppIds are names that collide with top-level HTTP routes. Gorilla
+// mux resolves static routes before pattern routes, so a config with an app
+// id of "dashboard" would never receive traffic on /{APP_ID}/… — routes would
+// route to the dashboard static handler instead. Rejecting these at boot
+// surfaces the misconfiguration before it becomes a silent outage.
+var reservedAppIds = map[string]struct{}{
+	"api":       {},
+	"assets":    {},
+	"auth":      {},
+	"dashboard": {},
+	"hc":        {},
+	"manifest":  {},
+	"metrics":   {},
+}
 
 // KeysMode identifies how an app's signing key pair is stored.
 type KeysMode string
@@ -153,23 +175,57 @@ func loadFromFlatEnv(appId string) AppConfig {
 
 func validateApp(app *AppConfig, index int) error {
 	prefix := fmt.Sprintf("apps[%d]", index)
-	if app.Id == "" {
-		return fmt.Errorf("%s.id is required", prefix)
-	}
-	if strings.ContainsAny(app.Id, "/\\ \t\n") {
-		return fmt.Errorf("%s.id %q must not contain whitespace or path separators", prefix, app.Id)
-	}
-	// Reserved filesystem names — match validateSegment / isValidAppID so
-	// all three id-validation paths agree. An app id of "." or ".." would
-	// resolve to the bucket root (or its parent) when interpolated into
-	// {appId}/{branch}/… on the local backend.
-	if app.Id == "." || app.Id == ".." {
-		return fmt.Errorf("%s.id %q is reserved", prefix, app.Id)
+	if err := ValidateAppId(app.Id, prefix+".id"); err != nil {
+		return err
 	}
 	if app.AccessToken == "" {
 		return fmt.Errorf("%s.accessToken is required", prefix)
 	}
 	return validateKeys(&app.Keys, prefix+".keys")
+}
+
+// ValidateAppId centralizes every rule an app id must satisfy before it can
+// be used as a path segment, map key, or route parameter. Kept together so
+// the constraints stay in sync with isValidAppID / validateSegment.
+func ValidateAppId(id, fieldPath string) error {
+	if id == "" {
+		return fmt.Errorf("%s is required", fieldPath)
+	}
+	if len(id) > maxAppIdLen {
+		return fmt.Errorf("%s %q exceeds max length %d", fieldPath, id, maxAppIdLen)
+	}
+	// Reserved filesystem names — match validateSegment / isValidAppID so
+	// every id-validation path agrees. "." and ".." would resolve to the
+	// bucket root (or its parent) when interpolated into {appId}/{branch}/…
+	// on the local backend.
+	if id == "." || id == ".." {
+		return fmt.Errorf("%s %q is reserved", fieldPath, id)
+	}
+	if _, reserved := reservedAppIds[id]; reserved {
+		return fmt.Errorf("%s %q collides with a top-level route name", fieldPath, id)
+	}
+	for _, r := range id {
+		if r == '/' || r == '\\' {
+			return fmt.Errorf("%s %q must not contain path separators", fieldPath, id)
+		}
+		if unicode.IsSpace(r) {
+			return fmt.Errorf("%s %q must not contain whitespace", fieldPath, id)
+		}
+		if unicode.IsControl(r) {
+			return fmt.Errorf("%s %q must not contain control characters", fieldPath, id)
+		}
+		// Only ASCII alphanumerics plus `-` / `_` / `.` are safe across
+		// filesystems, URL paths and S3/GCS key rules. Unicode lookalikes
+		// (e.g. U+2215 ∕, fullwidth slash U+FF0F ／) would bypass the
+		// separator check above while still tripping up downstream consumers.
+		if r > unicode.MaxASCII {
+			return fmt.Errorf("%s %q must be ASCII", fieldPath, id)
+		}
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '-' && r != '_' && r != '.' {
+			return fmt.Errorf("%s %q contains invalid character %q", fieldPath, id, r)
+		}
+	}
+	return nil
 }
 
 func validateKeys(k *KeysConfig, prefix string) error {
@@ -195,10 +251,32 @@ func validateKeys(k *KeysConfig, prefix string) error {
 		if k.PublicPath != "" || k.PrivatePath != "" || k.PublicSecretId != "" || k.PrivateSecretId != "" {
 			return fmt.Errorf("%s: mode=environment must not set local or aws-sm fields", prefix)
 		}
+		if err := validatePEMKeyB64(k.PublicB64, prefix+".publicB64"); err != nil {
+			return err
+		}
+		if err := validatePEMKeyB64(k.PrivateB64, prefix+".privateB64"); err != nil {
+			return err
+		}
 	case "":
 		return fmt.Errorf("%s.mode is required (local|aws-secrets-manager|environment)", prefix)
 	default:
 		return fmt.Errorf("%s.mode=%q is invalid (expected local|aws-secrets-manager|environment)", prefix, k.Mode)
+	}
+	return nil
+}
+
+// validatePEMKeyB64 fails fast when a mode=environment key is structurally
+// broken: not base64, or base64 that decodes to something that is clearly
+// not a PEM-encoded key. Catches two common operator mistakes (double-
+// encoded input, pasting raw PEM into a b64 field) at boot instead of at
+// first manifest sign, where the symptom is an opaque 500.
+func validatePEMKeyB64(b64, fieldPath string) error {
+	decoded, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return fmt.Errorf("%s: invalid base64: %w", fieldPath, err)
+	}
+	if !strings.Contains(string(decoded), "-----BEGIN ") {
+		return fmt.Errorf("%s: decoded value is not a PEM key (missing BEGIN marker)", fieldPath)
 	}
 	return nil
 }

@@ -139,6 +139,76 @@ func TestNotValidPlatformForManifest(t *testing.T) {
 	assert.Equal(t, "Invalid platform\n", w.Body.String(), "Expected 'IInvalid platform' message")
 }
 
+// TestManifestMissingAppIdHeader covers the "no header at all" branch —
+// a v1 client that never learned about expo-app-id must fail cleanly
+// with a 400, not crash or resolve to some default app.
+func TestManifestMissingAppIdHeader(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+
+	q := "http://localhost:3000/manifest"
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", q, nil)
+	r.Header.Add("expo-platform", "ios")
+	r.Header.Add("expo-runtime-version", "1")
+	r.Header.Add("expo-protocol-version", "1")
+	r.Header.Add("expo-expect-signature", "true")
+	r.Header.Add("expo-channel-name", "staging")
+	// No expo-app-id.
+
+	handlers.ManifestHandler(w, r)
+	assert.Equal(t, 400, w.Code, "Missing expo-app-id must fail with 400")
+}
+
+// TestManifestEmptyAppIdHeader — the header is present but empty. Must
+// be treated the same as missing (400) rather than resolving to the
+// empty-string app and falling through to an Expo call.
+func TestManifestEmptyAppIdHeader(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+
+	q := "http://localhost:3000/manifest"
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", q, nil)
+	r.Header.Add("expo-platform", "ios")
+	r.Header.Add("expo-runtime-version", "1")
+	r.Header.Add("expo-protocol-version", "1")
+	r.Header.Add("expo-expect-signature", "true")
+	r.Header.Add("expo-channel-name", "staging")
+	r.Header.Add("expo-app-id", "")
+
+	handlers.ManifestHandler(w, r)
+	assert.Equal(t, 400, w.Code, "Empty expo-app-id must fail with 400")
+}
+
+// TestManifestMalformedAppIdHeader checks the handler rejects values
+// that look like path traversal or whitespace-padded ids. Even though
+// the registry lookup would 404 them, we want the response to be clean
+// (not 500) and not trip any log-injection sensitivities.
+func TestManifestMalformedAppIdHeader(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+
+	for _, badId := range []string{"../etc", "a/b", "with\tctrl", "   "} {
+		t.Run(badId, func(t *testing.T) {
+			q := "http://localhost:3000/manifest"
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest("GET", q, nil)
+			r.Header.Add("expo-platform", "ios")
+			r.Header.Add("expo-runtime-version", "1")
+			r.Header.Add("expo-protocol-version", "1")
+			r.Header.Add("expo-expect-signature", "true")
+			r.Header.Add("expo-channel-name", "staging")
+			r.Header.Add("expo-app-id", badId)
+
+			handlers.ManifestHandler(w, r)
+			// 400 (malformed) or 404 (not in registry) are both acceptable
+			// — the invariant is "no 5xx and no data returned".
+			assert.Truef(t, w.Code == 400 || w.Code == 404, "want 400 or 404, got %d", w.Code)
+		})
+	}
+}
+
 // TestUnknownAppIdForManifest locks in the 404-on-unknown-app behaviour so
 // we never regress into firing an outbound Expo API call with an empty
 // Bearer token — which used to surface as an opaque 500 to the client.
@@ -713,6 +783,6 @@ func TestPreWarmManifestCache(t *testing.T) {
 	assert.NotEqual(t, "", cache.Get(metadataKey), "metadata cache should be populated after prewarm")
 
 	// Verify manifest cache was populated
-	manifestKey := update.ComputeUpdataManifestCacheKey("test-app-id", "branch-1", "1", cachedUpdate.UpdateId, "android")
+	manifestKey := update.ComputeUpdateManifestCacheKey("test-app-id", "branch-1", "1", cachedUpdate.UpdateId, "android")
 	assert.NotEqual(t, "", cache.Get(manifestKey), "manifest cache should be populated after prewarm")
 }

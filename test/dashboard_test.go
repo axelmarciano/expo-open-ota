@@ -2,6 +2,7 @@ package test
 
 import (
 	"encoding/json"
+	"expo-open-ota/config"
 	"expo-open-ota/internal/auth"
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/handlers"
@@ -246,6 +247,57 @@ func TestDashboardUseExpoAuthRejectsInvalidExpoToken(t *testing.T) {
 	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branches", nil)
 	req.Header.Set("Use-Expo-Auth", "true")
 	req.Header.Set("Authorization", "Bearer bogus_expo_token")
+	router.ServeHTTP(respRec, req)
+	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
+}
+
+// TestDashboardUseExpoAuthCrossAppAttackRejected — the promise of
+// Use-Expo-Auth is that a caller can only reach an app whose stored
+// EXPO_ACCESS_TOKEN resolves to the same Expo user as their session.
+// If two tenants coexist on the server, a caller with a valid Expo
+// token for tenant A must NOT be able to read tenant B via
+// /api/apps/{B}/... The middleware enforces this by calling Expo with
+// BOTH tokens and comparing the returned usernames — a mismatch is
+// a 401, no 500, no fall-through to the handler.
+func TestDashboardUseExpoAuthCrossAppAttackRejected(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+
+	// Override the default single-app fixture with two apps owned by
+	// different Expo users. app-1's token resolves to "user-1"; app-2's
+	// token resolves to "user-2".
+	appsJSON := `[
+      {"id":"app-1","accessToken":"token-app-1","keys":{"mode":"local","publicPath":"/a","privatePath":"/b"}},
+      {"id":"app-2","accessToken":"token-app-2","keys":{"mode":"local","publicPath":"/a","privatePath":"/b"}}
+    ]`
+	os.Setenv("EXPO_APPS_JSON", appsJSON)
+	config.ResetAppsForTest()
+	if err := config.LoadApps(); err != nil {
+		t.Fatalf("LoadApps: %v", err)
+	}
+
+	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
+		func(req *http.Request) (*http.Response, error) {
+			if req.Header.Get("operationName") != "FetchExpoUserAccountInformations" {
+				return httpmock.NewStringResponse(404, "Unknown operation"), nil
+			}
+			// Map each bearer to a distinct username so usernames differ
+			// across apps — that is what makes the match check fail.
+			switch req.Header.Get("Authorization") {
+			case "Bearer token-app-1", "Bearer expo_session_of_user_1":
+				return MockExpoAccountResponse(map[string]interface{}{"id": "1", "username": "user-1"})
+			case "Bearer token-app-2":
+				return MockExpoAccountResponse(map[string]interface{}{"id": "2", "username": "user-2"})
+			}
+			return httpmock.NewStringResponse(http.StatusUnauthorized, `{"errors":[]}`), nil
+		})
+
+	router := infrastructure.NewRouter()
+	respRec := httptest.NewRecorder()
+	// Caller holds an Expo session valid for user-1, but hits /api/apps/app-2/…
+	req, _ := http.NewRequest("GET", "/api/apps/app-2/branches", nil)
+	req.Header.Set("Use-Expo-Auth", "true")
+	req.Header.Set("Authorization", "Bearer expo_session_of_user_1")
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
 }

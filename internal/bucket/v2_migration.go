@@ -29,6 +29,14 @@ import (
 // it must stay at the bucket root so the migration ledger keeps working
 // across deploys.
 
+// ErrAppIdCollidesWithV1Branch is returned when a v1 bucket contains a
+// branch whose name happens to equal the target appId. Auto-migrating
+// would nest v1 data under itself and corrupt the layout, so the
+// migration refuses and the operator must resolve it manually (rename
+// the branch, re-path the data, or set SKIP_V1_TO_V2_BUCKET_MIGRATION
+// and migrate by hand).
+var ErrAppIdCollidesWithV1Branch = fmt.Errorf("app id collides with a v1 branch of the same name; resolve manually and rerun with SKIP_V1_TO_V2_BUCKET_MIGRATION=true")
+
 // MoveRootEntriesUnder walks the LocalBucket root and moves every
 // immediate child directory that LOOKS LIKE a v1 branch into
 // {rootPath}/{appId}/. An entry is considered a v1 branch when it
@@ -46,6 +54,16 @@ func (b *LocalBucket) MoveRootEntriesUnder(appId string) error {
 			return nil
 		}
 		return fmt.Errorf("read %s: %w", root, err)
+	}
+
+	// Pre-flight collision check: if {root}/{appId}/ itself has the
+	// shape of a v1 branch (marker at depth 2 inside it), it was a
+	// coincidentally-named v1 branch BEFORE this migration started.
+	// looksLikeV1Branch walks depth 3 from the root, so it returns
+	// true for a v1 branch named appId and false for a v2-shaped
+	// {appId}/ (which has its marker one level deeper).
+	if b.looksLikeV1Branch(appId) {
+		return fmt.Errorf("%w: %q", ErrAppIdCollidesWithV1Branch, appId)
 	}
 
 	// Figure out what actually needs moving before creating the target
@@ -134,6 +152,27 @@ func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
 	}
 	ctx := context.TODO()
 	appPrefix := b.prefixedKey(appId + "/")
+
+	// Pre-flight collision check: scan objects under appPrefix for a v1
+	// marker shape ({appId}/{rv}/{updateId}/.check — 4 segments after
+	// the key prefix). v2 objects under the same appPrefix sit at 5
+	// segments and are ignored here.
+	pc := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(b.BucketName),
+		Prefix: aws.String(appPrefix),
+	})
+	for pc.HasMorePages() {
+		page, err := pc.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("list objects: %w", err)
+		}
+		for _, obj := range page.Contents {
+			relKey := strings.TrimPrefix(*obj.Key, b.KeyPrefix)
+			if _, ok := v1BranchTripleFromMarker(relKey); ok {
+				return fmt.Errorf("%w: %q", ErrAppIdCollidesWithV1Branch, appId)
+			}
+		}
+	}
 
 	confirmed := map[string]bool{}
 	p1 := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
@@ -266,6 +305,22 @@ func (b *GCSBucket) MoveRootEntriesUnder(appId string) error {
 		return err
 	}
 	appPrefix := b.prefixedKey(appId + "/")
+
+	// Pre-flight collision check (see S3 implementation for rationale).
+	itCol := bh.Objects(ctx, &storage.Query{Prefix: appPrefix})
+	for {
+		attrs, err := itCol.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("list objects: %w", err)
+		}
+		relKey := strings.TrimPrefix(attrs.Name, b.KeyPrefix)
+		if _, ok := v1BranchTripleFromMarker(relKey); ok {
+			return fmt.Errorf("%w: %q", ErrAppIdCollidesWithV1Branch, appId)
+		}
+	}
 
 	confirmed := map[string]bool{}
 	it1 := bh.Objects(ctx, &storage.Query{Prefix: b.KeyPrefix})

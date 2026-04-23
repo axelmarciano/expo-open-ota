@@ -5,6 +5,7 @@ import (
 	"expo-open-ota/internal/types"
 	"io"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -77,6 +78,37 @@ func TestValidateSegment_AcceptsValidNames(t *testing.T) {
 			assert.NoError(t, validateSegment("branch", v))
 		})
 	}
+}
+
+func TestValidateSegment_RejectsNullAndControlChars(t *testing.T) {
+	cases := map[string]string{
+		"null byte":         "foo\x00bar",
+		"soh":               "foo\x01bar",
+		"bell":              "foo\x07bar",
+		"backspace":         "foo\x08bar",
+		"tab":               "foo\tbar",
+		"newline":           "foo\nbar",
+		"carriage return":   "foo\rbar",
+		"escape":            "foo\x1bbar",
+		"del":               "foo\x7fbar",
+	}
+	for name, v := range cases {
+		t.Run(name, func(t *testing.T) {
+			assert.Error(t, validateSegment("branch", v))
+		})
+	}
+}
+
+func TestValidateSegment_RejectsOversizedValues(t *testing.T) {
+	over := strings.Repeat("a", maxSegmentLen+1)
+	err := validateSegment("branch", over)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds max length")
+}
+
+func TestValidateSegment_AcceptsValueAtMaxLength(t *testing.T) {
+	exact := strings.Repeat("a", maxSegmentLen)
+	assert.NoError(t, validateSegment("branch", exact))
 }
 
 func TestValidateRelativePath_RejectsTraversal(t *testing.T) {

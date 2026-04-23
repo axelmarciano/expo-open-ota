@@ -38,6 +38,22 @@ useRedisTLS: "false"
 # See https://github.com/axelmarciano/expo-open-ota/blob/main/apps/docs/docs/advanced/multi-app.mdx
 multiApp: "false"
 
+# Structured list of apps for multi-app deployments. When set, the chart
+# renders a dedicated Secret ({{ fullname }}-apps) with the JSON payload
+# expected by EXPO_APPS_JSON. Leave empty to provide EXPO_APPS_JSON
+# yourself via the shared secretName or inline value. Schema matches
+# apps/docs/docs/advanced/multi-app.mdx.
+#
+# apps:
+#   - id: "a45ed151-0387-4419-a97c-d008d8f214c7"
+#     name: "Production"
+#     accessToken: "expo_xxx"
+#     keys:
+#       mode: "aws-secrets-manager"
+#       publicSecretId: "/eoota/prod/public"
+#       privateSecretId: "/eoota/prod/private"
+apps: []
+
 environment:
   - name: "USE_DASHBOARD"
     key: "useDashboard"

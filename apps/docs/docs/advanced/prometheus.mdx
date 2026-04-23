@@ -10,6 +10,16 @@ You can monitor the **Expo Open OTA** server using Prometheus. The server expose
 To activate the Prometheus feature, set the `PROMETHEUS_ENABLED` environment variable to `true`.
 If you are using our [Helm chart](/docs/deployment/helm), the environment variable will be automatically set for you if `prometheus.io/scrape: "true"` is present in `podAnnotations`.
 
+:::caution Label cardinality in multi-app deployments
+All per-update metrics (`active_users_total`, `update_downloads_total`, `update_error_users_total`) are labelled with `appId`, `platform`, `runtime`, `branch`, and `update`. The total number of active time series is roughly the product of every distinct value observed across those labels, so the series count grows quickly in a multi-app setup:
+
+```
+series ≈ apps × branches × runtime-versions × platforms × updates-in-rolling-window
+```
+
+A typical bound — 10 apps × 20 branches × 5 runtime versions × 2 platforms × ~30 updates kept by the eviction window — is ~60k series, well within a single Prometheus instance. Clusters north of that (hundreds of apps, or aggressive branch/runtime churn) should either shard Prometheus per app or drop the `update` label from retention-sensitive queries.
+:::
+
 ## Grafana Dashboard
 
 You can use the following dashboard to visualize the metrics exposed by the server:

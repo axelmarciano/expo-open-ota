@@ -35,9 +35,17 @@ Even if your server-side `.env` is unchanged, **the Expo client will get `400 No
     :::tip Automatic bucket re-path
     On first boot, the v2 server runs the `20260422_v2_scope_data_under_appid` migration which **automatically moves your v1 bucket data into the new `{appId}/…` layout**. It only touches directories that match the v1 branch shape (`{branch}/{runtimeVersion}/{updateId}/.check`), leaves `.migrationhistory` at the bucket root, and records its success in the migration ledger so it runs exactly once. An interrupted run picks up where it left off on the next boot.
 
-    If you'd rather re-path the data yourself (e.g. you have a huge bucket and want to do it offline with `aws s3 mv`), set `SKIP_V1_TO_V2_BUCKET_MIGRATION=true` before first boot — the migration records itself as applied but skips the work. See [Manual bucket re-path](#manual-bucket-re-path) below for the commands.
+    If you'd rather re-path the data yourself (e.g. you have a huge bucket and want to do it offline with `aws s3 mv`), set `SKIP_V1_TO_V2_BUCKET_MIGRATION=true` (also accepts `1`, `yes`) before first boot — the migration records itself as applied but skips the work. See [Manual bucket re-path](#manual-bucket-re-path) below for the commands.
 
     The automatic migration is **only** run when `EXPO_APP_ID` is set (single-app flat-env path). Multi-app upgrades are ambiguous — the server cannot know which v1 branch belonged to which configured app — so they require a manual re-path per app.
+    :::
+
+    :::warning Take writers offline during the automatic S3/GCS re-path
+    On object-storage backends the migration uses a two-phase listing: it first scans the bucket to confirm every v1 `(branch, runtimeVersion, updateId)` triple, then copies + deletes each object into the `{appId}/` layout. **Any publish / republish / rollback that lands between those two phases — or after phase 2 for a new triple — will not be picked up**, and its files stay at the old root. Stop CI publishes and point clients away from the bucket until the migration completes and the log prints `✅ v1→v2 bucket re-path complete.` The local filesystem backend is not affected (it reads the root once and `os.Rename` per entry).
+    :::
+
+    :::note App-id / v1-branch name collision
+    If your target `EXPO_APP_ID` happens to match the name of an existing v1 branch (e.g. `EXPO_APP_ID=staging` and you had a branch called `staging`), the migration refuses to run and boot fails with `app id collides with a v1 branch of the same name`. Rename the branch on disk, re-path that branch manually, or set `SKIP_V1_TO_V2_BUCKET_MIGRATION=true` and do the whole move by hand per [Manual bucket re-path](#manual-bucket-re-path).
     :::
 
 2. **Upgrade the `eoas` CLI** (`npm i -D eoas@latest`). The CLI now writes `expo-app-id` into your `app.config.ts` automatically when you run `npx eoas init`.

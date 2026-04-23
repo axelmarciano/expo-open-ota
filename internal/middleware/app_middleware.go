@@ -3,7 +3,6 @@ package middleware
 import (
 	"expo-open-ota/config"
 	"net/http"
-	"strings"
 
 	"github.com/gorilla/mux"
 )
@@ -32,12 +31,10 @@ func AppResolverMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// isValidAppID short-circuits obviously-malformed ids before hitting the
+// registry. Delegates to config.ValidateAppId so rules cannot drift from
+// boot-time validation. The field path passed to the validator is used
+// only for its error string, which the middleware discards.
 func isValidAppID(id string) bool {
-	if id == "" || id == "." || id == ".." {
-		return false
-	}
-	if strings.ContainsAny(id, "/\\") {
-		return false
-	}
-	return true
+	return config.ValidateAppId(id, "appId") == nil
 }

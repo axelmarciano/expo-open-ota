@@ -10,6 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// stubPEMB64 is the base64 encoding of a tiny PEM-shaped byte string used
+// throughout the tests to satisfy validatePEMKeyB64. Real key content is
+// not required — the validator only checks for the BEGIN marker.
+const stubPEMB64 = "LS0tLS1CRUdJTiBURVNUIEtFWS0tLS0tCnRlc3RkYXRhCi0tLS0tRU5EIFRFU1QgS0VZLS0tLS0K"
+
 // resetAppsEnv unsets every env var that LoadApps can read so each test
 // starts from a known-empty environment. Central list — when a new env var
 // is added to the loader, add it here too or the test suite will start
@@ -69,8 +74,8 @@ func TestValidateApp_AcceptsEachMode(t *testing.T) {
 			AccessToken: "token",
 			Keys: KeysConfig{
 				Mode:       KeysModeEnvironment,
-				PublicB64:  "cHViLXBlbQ==",
-				PrivateB64: "cHJpdi1wZW0=",
+				PublicB64:  stubPEMB64,
+				PrivateB64: stubPEMB64,
 			},
 		},
 	}
@@ -83,14 +88,25 @@ func TestValidateApp_AcceptsEachMode(t *testing.T) {
 
 func TestValidateApp_RejectsBadId(t *testing.T) {
 	cases := map[string]string{
-		"empty":     "",
-		"slash":     "foo/bar",
-		"backslash": "foo\\bar",
-		"space":     "foo bar",
-		"tab":       "foo\tbar",
-		"newline":   "foo\nbar",
-		"dot":       ".",
-		"dotdot":    "..",
+		"empty":            "",
+		"slash":            "foo/bar",
+		"backslash":        "foo\\bar",
+		"space":            "foo bar",
+		"tab":              "foo\tbar",
+		"newline":          "foo\nbar",
+		"carriage-return":  "foo\rbar",
+		"null-byte":        "foo\x00bar",
+		"control-char":     "foo\x01bar",
+		"dot":              ".",
+		"dotdot":           "..",
+		"unicode-letter":   "app-é",
+		"unicode-cjk":      "app中",
+		"unicode-slash":    "app∕bar", // U+2215 division slash, a `/` lookalike
+		"fullwidth-slash":  "app／bar", // U+FF0F
+		"colon":            "app:1",
+		"plus":             "app+1",
+		"at":               "app@1",
+		"emoji":            "app🚀",
 	}
 	for name, badId := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -108,6 +124,57 @@ func TestValidateApp_RejectsBadId(t *testing.T) {
 			assert.Contains(t, err.Error(), "apps[0].id")
 		})
 	}
+}
+
+func TestValidateApp_RejectsReservedIds(t *testing.T) {
+	// Each of these collides with a top-level static route registered in
+	// router.go. Gorilla mux resolves static routes before patterns so an
+	// app id matching one of these would silently never receive traffic.
+	reserved := []string{"api", "assets", "auth", "dashboard", "hc", "manifest", "metrics"}
+	for _, id := range reserved {
+		t.Run(id, func(t *testing.T) {
+			app := AppConfig{
+				Id:          id,
+				AccessToken: "token",
+				Keys: KeysConfig{
+					Mode:        KeysModeLocal,
+					PublicPath:  "/p",
+					PrivatePath: "/q",
+				},
+			}
+			err := validateApp(&app, 0)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "collides with a top-level route")
+		})
+	}
+}
+
+func TestValidateApp_RejectsTooLongId(t *testing.T) {
+	app := AppConfig{
+		Id:          strings.Repeat("a", maxAppIdLen+1),
+		AccessToken: "token",
+		Keys: KeysConfig{
+			Mode:        KeysModeLocal,
+			PublicPath:  "/p",
+			PrivatePath: "/q",
+		},
+	}
+	err := validateApp(&app, 0)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds max length")
+}
+
+func TestValidateApp_AcceptsIdAtMaxLength(t *testing.T) {
+	app := AppConfig{
+		Id:          strings.Repeat("a", maxAppIdLen),
+		AccessToken: "token",
+		Keys: KeysConfig{
+			Mode:        KeysModeLocal,
+			PublicPath:  "/p",
+			PrivatePath: "/q",
+		},
+	}
+	assert.NoError(t, validateApp(&app, 0))
 }
 
 func TestValidateApp_RejectsMissingAccessToken(t *testing.T) {
@@ -179,6 +246,36 @@ func TestValidateKeys_RejectsCrossModeFields(t *testing.T) {
 	}
 }
 
+func TestValidateKeys_EnvironmentMode_RejectsInvalidBase64(t *testing.T) {
+	// Base64 that does not decode (padding mismatch) must fail at boot,
+	// not at the first manifest sign.
+	k := KeysConfig{
+		Mode:       KeysModeEnvironment,
+		PublicB64:  "not-base64!!",
+		PrivateB64: stubPEMB64,
+	}
+	err := validateKeys(&k, "apps[0].keys")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid base64")
+	assert.Contains(t, err.Error(), "publicB64")
+}
+
+func TestValidateKeys_EnvironmentMode_RejectsNonPEM(t *testing.T) {
+	// Valid base64 that doesn't decode to a PEM-shaped payload — a common
+	// mistake when the operator base64-encodes the key contents without
+	// the BEGIN/END markers.
+	rawB64 := "aGVsbG8td29ybGQ=" // -> "hello-world", no BEGIN marker
+	k := KeysConfig{
+		Mode:       KeysModeEnvironment,
+		PublicB64:  stubPEMB64,
+		PrivateB64: rawB64,
+	}
+	err := validateKeys(&k, "apps[0].keys")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not a PEM key")
+	assert.Contains(t, err.Error(), "privateB64")
+}
+
 func TestValidateKeys_RejectsMissingOrUnknownMode(t *testing.T) {
 	t.Run("missing", func(t *testing.T) {
 		err := validateKeys(&KeysConfig{}, "apps[0].keys")
@@ -202,11 +299,11 @@ func TestValidateKeys_RejectsMissingOrUnknownMode(t *testing.T) {
 
 func TestLoadApps_FromJSON_Happy(t *testing.T) {
 	resetAppsEnv(t)
-	os.Setenv("EXPO_APPS_JSON", `[
+	os.Setenv("EXPO_APPS_JSON", fmt.Sprintf(`[
       {"id":"a","accessToken":"ta","keys":{"mode":"local","publicPath":"/a-pub","privatePath":"/a-priv"}},
       {"id":"b","accessToken":"tb","keys":{"mode":"aws-secrets-manager","publicSecretId":"/b-pub","privateSecretId":"/b-priv"}},
-      {"id":"c","accessToken":"tc","keys":{"mode":"environment","publicB64":"pub","privateB64":"priv"}}
-    ]`)
+      {"id":"c","accessToken":"tc","keys":{"mode":"environment","publicB64":%q,"privateB64":%q}}
+    ]`, stubPEMB64, stubPEMB64))
 
 	require.NoError(t, LoadApps())
 
@@ -221,7 +318,7 @@ func TestLoadApps_FromJSON_Happy(t *testing.T) {
 	c, err := GetAppConfig("c")
 	require.NoError(t, err)
 	assert.Equal(t, KeysModeEnvironment, c.Keys.Mode)
-	assert.Equal(t, "pub", c.Keys.PublicB64)
+	assert.Equal(t, stubPEMB64, c.Keys.PublicB64)
 }
 
 func TestLoadApps_FromJSON_RejectsMalformed(t *testing.T) {
@@ -338,14 +435,14 @@ func TestLoadApps_FromFlatEnv_EnvironmentMode(t *testing.T) {
 	os.Setenv("EXPO_APP_ID", "solo")
 	os.Setenv("EXPO_ACCESS_TOKEN", "tok")
 	os.Setenv("KEYS_STORAGE_TYPE", "environment")
-	os.Setenv("PUBLIC_EXPO_KEY_B64", "cHViLWI2NA==")
-	os.Setenv("PRIVATE_EXPO_KEY_B64", "cHJpdi1iNjQ=")
+	os.Setenv("PUBLIC_EXPO_KEY_B64", stubPEMB64)
+	os.Setenv("PRIVATE_EXPO_KEY_B64", stubPEMB64)
 
 	require.NoError(t, LoadApps())
 	a, err := GetAppConfig("solo")
 	require.NoError(t, err)
 	assert.Equal(t, KeysModeEnvironment, a.Keys.Mode)
-	assert.Equal(t, "cHViLWI2NA==", a.Keys.PublicB64)
+	assert.Equal(t, stubPEMB64, a.Keys.PublicB64)
 }
 
 func TestLoadApps_FromFlatEnv_RejectsUnknownStorageType(t *testing.T) {

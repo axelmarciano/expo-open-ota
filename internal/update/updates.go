@@ -120,7 +120,7 @@ func ComputeMetadataCacheKey(appId string, branch string, runtimeVersion string,
 	return fmt.Sprintf("metadata:%s:%s:%s:%s:%s", appId, version.Version, branch, runtimeVersion, updateId)
 }
 
-func ComputeUpdataManifestCacheKey(appId string, branch string, runtimeVersion string, updateId string, platform string) string {
+func ComputeUpdateManifestCacheKey(appId string, branch string, runtimeVersion string, updateId string, platform string) string {
 	return fmt.Sprintf("manifest:%s:%s:%s:%s:%s:%s", appId, version.Version, branch, runtimeVersion, updateId, platform)
 }
 
@@ -415,7 +415,7 @@ func ComposeUpdateManifest(
 	platform string,
 ) (types.UpdateManifest, error) {
 	cache := cache2.GetCache()
-	cacheKey := ComputeUpdataManifestCacheKey(update.AppId, update.Branch, update.RuntimeVersion, update.UpdateId, platform)
+	cacheKey := ComputeUpdateManifestCacheKey(update.AppId, update.Branch, update.RuntimeVersion, update.UpdateId, platform)
 	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
 		var manifest types.UpdateManifest
 		err := json.Unmarshal([]byte(cachedValue), &manifest)
