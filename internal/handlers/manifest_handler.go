@@ -111,7 +111,7 @@ func putUpdateInResponse(w http.ResponseWriter, r *http.Request, appId string, l
 		return
 	}
 	if currentUpdateId != "" {
-		metrics.TrackUpdateDownload(platform, lastUpdate.RuntimeVersion, lastUpdate.Branch, manifest.Id, "update")
+		metrics.TrackUpdateDownload(appId, platform, lastUpdate.RuntimeVersion, lastUpdate.Branch, manifest.Id, "update")
 	}
 	w.Header().Set("expo-manifest-filters", `branch="`+lastUpdate.Branch+`"`)
 	putResponse(w, r, appId, manifest, "manifest", lastUpdate.RuntimeVersion, protocolVersion, requestID)
@@ -138,7 +138,7 @@ func putRollbackInResponse(w http.ResponseWriter, r *http.Request, appId string,
 		http.Error(w, "Error creating rollback directive", http.StatusInternalServerError)
 		return
 	}
-	metrics.TrackUpdateDownload(platform, lastUpdate.RuntimeVersion, lastUpdate.Branch, lastUpdate.UpdateId, "rollback")
+	metrics.TrackUpdateDownload(appId, platform, lastUpdate.RuntimeVersion, lastUpdate.Branch, lastUpdate.UpdateId, "rollback")
 	putResponse(w, r, appId, directive, "directive", lastUpdate.RuntimeVersion, protocolVersion, requestID)
 }
 
@@ -214,15 +214,15 @@ func ManifestHandler(w http.ResponseWriter, r *http.Request) {
 	hasJsonError := expoFatalError != ""
 	if hasJsonError {
 		if currentUpdateId != "" {
-			metrics.TrackUpdateErrorUsers(clientId, platform, runtimeVersion, branch, currentUpdateId)
+			metrics.TrackUpdateErrorUsers(appId, clientId, platform, runtimeVersion, branch, currentUpdateId)
 		} else {
 			recentFailedUpdateId := r.Header.Get("Expo-Recent-Failed-Update-Ids")
 			if recentFailedUpdateId != "" {
-				metrics.TrackUpdateErrorUsers(clientId, platform, runtimeVersion, branch, recentFailedUpdateId)
+				metrics.TrackUpdateErrorUsers(appId, clientId, platform, runtimeVersion, branch, recentFailedUpdateId)
 			}
 		}
 	}
-	metrics.TrackActiveUser(clientId, platform, runtimeVersion, branch, currentUpdateId)
+	metrics.TrackActiveUser(appId, clientId, platform, runtimeVersion, branch, currentUpdateId)
 	if runtimeVersion == "" {
 		log.Printf("[RequestID: %s] No runtime version provided", requestID)
 		http.Error(w, "No runtime version provided", http.StatusBadRequest)
