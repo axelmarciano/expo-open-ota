@@ -133,9 +133,11 @@ func TestGoodRollbackWithoutCommitHash(t *testing.T) {
 // the cache, so the bad intermediate state (new-update-without-check +
 // empty-cache) is never visible to concurrent readers.
 //
-// This test hammers GetLatestUpdateBundlePathForRuntimeVersion from many
-// goroutines while a rollback is in flight, then asserts the final cache
-// state points at the rollback and not at the pre-existing fixture.
+// This test is self-contained: it writes its own "stale" update into a
+// dedicated branch before hammering readers while a rollback fires on
+// that same branch. It does not depend on any shared fixture state, so
+// it cannot be broken by test ordering or leaked PreWarm goroutines from
+// previous tests.
 func TestRollbackDoesNotPoisonLatestUpdateCache(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
@@ -144,17 +146,33 @@ func TestRollbackDoesNotPoisonLatestUpdateCache(t *testing.T) {
 	require.NoError(t, err)
 
 	const appId = "test-app-id"
-	const branch = "branch-1"
+	const branchName = "DO_NOT_USE" // GlobalAfterEach already cleans this branch under ./updates
 	const runtimeVersion = "1"
 	const platform = "android"
-	const fixtureUpdateId = "1674170951" // pre-existing fixture we expect to be superseded
+	const staleUpdateId = "1700000000000"
 
-	// Warm the lastUpdate cache with the fixture so a poisoned cache can
-	// actually point at the stale value.
-	warmed, err := update.GetLatestUpdateBundlePathForRuntimeVersion(appId, branch, runtimeVersion, platform)
+	// Use the same LOCAL_BUCKET_BASE_PATH that createRollbackRequest uses so
+	// the bucket instance we build here is the same one the rollback handler
+	// will use. Otherwise the singleton gets built at ./test/test-updates
+	// first and the rollback silently writes to a different tree.
+	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates"))
+
+	// Plant a "previous update" for the cache to latch onto. Without this,
+	// a poisoned cache would simply have nothing to point at and the race
+	// wouldn't produce a visible symptom. The update is registered on the
+	// same branch/rv/platform that the rollback will target.
+	stalePath := filepath.Join(projectRoot, "./updates/test-app-id", branchName, runtimeVersion, staleUpdateId)
+	require.NoError(t, os.MkdirAll(stalePath, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(stalePath, "update-metadata.json"),
+		[]byte(`{"platform":"android","commitHash":"stale","updateUUID":"00000000-0000-0000-0000-000000000001"}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(stalePath, ".check"), []byte(".check"), 0o644))
+
+	// Warm the lastUpdate cache with the planted update so a poisoned cache
+	// can actually point at a stale value.
+	warmed, err := update.GetLatestUpdateBundlePathForRuntimeVersion(appId, branchName, runtimeVersion, platform)
 	require.NoError(t, err)
-	require.NotNil(t, warmed)
-	require.Equal(t, fixtureUpdateId, warmed.UpdateId, "fixture setup: expected cache warmed with pre-existing update")
+	require.NotNil(t, warmed, "fixture setup: planted update not picked up — check LOCAL_BUCKET_BASE_PATH wiring")
+	require.Equal(t, staleUpdateId, warmed.UpdateId, "fixture setup: expected cache warmed with planted update")
 
 	// Hammer the read path from many goroutines. The old ordering would
 	// have given one of these readers a chance to re-cache the fixture
@@ -172,7 +190,7 @@ func TestRollbackDoesNotPoisonLatestUpdateCache(t *testing.T) {
 				case <-stop:
 					return
 				default:
-					_, _ = update.GetLatestUpdateBundlePathForRuntimeVersion(appId, branch, runtimeVersion, platform)
+					_, _ = update.GetLatestUpdateBundlePathForRuntimeVersion(appId, branchName, runtimeVersion, platform)
 					atomic.AddInt64(&reads, 1)
 				}
 			}
@@ -180,7 +198,7 @@ func TestRollbackDoesNotPoisonLatestUpdateCache(t *testing.T) {
 	}
 
 	// Fire the rollback while readers are hammering.
-	w, _, _, r := createRollbackRequest(projectRoot, branch, runtimeVersion, "Authorization", "Bearer expo_test_token", platform, "hash")
+	w, _, _, r := createRollbackRequest(projectRoot, branchName, runtimeVersion, "Authorization", "Bearer expo_test_token", platform, "hash")
 	handlers.RollbackHandler(w, r)
 	require.Equal(t, http.StatusOK, w.Code, "rollback handler failed: %s", w.Body.String())
 
@@ -188,11 +206,11 @@ func TestRollbackDoesNotPoisonLatestUpdateCache(t *testing.T) {
 	wg.Wait()
 
 	// Definitive assertion: after the rollback, the latest update must be
-	// the rollback itself, not the pre-existing fixture. A failure here
-	// means a concurrent reader poisoned the cache with the stale fixture.
-	latest, err := update.GetLatestUpdateBundlePathForRuntimeVersion(appId, branch, runtimeVersion, platform)
+	// the rollback itself, not the planted stale update. A failure here
+	// means a concurrent reader poisoned the cache with the stale entry.
+	latest, err := update.GetLatestUpdateBundlePathForRuntimeVersion(appId, branchName, runtimeVersion, platform)
 	require.NoError(t, err)
 	require.NotNil(t, latest)
-	assert.NotEqual(t, fixtureUpdateId, latest.UpdateId, "lastUpdate cache poisoned with pre-rollback fixture after %d reads", reads)
+	assert.NotEqual(t, staleUpdateId, latest.UpdateId, "lastUpdate cache poisoned with stale update after %d reads", reads)
 	assert.Equal(t, types.Rollback, update.GetUpdateType(*latest), "expected latest update to be a rollback")
 }
