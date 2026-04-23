@@ -1,18 +1,17 @@
 package middleware
 
 import (
-	"context"
 	"expo-open-ota/config"
-	"expo-open-ota/internal/helpers"
 	"net/http"
 	"strings"
 
 	"github.com/gorilla/mux"
 )
 
-// AppResolverMiddleware extracts APP_ID from the path vars, validates it
-// (well-formed AND registered in the apps config), and stores it in the
-// request context for downstream handlers to pick up via helpers.GetAppID.
+// AppResolverMiddleware extracts APP_ID from the path vars and validates it
+// (well-formed AND registered in the apps config). Downstream handlers read
+// the id back from mux.Vars themselves — the middleware's job is just to
+// short-circuit bad/unknown ids before they reach the handler.
 //
 // The registry check matches the manifest/assets handlers' edge behavior:
 // unknown app ids return 404 here, instead of falling through to handlers
@@ -29,8 +28,7 @@ func AppResolverMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "Unknown app id", http.StatusNotFound)
 			return
 		}
-		ctx := context.WithValue(r.Context(), helpers.AppIDContextKey, appId)
-		next.ServeHTTP(w, r.WithContext(ctx))
+		next.ServeHTTP(w, r)
 	})
 }
 
