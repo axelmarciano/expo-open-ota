@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api.ts';
 import { ApiError } from '@/components/APIError';
 import { Combobox } from '@/components/Combobox';
+import { useSelectedApp } from '@/lib/SelectedAppContext';
 
 export const SelectBranch = ({
   currentBranch,
@@ -12,9 +13,10 @@ export const SelectBranch = ({
   loading?: boolean;
   currentBranch?: string | null;
 }) => {
+  const { selectedAppId } = useSelectedApp();
   const { data, isLoading, error } = useQuery({
-    queryKey: [`branches`],
-    enabled: true,
+    queryKey: ['branches', selectedAppId],
+    enabled: !!selectedAppId,
     queryFn: () => api.getBranches(),
   });
   const allBranches =

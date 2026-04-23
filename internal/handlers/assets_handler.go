@@ -1,20 +1,36 @@
 package handlers
 
 import (
+	"expo-open-ota/config"
 	"expo-open-ota/internal/assets"
 	cdn2 "expo-open-ota/internal/cdn"
 	"expo-open-ota/internal/compression"
 	"expo-open-ota/internal/services"
-	"github.com/google/uuid"
 	"log"
 	"net/http"
+
+	"github.com/google/uuid"
 )
 
 func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
+	appId := r.Header.Get("expo-app-id")
+	if appId == "" {
+		log.Printf("[RequestID: %s] No app id provided", requestID)
+		http.Error(w, "No app id provided", http.StatusBadRequest)
+		return
+	}
+	// Same edge check as ManifestHandler — reject unknown ids with 404
+	// rather than letting them flow into FetchExpoChannelMapping and
+	// surfacing the upstream 401 as a 500.
+	if _, err := config.GetAppConfig(appId); err != nil {
+		log.Printf("[RequestID: %s] Unknown app id %q", requestID, appId)
+		http.Error(w, "Unknown app id", http.StatusNotFound)
+		return
+	}
 	channelName := r.Header.Get("expo-channel-name")
 	preventCDNRedirection := r.Header.Get("prevent-cdn-redirection") == "true"
-	branchMap, err := services.FetchExpoChannelMapping(channelName)
+	branchMap, err := services.FetchExpoChannelMapping(appId, channelName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error fetching channel mapping: %v", requestID, err)
 		http.Error(w, "Error fetching channel mapping", http.StatusInternalServerError)
@@ -27,6 +43,7 @@ func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req := assets.AssetsRequest{
+		AppId:          appId,
 		Branch:         branchMap.BranchName,
 		AssetName:      r.URL.Query().Get("asset"),
 		RuntimeVersion: r.URL.Query().Get("runtimeVersion"),

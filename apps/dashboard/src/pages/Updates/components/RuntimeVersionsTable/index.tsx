@@ -13,12 +13,15 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge.tsx';
+import { useSelectedApp } from '@/lib/SelectedAppContext';
 
 export const RuntimeVersionsTable = ({ branch }: { branch: string }) => {
   const [, setSearchParams] = useSearchParams();
+  const { selectedAppId } = useSelectedApp();
   const { data, isLoading, error } = useQuery({
-    queryKey: ['runtimeVersions'],
+    queryKey: ['runtimeVersions', selectedAppId, branch],
     queryFn: () => api.getRuntimeVersions(branch),
+    enabled: !!selectedAppId,
   });
 
   return (

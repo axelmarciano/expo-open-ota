@@ -24,6 +24,7 @@ func TestEmptyAssetNameForAssets(t *testing.T) {
 	defer teardown()
 	mockWorkingExpoResponse("staging")
 	request := assets.AssetsRequest{
+		AppId:          "test-app-id",
 		Branch:         "branch-1",
 		AssetName:      "",
 		RuntimeVersion: "1",
@@ -56,6 +57,7 @@ func TestBadPlatformForAssets(t *testing.T) {
 	defer teardown()
 	mockWorkingExpoResponse("staging")
 	request := assets.AssetsRequest{
+		AppId:          "test-app-id",
 		Branch:         "branch-1",
 		AssetName:      "/assets/4f1cb2cac2370cd5050681232e8575a8",
 		RuntimeVersion: "1",
@@ -87,6 +89,7 @@ func TestMissingRuntimeVersionForAssets(t *testing.T) {
 	defer teardown()
 	mockWorkingExpoResponse("staging")
 	request := assets.AssetsRequest{
+		AppId:          "test-app-id",
 		Branch:         "branch-1",
 		AssetName:      "/assets/4f1cb2cac2370cd5050681232e8575a8",
 		RuntimeVersion: "",
@@ -118,6 +121,7 @@ func TestEmptyUpdatesForAssets(t *testing.T) {
 	defer teardown()
 	mockWorkingExpoResponse("staging")
 	request := assets.AssetsRequest{
+		AppId:          "test-app-id",
 		Branch:         "emptyruntime",
 		AssetName:      "/assets/4f1cb2cac2370cd5050681232e8575a8",
 		RuntimeVersion: "1",
@@ -149,6 +153,7 @@ func TestBadRuntimeVersion(t *testing.T) {
 	defer teardown()
 	mockWorkingExpoResponse("staging")
 	request := assets.AssetsRequest{
+		AppId:          "test-app-id",
 		Branch:         "branch-1",
 		AssetName:      "/assets/4f1cb2cac2370cd5050681232e8575a8",
 		RuntimeVersion: "never",
@@ -180,6 +185,7 @@ func TestToRetrieveBundleAsset(t *testing.T) {
 	defer teardown()
 	mockWorkingExpoResponse("staging")
 	asset := assets.AssetsRequest{
+		AppId:          "test-app-id",
 		Branch:         "branch-1",
 		AssetName:      "bundles/android-82adadb1fb6e489d04ad95fd79670deb.js",
 		RuntimeVersion: "1",
@@ -201,12 +207,30 @@ func TestToRetrieveBundleAsset(t *testing.T) {
 	assert.Empty(t, responseWithUrl.Body, "Expected empty body")
 	parsedUrl, err := url.Parse(responseWithUrl.URL)
 	require.NoError(t, err, "Error while parsing the URL")
-	expectedBaseURL := "https://cdn.expoopenota.com/branch-1/1/1674170951/bundles/android-82adadb1fb6e489d04ad95fd79670deb.js"
+	expectedBaseURL := "https://cdn.expoopenota.com/test-app-id/branch-1/1/1674170951/bundles/android-82adadb1fb6e489d04ad95fd79670deb.js"
 	assert.Equal(t, expectedBaseURL, parsedUrl.Scheme+"://"+parsedUrl.Host+parsedUrl.Path, "URL should match the expected base URL")
 	queryParams := parsedUrl.Query()
 	assert.NotEmpty(t, queryParams.Get("Policy"), "Policy should not be empty")
 	assert.NotEmpty(t, queryParams.Get("Signature"), "Signature should not be empty")
 	assert.NotEmpty(t, queryParams.Get("Key-Pair-Id"), "Key-Pair-Id should not be empty")
+}
+
+// TestUnknownAppIdForAssets mirrors the manifest-side 404 guard: an
+// unknown expo-app-id must fail at the edge before any outbound Expo API
+// call is attempted, otherwise the handler ends up proxying a confusing
+// upstream 401 as a 500.
+func TestUnknownAppIdForAssets(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	url, _ := update.BuildFinalManifestAssetUrlURL("http://localhost:3000", "bundles/android-82adadb1fb6e489d04ad95fd79670deb.js", "1", "android", "staging")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", url, nil)
+	r.Header.Set("expo-channel-name", "staging")
+	r.Header.Set("expo-app-id", "this-id-is-not-in-apps-json")
+
+	handlers.AssetsHandler(w, r)
+	assert.Equal(t, 404, w.Code, "Unknown app id must fail early with 404")
+	assert.Equal(t, "Unknown app id\n", w.Body.String())
 }
 
 func TestToRetrieveBundleAssetWithGzipCompression(t *testing.T) {
@@ -220,6 +244,7 @@ func TestToRetrieveBundleAssetWithGzipCompression(t *testing.T) {
 	r := httptest.NewRequest("GET", url, nil)
 	r.Header.Set("Accept-Encoding", "gzip")
 	r.Header.Set("expo-channel-name", "staging")
+	r.Header.Set("expo-app-id", "test-app-id")
 
 	handlers.AssetsHandler(w, r)
 
@@ -240,7 +265,7 @@ func TestToRetrieveBundleAssetWithGzipCompression(t *testing.T) {
 		t.Fatalf("Failed to read decompressed content: %v", err)
 	}
 
-	expectedContent, err := os.Open(filepath.Join(projectRoot, "/test/test-updates/branch-1/1/1674170951/bundles/android-82adadb1fb6e489d04ad95fd79670deb.js"))
+	expectedContent, err := os.Open(filepath.Join(projectRoot, "/test/test-updates/test-app-id/branch-1/1/1674170951/bundles/android-82adadb1fb6e489d04ad95fd79670deb.js"))
 	if err != nil {
 		t.Fatalf("Failed to open expected content: %v", err)
 	}
@@ -265,6 +290,7 @@ func TestToRetrieveBundleAssetWithBrotliCompression(t *testing.T) {
 	r := httptest.NewRequest("GET", url, nil)
 	r.Header.Set("Accept-Encoding", "br")
 	r.Header.Set("expo-channel-name", "staging")
+	r.Header.Set("expo-app-id", "test-app-id")
 
 	handlers.AssetsHandler(w, r)
 
@@ -281,7 +307,7 @@ func TestToRetrieveBundleAssetWithBrotliCompression(t *testing.T) {
 		t.Fatalf("Failed to decompress Brotli content: %v", err)
 	}
 
-	expectedContentPath := filepath.Join(projectRoot, "/test/test-updates/branch-1/1/1674170951/bundles/android-82adadb1fb6e489d04ad95fd79670deb.js")
+	expectedContentPath := filepath.Join(projectRoot, "/test/test-updates/test-app-id/branch-1/1/1674170951/bundles/android-82adadb1fb6e489d04ad95fd79670deb.js")
 	expectedContent, err := os.Open(expectedContentPath)
 	if err != nil {
 		t.Fatalf("Failed to open expected content: %v", err)
@@ -305,6 +331,7 @@ func TestToRetrievePNGAssetWithGzipCompression(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", url, nil)
 	r.Header.Set("Accept-Encoding", "gzip")
+	r.Header.Set("expo-app-id", "test-app-id")
 	r = mux.SetURLVars(r, map[string]string{
 		"BRANCH": "staging",
 	})
@@ -339,6 +366,7 @@ func TestAutomaticUrlRedirectionIfCDNIsSet(t *testing.T) {
 	r := httptest.NewRequest("GET", url, nil)
 	r.Header.Set("Accept-Encoding", "gzip")
 	r.Header.Set("expo-channel-name", "staging")
+	r.Header.Set("expo-app-id", "test-app-id")
 
 	handlers.AssetsHandler(w, r)
 
@@ -360,6 +388,7 @@ func TestPreventCDNRedirectionHeader(t *testing.T) {
 	r.Header.Set("Accept-Encoding", "gzip")
 	r.Header.Set("prevent-cdn-redirection", "true")
 	r.Header.Set("expo-channel-name", "staging")
+	r.Header.Set("expo-app-id", "test-app-id")
 
 	handlers.AssetsHandler(w, r)
 

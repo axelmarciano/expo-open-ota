@@ -27,6 +27,7 @@ type FileNamesRequest struct {
 func MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	vars := mux.Vars(r)
+	appId := vars["APP_ID"]
 	branchName := vars["BRANCH"]
 	platform := r.URL.Query().Get("platform")
 	if platform == "" || (platform != "ios" && platform != "android") {
@@ -40,7 +41,7 @@ func MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	expoAuth := helpers.GetExpoAuth(r)
-	expoAccount, err := services.ValidateExpoAuth(expoAuth)
+	expoAccount, err := services.ValidateExpoAuth(appId, expoAuth)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating expo auth: %v", requestID, err)
 		http.Error(w, "Error validating expo auth", http.StatusUnauthorized)
@@ -63,13 +64,13 @@ func MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No update id provided", http.StatusBadRequest)
 		return
 	}
-	err = branch.UpsertBranch(branchName)
+	err = branch.UpsertBranch(appId, branchName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
 		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
 		return
 	}
-	currentUpdate, err := update.GetUpdate(branchName, runtimeVersion, updateId)
+	currentUpdate, err := update.GetUpdate(appId, branchName, runtimeVersion, updateId)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error getting update: %v", requestID, err)
 		http.Error(w, "Error getting update", http.StatusInternalServerError)
@@ -80,7 +81,7 @@ func MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
 	if errorVerify != nil {
 		// Delete folder and throw error
 		log.Printf("[RequestID: %s] Invalid update, deleting folder...", requestID)
-		err := resolvedBucket.DeleteUpdateFolder(branchName, runtimeVersion, updateId)
+		err := resolvedBucket.DeleteUpdateFolder(appId, branchName, runtimeVersion, updateId)
 		if err != nil {
 			log.Printf("[RequestID: %s] Error deleting update folder: %v", requestID, err)
 			http.Error(w, "Error deleting update folder", http.StatusInternalServerError)
@@ -91,7 +92,7 @@ func MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Now we have to retrieve the latest update and compare hash changes
-	latestUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion(branchName, runtimeVersion, platform)
+	latestUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion(appId, branchName, runtimeVersion, platform)
 	if err != nil || latestUpdate == nil || update.GetUpdateType(*latestUpdate) == types.Rollback {
 		err = update.MarkUpdateAsChecked(*currentUpdate)
 		if err != nil {
@@ -122,7 +123,7 @@ func MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("[RequestID: %s] Updates are identical, delete folder...", requestID)
-	err = resolvedBucket.DeleteUpdateFolder(branchName, runtimeVersion, currentUpdate.UpdateId)
+	err = resolvedBucket.DeleteUpdateFolder(appId, branchName, runtimeVersion, currentUpdate.UpdateId)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error deleting update folder: %v", requestID, err)
 		http.Error(w, "Error deleting update folder", http.StatusInternalServerError)
@@ -146,8 +147,9 @@ func RequestUploadLocalFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	requestID := uuid.New().String()
+	appId := mux.Vars(r)["APP_ID"]
 	expoAuth := helpers.GetExpoAuth(r)
-	expoAccount, err := services.ValidateExpoAuth(expoAuth)
+	expoAccount, err := services.ValidateExpoAuth(appId, expoAuth)
 	if err != nil || expoAccount == nil {
 		log.Printf("[RequestID: %s] Error validating expo auth: %v", requestID, err)
 		http.Error(w, "Error validating expo auth", http.StatusUnauthorized)
@@ -159,10 +161,19 @@ func RequestUploadLocalFileHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No token provided", http.StatusBadRequest)
 		return
 	}
-	filePath, err := bucket.ValidateUploadTokenAndResolveFilePath(token)
+	filePath, tokenAppId, err := bucket.ValidateUploadTokenAndResolveFilePath(token)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating upload token: %v", requestID, err)
 		http.Error(w, "Error validating upload token", http.StatusBadRequest)
+		return
+	}
+	// Defense against a leaked-token cross-app write: the token claim must
+	// match the app id on the URL. Without this check, a valid token scoped
+	// to AppA could be replayed via /{AppB}/uploadLocalFile to land bytes
+	// under AppA's bucket tree from an AppB-authenticated session.
+	if tokenAppId != appId {
+		log.Printf("[RequestID: %s] Token appId mismatch: token=%q url=%q", requestID, tokenAppId, appId)
+		http.Error(w, "Upload token does not match this app", http.StatusForbidden)
 		return
 	}
 	if r.Body == nil {
@@ -198,6 +209,7 @@ func RequestUploadLocalFileHandler(w http.ResponseWriter, r *http.Request) {
 func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	vars := mux.Vars(r)
+	appId := vars["APP_ID"]
 	branchName := vars["BRANCH"]
 	if branchName == "" {
 		log.Printf("[RequestID: %s] No branch provided", requestID)
@@ -206,7 +218,7 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	expoAuth := helpers.GetExpoAuth(r)
-	expoAccount, err := services.ValidateExpoAuth(expoAuth)
+	expoAccount, err := services.ValidateExpoAuth(appId, expoAuth)
 	if err != nil || expoAccount == nil {
 		log.Printf("[RequestID: %s] Error validating expo auth: %v", requestID, err)
 		http.Error(w, "Error validating expo auth", http.StatusUnauthorized)
@@ -240,7 +252,7 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = branch.UpsertBranch(branchName)
+	err = branch.UpsertBranch(appId, branchName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
 		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
@@ -248,7 +260,7 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	updateId := update.GenerateUpdateTimestamp()
-	updateRequests, err := bucket.RequestUploadUrlsForFileUpdates(branchName, runtimeVersion, update.ConvertUpdateTimestampToString(updateId), request.FileNames)
+	updateRequests, err := bucket.RequestUploadUrlsForFileUpdates(appId, branchName, runtimeVersion, update.ConvertUpdateTimestampToString(updateId), request.FileNames)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error requesting upload urls: %v", requestID, err)
 		http.Error(w, "Error requesting upload urls", http.StatusInternalServerError)
@@ -270,6 +282,7 @@ func RequestUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	metadataReader := bytes.NewReader(marshalledMetadata)
 	resolvedBucket := bucket.GetBucket()
 	err = resolvedBucket.UploadFileIntoUpdate(types.Update{
+		AppId:          appId,
 		Branch:         branchName,
 		RuntimeVersion: runtimeVersion,
 		UpdateId:       update.ConvertUpdateTimestampToString(updateId),

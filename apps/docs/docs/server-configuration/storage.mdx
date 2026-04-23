@@ -57,16 +57,21 @@ import TabItem from '@theme/TabItem';
 
     #### Multi-app bucket sharing
 
-    If you want to share a single S3 bucket between multiple applications, you can use the `S3_KEY_PREFIX` environment variable to namespace all keys under a specific prefix:
+    If you want to share a single S3 bucket between multiple applications, you can use the `BUCKET_KEY_PREFIX` environment variable to namespace all keys under a specific prefix:
 
     ```bash title=".env"
-    S3_KEY_PREFIX=myapp
+    BUCKET_KEY_PREFIX=myapp
     ```
 
     All objects will be stored under `myapp/<branch>/<runtimeVersion>/<updateId>/...`. This allows multiple independent Expo Open OTA instances to coexist in the same bucket without conflicts.
 
     :::note
     A trailing slash is automatically added if omitted (`myapp` → `myapp/`).
+    :::
+
+    :::info
+    `BUCKET_KEY_PREFIX` also works for `gcs` and `local` storage modes.
+    The legacy `S3_KEY_PREFIX` is still supported for backward compatibility but will be removed in a future release — prefer `BUCKET_KEY_PREFIX`.
     :::
   </TabItem>
   <TabItem value="gcs" label="Google Cloud Storage">

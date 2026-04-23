@@ -18,7 +18,7 @@ func TestChannelMappingIsCached(t *testing.T) {
 	mockWorkingExpoResponse("staging")
 
 	// First call — hits the Expo GraphQL API
-	mapping1, err := services.FetchExpoChannelMapping("staging")
+	mapping1, err := services.FetchExpoChannelMapping("test-app-id", "staging")
 	assert.NoError(t, err)
 	assert.NotNil(t, mapping1)
 	assert.Equal(t, "branch-1", mapping1.BranchName)
@@ -27,7 +27,7 @@ func TestChannelMappingIsCached(t *testing.T) {
 	httpmock.Reset()
 
 	// Second call — mock is gone, so this must use cache
-	mapping2, err := services.FetchExpoChannelMapping("staging")
+	mapping2, err := services.FetchExpoChannelMapping("test-app-id", "staging")
 	assert.NoError(t, err)
 	assert.NotNil(t, mapping2)
 	assert.Equal(t, mapping1.BranchName, mapping2.BranchName)
@@ -40,14 +40,14 @@ func TestUpdateChannelBranchMappingInvalidatesChannelMappingCache(t *testing.T) 
 	mockWorkingExpoResponse("staging")
 
 	// Populate the channel mapping cache
-	mapping1, err := services.FetchExpoChannelMapping("staging")
+	mapping1, err := services.FetchExpoChannelMapping("test-app-id", "staging")
 	assert.NoError(t, err)
 	assert.NotNil(t, mapping1)
 	assert.Equal(t, "branch-1", mapping1.BranchName)
 
 	// Verify cache is populated (reset mock — cached call should still work)
 	httpmock.Reset()
-	cachedMapping, err := services.FetchExpoChannelMapping("staging")
+	cachedMapping, err := services.FetchExpoChannelMapping("test-app-id", "staging")
 	assert.NoError(t, err)
 	assert.Equal(t, "branch-1", cachedMapping.BranchName)
 
@@ -92,7 +92,7 @@ func TestUpdateChannelBranchMappingInvalidatesChannelMappingCache(t *testing.T) 
 	// Call UpdateChannelBranchMappingHandler via the router — this should invalidate the cache
 	router := infrastructure.NewRouter()
 	body := `{"releaseChannel":"staging"}`
-	req, _ := http.NewRequest("POST", "/api/branch/branch-2-id/updateChannelBranchMapping", strings.NewReader(body))
+	req, _ := http.NewRequest("POST", "/api/apps/test-app-id/branch/branch-2-id/updateChannelBranchMapping", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	w := httptest.NewRecorder()
@@ -101,11 +101,11 @@ func TestUpdateChannelBranchMappingInvalidatesChannelMappingCache(t *testing.T) 
 
 	// Verify the channel mapping cache key was deleted
 	cache := cache2.GetCache()
-	cacheKey := services.ComputeChannelMappingCacheKey("staging")
+	cacheKey := services.ComputeChannelMappingCacheKey("test-app-id", "staging")
 	assert.Equal(t, "", cache.Get(cacheKey), "Channel mapping cache should be invalidated after handler call")
 
 	// FetchExpoChannelMapping should now hit the API and return the updated mapping
-	mapping2, err := services.FetchExpoChannelMapping("staging")
+	mapping2, err := services.FetchExpoChannelMapping("test-app-id", "staging")
 	assert.NoError(t, err)
 	assert.NotNil(t, mapping2)
 	assert.Equal(t, "branch-2", mapping2.BranchName, "After UpdateChannelBranchMappingHandler, should fetch new mapping from API")

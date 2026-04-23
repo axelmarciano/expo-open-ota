@@ -27,7 +27,7 @@ func TestRequestUploadUrlWithEncodedPlusInRuntimeVersion(t *testing.T) {
 	require.NoError(t, err)
 
 	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates"))
-	sampleUpdatePath := filepath.Join(projectRoot, "test/test-updates/branch-4/1/1674170952")
+	sampleUpdatePath := filepath.Join(projectRoot, "test/test-updates/test-app-id/branch-4/1/1674170952")
 
 	u, _ := url.Parse("http://localhost:3000/requestUploadUrl/DO_NOT_USE")
 	q := u.Query()
@@ -38,7 +38,7 @@ func TestRequestUploadUrlWithEncodedPlusInRuntimeVersion(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", u.String(), nil)
-	r = mux.SetURLVars(r, map[string]string{"BRANCH": "DO_NOT_USE"})
+	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": "DO_NOT_USE"})
 	r.Header.Set("Authorization", "Bearer expo_test_token")
 
 	uploadRequestsInput := ComputeUploadRequestsInput(sampleUpdatePath)
@@ -52,7 +52,7 @@ func TestRequestUploadUrlWithEncodedPlusInRuntimeVersion(t *testing.T) {
 
 	// Verify the files were stored under the correct runtimeVersion path (with +, not space)
 	updateId := w.Header().Get("expo-update-id")
-	expectedPath := filepath.Join(projectRoot, "updates", "DO_NOT_USE", runtimeVersionWithPlus, updateId, "update-metadata.json")
+	expectedPath := filepath.Join(projectRoot, "updates", "test-app-id", "DO_NOT_USE", runtimeVersionWithPlus, updateId, "update-metadata.json")
 	_, err = os.Stat(expectedPath)
 	assert.NoError(t, err, "Expected update-metadata.json to be stored under runtimeVersion with + character")
 }
@@ -75,7 +75,7 @@ func TestRollbackWithEncodedPlusInRuntimeVersion(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", u.String(), nil)
-	r = mux.SetURLVars(r, map[string]string{"BRANCH": "DO_NOT_USE"})
+	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": "DO_NOT_USE"})
 	r.Header.Set("Authorization", "Bearer expo_test_token")
 
 	handlers.RollbackHandler(w, r)
@@ -94,7 +94,7 @@ func TestRollbackWithEncodedPlusInRuntimeVersion(t *testing.T) {
 	assert.Equal(t, runtimeVersionWithPlus, body.RuntimeVersion, "Expected runtimeVersion to contain + character, not space")
 	assert.NotEmpty(t, body.UpdateId)
 
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("DO_NOT_USE", runtimeVersionWithPlus, "ios")
+	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "DO_NOT_USE", runtimeVersionWithPlus, "ios")
 	require.NoError(t, err)
 	assert.NotNil(t, lastUpdate, "Expected to find the rollback update using runtimeVersion with +")
 	assert.Equal(t, body.UpdateId, lastUpdate.UpdateId)
@@ -116,6 +116,7 @@ func TestManifestWithEncodedPlusInRuntimeVersion(t *testing.T) {
 	r.Header.Add("expo-protocol-version", "1")
 	r.Header.Add("expo-expect-signature", "true")
 	r.Header.Add("expo-channel-name", "staging")
+	r.Header.Add("expo-app-id", "test-app-id")
 
 	handlers.ManifestHandler(w, r)
 

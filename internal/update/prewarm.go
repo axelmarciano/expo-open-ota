@@ -5,19 +5,19 @@ import (
 )
 
 // PreWarmManifestCache populates the manifest cache layers for the given
-// branch/runtimeVersion/platform combination. It is intended to be called
-// as a goroutine after MarkUpdateAsChecked so the first client request
-// hits warm caches instead of rebuilding everything from scratch.
-func PreWarmManifestCache(branch, runtimeVersion, platform string) {
+// appId/branch/runtimeVersion/platform combination. It is intended to be
+// called as a goroutine after MarkUpdateAsChecked so the first client
+// request hits warm caches instead of rebuilding everything from scratch.
+func PreWarmManifestCache(appId, branch, runtimeVersion, platform string) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[PreWarm] panic recovered for branch=%s rv=%s platform=%s: %v", branch, runtimeVersion, platform, r)
+			log.Printf("[PreWarm] panic recovered for app=%s branch=%s rv=%s platform=%s: %v", appId, branch, runtimeVersion, platform, r)
 		}
 	}()
 
-	latestUpdate, err := GetLatestUpdateBundlePathForRuntimeVersion(branch, runtimeVersion, platform)
+	latestUpdate, err := GetLatestUpdateBundlePathForRuntimeVersion(appId, branch, runtimeVersion, platform)
 	if err != nil {
-		log.Printf("[PreWarm] error getting latest update for branch=%s rv=%s platform=%s: %v", branch, runtimeVersion, platform, err)
+		log.Printf("[PreWarm] error getting latest update for app=%s branch=%s rv=%s platform=%s: %v", appId, branch, runtimeVersion, platform, err)
 		return
 	}
 	if latestUpdate == nil {

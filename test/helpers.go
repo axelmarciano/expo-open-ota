@@ -2,6 +2,7 @@ package test
 
 import (
 	"encoding/json"
+	"expo-open-ota/config"
 	"expo-open-ota/internal/bucket"
 	cache2 "expo-open-ota/internal/cache"
 	"expo-open-ota/internal/cdn"
@@ -46,33 +47,40 @@ func GlobalAfterEach(t *testing.T) {
 		if err != nil {
 			t.Errorf("Error finding project root: %v", err)
 		}
-		updatesPath := filepath.Join(projectRoot, "./updates/DO_NOT_USE")
-		updates, err := os.ReadDir(updatesPath)
-		if err != nil {
-			t.Errorf("Error reading updates directory: %v", err)
-		}
-		for _, update := range updates {
-			if update.IsDir() {
-				err = os.RemoveAll(filepath.Join(updatesPath, update.Name()))
-				if err != nil {
-					t.Errorf("Error removing update directory: %v", err)
+		// Clean both legacy path (./updates/DO_NOT_USE) and v2 multi-app path
+		// (./updates/test-app-id/DO_NOT_USE) — tests mix both depending on how
+		// they set LOCAL_BUCKET_BASE_PATH.
+		for _, updatesPath := range []string{
+			filepath.Join(projectRoot, "./updates/DO_NOT_USE"),
+			filepath.Join(projectRoot, "./updates/test-app-id/DO_NOT_USE"),
+		} {
+			updates, err := os.ReadDir(updatesPath)
+			if err != nil {
+				continue
+			}
+			for _, update := range updates {
+				if update.IsDir() {
+					err = os.RemoveAll(filepath.Join(updatesPath, update.Name()))
+					if err != nil {
+						t.Errorf("Error removing update directory: %v", err)
+					}
 				}
 			}
 		}
-		// Also remove all folders > 1674170951 in ./test/test-updates/branch-1/1
-		updatesPath = filepath.Join(projectRoot, "./test/test-updates/branch-1/1")
-		updates, err = os.ReadDir(updatesPath)
+		// Also remove all folders > 1674170951 in ./test/test-updates/test-app-id/branch-1/1
+		fixturePath := filepath.Join(projectRoot, "./test/test-updates/test-app-id/branch-1/1")
+		fixtureUpdates, err := os.ReadDir(fixturePath)
 		if err != nil {
 			t.Errorf("Error reading updates directory: %v", err)
 		}
-		for _, update := range updates {
+		for _, update := range fixtureUpdates {
 			if update.IsDir() {
 				updateTime, err := strconv.Atoi(update.Name())
 				if err != nil {
 					continue
 				}
 				if updateTime > 1674170951 {
-					err = os.RemoveAll(filepath.Join(updatesPath, update.Name()))
+					err = os.RemoveAll(filepath.Join(fixturePath, update.Name()))
 					if err != nil {
 						t.Errorf("Error removing update directory: %v", err)
 					}
@@ -413,15 +421,32 @@ func SetValidConfiguration() {
 		panic(err)
 	}
 	os.Setenv("BASE_URL", "http://localhost:3000")
-	os.Setenv("PUBLIC_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/public-key-test.pem"))
-	os.Setenv("PRIVATE_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/private-key-test.pem"))
 	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "/test/test-updates"))
-	os.Setenv("EXPO_APP_ID", "EXPO_APP_ID")
-	os.Setenv("EXPO_ACCESS_TOKEN", "EXPO_ACCESS_TOKEN")
 	os.Setenv("JWT_SECRET", "test_jwt_secret")
 	os.Setenv("PRIVATE_CLOUDFRONT_KEY_PATH", "")
 	os.Setenv("CLOUDFRONT_DOMAIN", "")
 	os.Setenv("CLOUDFRONT_KEY_PAIR_ID", "")
 	os.Setenv("USE_DASHBOARD", "true")
 	os.Setenv("ADMIN_PASSWORD", "admin")
+
+	// v2 multi-app config: a single test-app-id entry pointing at the
+	// existing test keys, reproducing the legacy local-file key storage
+	// behavior the old env vars provided.
+	appsJSON, err := json.Marshal([]config.AppConfig{{
+		Id:          "test-app-id",
+		AccessToken: "EXPO_ACCESS_TOKEN",
+		Keys: config.KeysConfig{
+			Mode:        config.KeysModeLocal,
+			PublicPath:  filepath.Join(projectRoot, "/test/keys/public-key-test.pem"),
+			PrivatePath: filepath.Join(projectRoot, "/test/keys/private-key-test.pem"),
+		},
+	}})
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("EXPO_APPS_JSON", string(appsJSON))
+	config.ResetAppsForTest()
+	if err := config.LoadApps(); err != nil {
+		panic(err)
+	}
 }

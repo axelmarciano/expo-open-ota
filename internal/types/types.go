@@ -85,6 +85,7 @@ type NoUpdateAvailableDirective struct {
 }
 
 type Update struct {
+	AppId          string        `json:"appId"`
 	Branch         string        `json:"branch"`
 	RuntimeVersion string        `json:"runtimeVersion"`
 	UpdateId       string        `json:"updateId"`

@@ -10,6 +10,12 @@ To get started with **Expo Open OTA**, you need to review the following prerequi
 Some of the environment variables required for the server are listed below. You can set them in a `.env` file in the root of the project or keep them in a safe place to prepare for deployment.
 :::
 
+:::info Hosting more than one Expo app?
+This page covers the **single-app setup** — one Expo project behind one Expo Open OTA server. If you need to host **several apps** on the same server, see [Advanced → Multi-app](/docs/advanced/multi-app) instead.
+
+Upgrading from v1? Check the [Migration guide](/docs/advanced/migration-v1-to-v2) — there are **required client-side changes** (native rebuild) even when the server config stays identical.
+:::
+
 ## Expo Token & Project ID
 
 To interact with the Expo API, you need an **Expo token** and **project ID**. These credentials authenticate update publishing
@@ -23,7 +29,7 @@ and allow the server to fetch the release channel-to-branch mappings.
 4. Copy the generated token and store it in a safe place.
 
 :::info
-This token will be used as the `EXPO_ACCESS_TOKEN` environment variable.
+This token is set as the `EXPO_ACCESS_TOKEN` environment variable on the server.
 :::
 
 ### How to Get Your Project ID
@@ -52,8 +58,33 @@ This token will be used as the `EXPO_ACCESS_TOKEN` environment variable.
 4. The project ID is displayed on the top of the page.
 
 :::info
-This ID will be used as the `EXPO_APP_ID` environment variable.
+This ID is set as the `EXPO_APP_ID` environment variable on the server, and the client must send it as the `expo-app-id` HTTP header on every manifest and asset request (configured in `app.config.ts` → `updates.requestHeaders`; changing this value requires a **native rebuild** — see the [Migration guide](/docs/advanced/migration-v1-to-v2) for the full procedure).
 :::
+
+## Server configuration
+
+For the single-app case, set these env vars on the server:
+
+```bash
+# Identity
+EXPO_APP_ID=a45ed151-0387-4419-a97c-d008d8f214c7
+EXPO_ACCESS_TOKEN=expo_xxx
+
+# Key storage (pick one)
+KEYS_STORAGE_TYPE=local                # or: aws-secrets-manager | environment
+PUBLIC_LOCAL_EXPO_KEY_PATH=/keys/public.pem
+PRIVATE_LOCAL_EXPO_KEY_PATH=/keys/private.pem
+```
+
+Mode-specific variables for `KEYS_STORAGE_TYPE`:
+
+| `KEYS_STORAGE_TYPE` | Required env vars |
+| --- | --- |
+| `local` (default) | `PUBLIC_LOCAL_EXPO_KEY_PATH`, `PRIVATE_LOCAL_EXPO_KEY_PATH` |
+| `aws-secrets-manager` | `AWSSM_EXPO_PUBLIC_KEY_SECRET_ID`, `AWSSM_EXPO_PRIVATE_KEY_SECRET_ID` |
+| `environment` | `PUBLIC_EXPO_KEY_B64`, `PRIVATE_EXPO_KEY_B64` |
+
+No JSON, no file mounts. Copy-paste this into your Railway / Fly / Render env var UI and you're done.
 
 ## JWT Secret
 

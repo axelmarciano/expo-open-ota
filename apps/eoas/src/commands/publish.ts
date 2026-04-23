@@ -12,6 +12,7 @@ import {
   RequestedPlatform,
   getPrivateExpoConfigAsync,
   getPublicExpoConfigAsync,
+  requireExpoAppId,
   resolveServerUrl,
 } from '../lib/expoConfig';
 import { fetchWithRetries } from '../lib/fetch';
@@ -138,6 +139,7 @@ export default class Publish extends Command {
       Log.error(e.message);
       process.exit(1);
     });
+    const appId = requireExpoAppId(config);
     if (!nonInteractive) {
       const confirmed = await confirmAsync({
         message: `Is this the correct URL of your self-hosted update server? ${serverUrl}`,
@@ -220,13 +222,17 @@ export default class Publish extends Command {
     const exportSpinner = ora('📦 Exporting project files...').start();
     try {
       const specifiedPlatform = platform === RequestedPlatform.All ? [] : ['--platform', platform];
-      const { stdout } = await spawnAsync(packageRunner, ['expo', 'export', '--output-dir', outputDir, ...specifiedPlatform], {
-        cwd: projectDir,
-        env: {
-          ...process.env,
-          EXPO_NO_DOTENV: '1',
-        },
-      });
+      const { stdout } = await spawnAsync(
+        packageRunner,
+        ['expo', 'export', '--output-dir', outputDir, ...specifiedPlatform],
+        {
+          cwd: projectDir,
+          env: {
+            ...process.env,
+            EXPO_NO_DOTENV: '1',
+          },
+        }
+      );
       exportSpinner.succeed('🚀 Project exported successfully');
       Log.withInfo(stdout);
     } catch (e) {
@@ -271,7 +277,7 @@ export default class Publish extends Command {
               body: {
                 fileNames: files.map(file => file.path),
               },
-              requestUploadUrl: `${serverUrl}/requestUploadUrl/${branch}`,
+              requestUploadUrl: `${serverUrl}/${appId}/requestUploadUrl/${branch}`,
               auth: credentials,
               runtimeVersion,
               platform,
@@ -287,7 +293,7 @@ export default class Publish extends Command {
       await Promise.all(
         allItems.map(async itm => {
           const isLocalBucketFileUpload = itm.requestUploadUrl.startsWith(
-            `${serverUrl}/uploadLocalFile`
+            `${serverUrl}/${appId}/uploadLocalFile`
           );
           const formData = new FormData();
           let file: fs.ReadStream;
@@ -348,7 +354,7 @@ export default class Publish extends Command {
     const markAsFinishedSpinner = ora('🔗 Marking the updates as finished...').start();
     const results = await Promise.all(
       uploadUrls.map(async ({ updateId, platform, runtimeVersion }) => {
-        const markAsUploadedUrl = new URL(`${serverUrl}/markUpdateAsUploaded/${branch}`);
+        const markAsUploadedUrl = new URL(`${serverUrl}/${appId}/markUpdateAsUploaded/${branch}`);
         markAsUploadedUrl.searchParams.set('platform', platform);
         markAsUploadedUrl.searchParams.set('updateId', updateId);
         markAsUploadedUrl.searchParams.set('runtimeVersion', runtimeVersion);

@@ -15,6 +15,7 @@ import (
 func RollbackHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	vars := mux.Vars(r)
+	appId := vars["APP_ID"]
 	branchName := vars["BRANCH"]
 	platform := r.URL.Query().Get("platform")
 	if platform == "" || (platform != "ios" && platform != "android") {
@@ -28,10 +29,14 @@ func RollbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	expoAuth := helpers.GetExpoAuth(r)
-	expoAccount, err := services.FetchExpoUserAccountInformations(expoAuth)
+	// ValidateExpoAuth(appId, ...) enforces that the caller's Expo session
+	// matches the app identified by APP_ID — without the appId check,
+	// FetchExpoUserAccountInformations alone would accept any authenticated
+	// Expo user against any app (cross-tenant authz bypass).
+	expoAccount, err := services.ValidateExpoAuth(appId, expoAuth)
 	if err != nil {
-		log.Printf("[RequestID: %s] Error fetching expo account informations: %v", requestID, err)
-		http.Error(w, "Error fetching expo account informations", http.StatusUnauthorized)
+		log.Printf("[RequestID: %s] Error validating expo auth: %v", requestID, err)
+		http.Error(w, "Error validating expo auth", http.StatusUnauthorized)
 		return
 	}
 	if expoAccount == nil {
@@ -45,14 +50,14 @@ func RollbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No runtime version provided", http.StatusBadRequest)
 		return
 	}
-	errUpsert := branch.UpsertBranch(branchName)
+	errUpsert := branch.UpsertBranch(appId, branchName)
 	if errUpsert != nil {
 		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, errUpsert)
 		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
 		return
 	}
 	commitHash := r.URL.Query().Get("commitHash")
-	rollback, err := update.CreateRollback(platform, commitHash, runtimeVersion, branchName)
+	rollback, err := update.CreateRollback(appId, platform, commitHash, runtimeVersion, branchName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error creating rollback: %v", requestID, err)
 		http.Error(w, "Error creating rollback", http.StatusInternalServerError)

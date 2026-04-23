@@ -4,12 +4,15 @@ import { ApiError } from '@/components/APIError';
 import { DataTable } from '@/components/DataTable';
 import { Box, GitBranch } from 'lucide-react';
 import { useSearchParams } from 'react-router';
+import { useSelectedApp } from '@/lib/SelectedAppContext';
 
 export const BranchesTable = () => {
   const [, setSearchParams] = useSearchParams();
+  const { selectedAppId } = useSelectedApp();
   const { data, isLoading, error } = useQuery({
-    queryKey: ['branches'],
+    queryKey: ['branches', selectedAppId],
     queryFn: () => api.getBranches(),
+    enabled: !!selectedAppId,
   });
 
   return (

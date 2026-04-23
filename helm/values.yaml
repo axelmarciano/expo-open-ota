@@ -31,6 +31,28 @@ useAWSAccessKeys: "false"
 cacheMode: "redis"
 useDashboard: "false"
 useRedisTLS: "false"
+# Set to "true" to run the server in multi-app mode — identity, access token
+# and signing keys all come from EXPO_APPS_JSON. When "true" the flat-env
+# single-app variables (EXPO_APP_ID, EXPO_ACCESS_TOKEN, KEYS_STORAGE_TYPE and
+# its per-mode siblings) are not required and will not be rendered.
+# See https://github.com/axelmarciano/expo-open-ota/blob/main/apps/docs/docs/advanced/multi-app.mdx
+multiApp: "false"
+
+# Structured list of apps for multi-app deployments. When set, the chart
+# renders a dedicated Secret ({{ fullname }}-apps) with the JSON payload
+# expected by EXPO_APPS_JSON. Leave empty to provide EXPO_APPS_JSON
+# yourself via the shared secretName or inline value. Schema matches
+# apps/docs/docs/advanced/multi-app.mdx.
+#
+# apps:
+#   - id: "a45ed151-0387-4419-a97c-d008d8f214c7"
+#     name: "Production"
+#     accessToken: "expo_xxx"
+#     keys:
+#       mode: "aws-secrets-manager"
+#       publicSecretId: "/eoota/prod/public"
+#       privateSecretId: "/eoota/prod/private"
+apps: []
 
 environment:
   - name: "USE_DASHBOARD"
@@ -111,6 +133,10 @@ environment:
     required:
       - key: "storageMode"
         is: "s3"
+  - name: "BUCKET_KEY_PREFIX"
+    value: ""
+    required: false
+  # TODO: remove S3_KEY_PREFIX once users have migrated to BUCKET_KEY_PREFIX
   - name: "S3_KEY_PREFIX"
     value: ""
     required: false
@@ -143,40 +169,61 @@ environment:
         is: "true"
       - key: "keysStorageType"
         is: "aws-secrets-manager"
+  # Per-app identity and signing keys. In single-app deployments (multiApp="false")
+  # they come from these flat env vars, mirroring the v1 layout. In multi-app
+  # deployments (multiApp="true") they are all inside EXPO_APPS_JSON and these
+  # flat vars are NOT rendered on the pod. Each entry therefore ANDs its
+  # existing mode condition with `multiApp=false`.
   - name: "KEYS_STORAGE_TYPE"
     key: "keysStorageType"
-    required: true
     computed: true
+    required:
+      - key: "multiApp"
+        is: "false"
   - name: "AWSSM_EXPO_PUBLIC_KEY_SECRET_ID"
     value: ""
     required:
+      - key: "multiApp"
+        is: "false"
       - key: "keysStorageType"
         is: "aws-secrets-manager"
   - name: "AWSSM_EXPO_PRIVATE_KEY_SECRET_ID"
     value: ""
     required:
+      - key: "multiApp"
+        is: "false"
       - key: "keysStorageType"
         is: "aws-secrets-manager"
   - name: "PUBLIC_LOCAL_EXPO_KEY_PATH"
     value: ""
     required:
+      - key: "multiApp"
+        is: "false"
       - key: "keysStorageType"
         is: "local"
   - name: "PRIVATE_LOCAL_EXPO_KEY_PATH"
     value: ""
     required:
+      - key: "multiApp"
+        is: "false"
       - key: "keysStorageType"
         is: "local"
   - name: "PUBLIC_EXPO_KEY_B64"
     value: ""
     required:
+      - key: "multiApp"
+        is: "false"
       - key: "keysStorageType"
         is: "environment"
   - name: "PRIVATE_EXPO_KEY_B64"
     value: ""
     required:
+      - key: "multiApp"
+        is: "false"
       - key: "keysStorageType"
         is: "environment"
+  # CloudFront key is a server-wide signing key — it is NOT per app — so it
+  # stays required whenever CloudFront is enabled, regardless of multiApp.
   - name: "PRIVATE_CLOUDFRONT_KEY_B64"
     value: ""
     required:
@@ -187,10 +234,21 @@ environment:
     required: true
   - name: "EXPO_ACCESS_TOKEN"
     value: ""
-    required: true
+    required:
+      - key: "multiApp"
+        is: "false"
   - name: "EXPO_APP_ID"
     value: ""
-    required: true
+    required:
+      - key: "multiApp"
+        is: "false"
+  # Multi-app: a JSON array with per-app identity, access token and signing
+  # keys. See apps/docs/docs/advanced/multi-app.mdx for the schema.
+  - name: "EXPO_APPS_JSON"
+    value: ""
+    required:
+      - key: "multiApp"
+        is: "true"
   - name: "JWT_SECRET"
     value: ""
     required: true

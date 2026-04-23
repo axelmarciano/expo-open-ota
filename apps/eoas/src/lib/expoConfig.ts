@@ -149,6 +149,22 @@ export function getExpoConfigUpdateUrl(config: ExpoConfig): string | undefined {
   return config.updates?.url;
 }
 
+export function requireExpoAppId(config: ExpoConfig): string {
+  const appId = (config.updates as { requestHeaders?: Record<string, string> } | undefined)
+    ?.requestHeaders?.['expo-app-id'];
+  if (!appId) {
+    Log.error("Your Expo config is missing the 'expo-app-id' entry in updates.requestHeaders.");
+    Log.error(
+      "This usually means you're running eoas v2+ against a v1-style single-app config or your config is missing the 'expo-app-id' entry."
+    );
+    Log.error(
+      "Fix: run 'npx eoas init' to migrate, or pin to the previous CLI via 'npx eoas@1 ...'."
+    );
+    process.exit(1);
+  }
+  return appId;
+}
+
 export async function createOrModifyExpoConfigAsync(
   projectDir: string,
   exp: Partial<ExpoConfig>
@@ -276,7 +292,7 @@ export async function resolveServerUrl(config: ExpoConfig): Promise<string> {
   try {
     const parsedUrl = new URL(updateUrl);
     baseUrl = parsedUrl.origin;
-  } catch (e) {
+  } catch {
     throw new Error('Invalid update URL.');
   }
   return baseUrl;
