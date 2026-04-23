@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"expo-open-ota/internal/types"
 	"io"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -84,6 +85,12 @@ func TestValidateRelativePath_RejectsTraversal(t *testing.T) {
 		{"leading dot-dot", "../secret"},
 		{"absolute unix", "/etc/passwd"},
 		{"absolute windows", "\\etc\\passwd"},
+		// Backslash anywhere in the path — not just as a prefix. On Windows
+		// filepath.Join treats "\" as a separator, so "assets\..\..\etc" would
+		// traverse just like "assets/../..". The segment-level check only
+		// catches the leading-\ case, so enforce the full ban here.
+		{"mid-path backslash", "assets\\..\\..\\etc\\passwd"},
+		{"trailing backslash", "assets/foo\\"},
 		{"empty", ""},
 	}
 	for _, c := range cases {
@@ -98,6 +105,56 @@ func TestValidateRelativePath_AcceptsNestedPaths(t *testing.T) {
 	for _, v := range cases {
 		t.Run(v, func(t *testing.T) {
 			assert.NoError(t, validateRelativePath("assetPath", v))
+		})
+	}
+}
+
+// setPrefixEnv swaps the prefix env vars for one test and restores them on
+// cleanup. Required because config.GetEnv reads process env directly.
+func setPrefixEnv(t *testing.T, bucketKey, s3Key string) {
+	t.Helper()
+	prev := map[string]string{
+		"BUCKET_KEY_PREFIX": os.Getenv("BUCKET_KEY_PREFIX"),
+		"S3_KEY_PREFIX":     os.Getenv("S3_KEY_PREFIX"),
+	}
+	os.Setenv("BUCKET_KEY_PREFIX", bucketKey)
+	os.Setenv("S3_KEY_PREFIX", s3Key)
+	t.Cleanup(func() {
+		os.Setenv("BUCKET_KEY_PREFIX", prev["BUCKET_KEY_PREFIX"])
+		os.Setenv("S3_KEY_PREFIX", prev["S3_KEY_PREFIX"])
+	})
+}
+
+func TestResolveKeyPrefix_HappyPaths(t *testing.T) {
+	t.Run("empty returns empty", func(t *testing.T) {
+		setPrefixEnv(t, "", "")
+		assert.Equal(t, "", resolveKeyPrefix())
+	})
+	t.Run("appends trailing slash", func(t *testing.T) {
+		setPrefixEnv(t, "eoota", "")
+		assert.Equal(t, "eoota/", resolveKeyPrefix())
+	})
+	t.Run("preserves existing trailing slash", func(t *testing.T) {
+		setPrefixEnv(t, "eoota/", "")
+		assert.Equal(t, "eoota/", resolveKeyPrefix())
+	})
+	t.Run("s3 legacy fallback when bucket prefix unset", func(t *testing.T) {
+		setPrefixEnv(t, "", "legacy")
+		assert.Equal(t, "legacy/", resolveKeyPrefix())
+	})
+}
+
+func TestResolveKeyPrefix_PanicsOnUnsafeValues(t *testing.T) {
+	cases := map[string]string{
+		"absolute unix":  "/eoota",
+		"dot-dot":        "foo/../bar",
+		"backslash":      "eoota\\bad",
+		"windows drive":  "C:\\eoota",
+	}
+	for name, bad := range cases {
+		t.Run(name, func(t *testing.T) {
+			setPrefixEnv(t, bad, "")
+			assert.Panics(t, func() { _ = resolveKeyPrefix() })
 		})
 	}
 }

@@ -30,12 +30,18 @@ func validateSegment(name, value string) error {
 
 // validateRelativePath validates multi-segment paths supplied for fileName /
 // assetPath. Nested paths are allowed (e.g. "assets/image.png") but no
-// absolute paths and no ".." segments.
+// absolute paths and no ".." segments. Backslashes are rejected outright —
+// on Windows filepath.Join treats them as separators, so allowing them would
+// let an attacker escape the intended directory via a path like
+// "assets\..\..\etc\passwd".
 func validateRelativePath(name, value string) error {
 	if value == "" {
 		return fmt.Errorf("invalid %s: must not be empty", name)
 	}
-	if strings.HasPrefix(value, "/") || strings.HasPrefix(value, "\\") {
+	if strings.ContainsRune(value, '\\') {
+		return fmt.Errorf("invalid %s: must not contain '\\' characters", name)
+	}
+	if strings.HasPrefix(value, "/") {
 		return fmt.Errorf("invalid %s: must not be absolute", name)
 	}
 	for _, seg := range strings.Split(value, "/") {
@@ -86,6 +92,9 @@ func resolveKeyPrefix() string {
 	}
 	if prefix == "" {
 		return ""
+	}
+	if strings.ContainsRune(prefix, '\\') {
+		panic("bucket key prefix must not contain '\\' characters")
 	}
 	if strings.HasPrefix(prefix, "/") {
 		panic("bucket key prefix must not be absolute (starts with '/')")

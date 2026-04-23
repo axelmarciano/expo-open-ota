@@ -174,6 +174,20 @@ func TestBranchesWithoutAuth(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
 }
 
+// The dashboard /api/apps/{APP_ID}/... routes must run AppResolverMiddleware
+// so unknown app ids return 404 — without it handlers fall through to
+// bucket lookups and can answer 200 with [] for a nonexistent app.
+func TestDashboardUnknownAppIdReturns404(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	router := infrastructure.NewRouter()
+	respRec := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/apps/does-not-exist/branches", nil)
+	req.Header.Set("Authorization", "Bearer "+login().Token)
+	router.ServeHTTP(respRec, req)
+	assert.Equal(t, http.StatusNotFound, respRec.Code)
+}
+
 func TestRuntimeVersionsWithoutAuth(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()

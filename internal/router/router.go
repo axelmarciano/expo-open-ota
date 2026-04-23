@@ -103,11 +103,19 @@ func NewRouter() *mux.Router {
 	authSubrouter := r.PathPrefix("/api").Subrouter()
 	authSubrouter.Use(middleware.AuthMiddleware)
 	authSubrouter.HandleFunc("/settings", handlers.GetSettingsHandler).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/apps/{APP_ID}/branches", handlers.GetBranchesHandler).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/apps/{APP_ID}/channels", handlers.GetChannelsHandler).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/apps/{APP_ID}/branch/{BRANCH}/runtimeVersions", handlers.GetRuntimeVersionsHandler).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/apps/{APP_ID}/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates", handlers.GetUpdatesHandler).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/apps/{APP_ID}/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates/{UPDATE_ID}", handlers.GetUpdateDetails).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/apps/{APP_ID}/branch/{BRANCH}/updateChannelBranchMapping", handlers.UpdateChannelBranchMappingHandler).Methods(http.MethodPost)
+
+	// App-scoped dashboard routes: Auth first, then AppResolver validates the
+	// id and short-circuits unknown apps with 404 before handlers run. Without
+	// the resolver, an unknown id falls through to bucket lookups that return
+	// empty lists — the client sees 200 with [] instead of a proper "no such
+	// app" signal.
+	appAuthSubrouter := authSubrouter.PathPrefix("/apps/{APP_ID}").Subrouter()
+	appAuthSubrouter.Use(middleware.AppResolverMiddleware)
+	appAuthSubrouter.HandleFunc("/branches", handlers.GetBranchesHandler).Methods(http.MethodGet)
+	appAuthSubrouter.HandleFunc("/channels", handlers.GetChannelsHandler).Methods(http.MethodGet)
+	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersions", handlers.GetRuntimeVersionsHandler).Methods(http.MethodGet)
+	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates", handlers.GetUpdatesHandler).Methods(http.MethodGet)
+	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates/{UPDATE_ID}", handlers.GetUpdateDetails).Methods(http.MethodGet)
+	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/updateChannelBranchMapping", handlers.UpdateChannelBranchMappingHandler).Methods(http.MethodPost)
 	return r
 }
