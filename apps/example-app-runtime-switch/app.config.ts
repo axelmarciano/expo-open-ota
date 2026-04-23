@@ -16,7 +16,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       disableAntiBrickingMeasures: true,
       requestHeaders: {
         'expo-channel-name': process.env.RELEASE_CHANNEL,
-        'expo-app-id': 'a45ed151-0387-4419-a97c-d008d8f214c7',
+        'expo-app-id': 'd8471dfc-c3e9-4e14-afd9-21dc34cc498a',
       },
     },
   }

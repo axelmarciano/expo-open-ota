@@ -201,7 +201,7 @@ func ValidateAppId(id, fieldPath string) error {
 	if id == "." || id == ".." {
 		return fmt.Errorf("%s %q is reserved", fieldPath, id)
 	}
-	if _, reserved := reservedAppIds[id]; reserved {
+	if _, reserved := reservedAppIds[strings.ToLower(id)]; reserved {
 		return fmt.Errorf("%s %q collides with a top-level route name", fieldPath, id)
 	}
 	for _, r := range id {

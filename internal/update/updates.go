@@ -85,17 +85,23 @@ func MarkUpdateAsChecked(update types.Update) error {
 	if err != nil || storedMetadata == nil {
 		return err
 	}
-	cacheKeys := []string{ComputeLastUpdateCacheKey(update.AppId,update.Branch, update.RuntimeVersion, storedMetadata.Platform), branchesCacheKey, runTimeVersionsCacheKey, updatesCacheKey}
-	for _, cacheKey := range cacheKeys {
-		cache.Delete(cacheKey)
-	}
 	resolvedBucket := bucket.GetBucket()
 	err = StoreUpdateUUIDInMetadata(update)
 	if err != nil {
 		return err
 	}
+	// Write .check BEFORE invalidating the lastUpdate cache. IsUpdateValid
+	// uses .check as the "this update is complete and pickable" sentinel;
+	// if we deleted the cache first, a concurrent /manifest request would
+	// miss, re-scan updates, find this one without .check, filter it out,
+	// and re-cache the previous update for the full TTL (1800s) — serving
+	// a stale manifest for up to 30 minutes after a publish or rollback.
 	reader := strings.NewReader(".check")
 	_ = resolvedBucket.UploadFileIntoUpdate(update, ".check", reader)
+	cacheKeys := []string{ComputeLastUpdateCacheKey(update.AppId, update.Branch, update.RuntimeVersion, storedMetadata.Platform), branchesCacheKey, runTimeVersionsCacheKey, updatesCacheKey}
+	for _, cacheKey := range cacheKeys {
+		cache.Delete(cacheKey)
+	}
 	go PreWarmManifestCache(update.AppId, update.Branch, update.RuntimeVersion, "ios")
 	go PreWarmManifestCache(update.AppId, update.Branch, update.RuntimeVersion, "android")
 	return nil

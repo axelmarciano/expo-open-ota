@@ -43,7 +43,7 @@ export default function HomeScreen() {
       updateUrl: Constants.expoConfig?.updates?.url as string,
       requestHeaders: {
         'expo-channel-name': channel,
-        'expo-app-id': 'a45ed151-0387-4419-a97c-d008d8f214c7',
+        'expo-app-id': 'd8471dfc-c3e9-4e14-afd9-21dc34cc498a',
       },
     })
     await checkUpdates()

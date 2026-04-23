@@ -32,14 +32,20 @@ export default class Publish extends Command {
       description: 'Name of the branch to point to',
       required: true,
     }),
+    nonInteractive: Flags.boolean({
+      description: 'Run command in non-interactive mode',
+      default: false,
+    }),
   };
   private sanitizeFlags(flags: any): {
     platform: RequestedPlatform;
     branch: string;
+    nonInteractive: boolean;
   } {
     return {
       platform: flags.platform,
       branch: flags.branch,
+      nonInteractive: flags.nonInteractive,
     };
   }
   public async run(): Promise<void> {
@@ -49,7 +55,7 @@ export default class Publish extends Command {
       process.exit(1);
     }
     const { flags } = await this.parse(Publish);
-    const { platform, branch } = this.sanitizeFlags(flags);
+    const { platform, branch, nonInteractive } = this.sanitizeFlags(flags);
     if (!branch) {
       Log.error('Branch name is required');
       process.exit(1);
@@ -63,14 +69,16 @@ export default class Publish extends Command {
       Log.error('Expo is not installed in this project. Please install Expo first.');
       process.exit(1);
     }
-    const confirmed = await confirmAsync({
-      message: `Are you sure you want to publish a rollback to the branch ${branch} ?`,
-      name: 'export',
-      type: 'confirm',
-    });
-    if (!confirmed) {
-      Log.error('Operation cancelled');
-      process.exit(1);
+    if (!nonInteractive) {
+      const confirmed = await confirmAsync({
+        message: `Are you sure you want to publish a rollback to the branch ${branch} ?`,
+        name: 'export',
+        type: 'confirm',
+      });
+      if (!confirmed) {
+        Log.error('Operation cancelled');
+        process.exit(1);
+      }
     }
 
     const privateConfig = await getPrivateExpoConfigAsync(projectDir, {

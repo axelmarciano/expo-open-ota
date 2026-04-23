@@ -6,11 +6,14 @@ import (
 	"expo-open-ota/internal/types"
 	"fmt"
 	"io"
+	"log"
 	"path/filepath"
 	"strings"
 	"sync"
 	"unicode"
 )
+
+var s3KeyPrefixDeprecationOnce sync.Once
 
 // maxSegmentLen bounds any single path segment (branch, runtimeVersion,
 // updateId, migrationId). Keeps DoS surface small on map keys and
@@ -110,6 +113,11 @@ func resolveKeyPrefix() string {
 	if prefix == "" {
 		// TODO: remove S3_KEY_PREFIX backward-compat once users migrated to BUCKET_KEY_PREFIX
 		prefix = config.GetEnv("S3_KEY_PREFIX")
+		if prefix != "" {
+			s3KeyPrefixDeprecationOnce.Do(func() {
+				log.Println("WARNING: S3_KEY_PREFIX is deprecated and will be removed in a future release; use BUCKET_KEY_PREFIX instead")
+			})
+		}
 	}
 	if prefix == "" {
 		return ""
