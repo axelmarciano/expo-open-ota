@@ -188,6 +188,103 @@ func TestDashboardUnknownAppIdReturns404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, respRec.Code)
 }
 
+// AuthMiddleware must reject a syntactically valid but cryptographically bogus
+// JWT. The "no header" path is covered by TestSettingsWithoutAuth et al; this
+// closes the gap where a malicious caller sends garbage in the Bearer slot.
+func TestDashboardRejectsInvalidBearerToken(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	router := infrastructure.NewRouter()
+	respRec := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/settings", nil)
+	req.Header.Set("Authorization", "Bearer not.a.real.jwt")
+	router.ServeHTTP(respRec, req)
+	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
+}
+
+// Use-Expo-Auth relays the caller's Expo credentials on app-scoped routes;
+// on app-agnostic routes (here /api/settings) there is no APP_ID to validate
+// against, so the middleware must short-circuit with 401 instead of falling
+// through to an Expo call it cannot make.
+func TestDashboardUseExpoAuthRejectedOnAppAgnosticRoute(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	router := infrastructure.NewRouter()
+	respRec := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/settings", nil)
+	req.Header.Set("Use-Expo-Auth", "true")
+	req.Header.Set("Authorization", "Bearer expo_test_token")
+	router.ServeHTTP(respRec, req)
+	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
+}
+
+// Use-Expo-Auth with a bearer the Expo API rejects must surface as a 401
+// from the middleware. Exercises the ValidateExpoAuth failure branch for
+// the dashboard-relayed Expo session path.
+func TestDashboardUseExpoAuthRejectsInvalidExpoToken(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
+		func(req *http.Request) (*http.Response, error) {
+			// Only FetchExpoUserAccountInformations runs before the reject —
+			// branch mapping never fires because auth short-circuits first.
+			if req.Header.Get("operationName") == "FetchExpoUserAccountInformations" {
+				if req.Header.Get("Authorization") == "Bearer bogus_expo_token" {
+					return httpmock.NewStringResponse(http.StatusUnauthorized, `{"errors":[{"message":"Unauthorized"}]}`), nil
+				}
+				return MockExpoAccountResponse(map[string]interface{}{
+					"id":       "123",
+					"username": "test_username",
+					"email":    "test@example.com",
+				})
+			}
+			return httpmock.NewStringResponse(404, "Unknown operation"), nil
+		})
+
+	router := infrastructure.NewRouter()
+	respRec := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branches", nil)
+	req.Header.Set("Use-Expo-Auth", "true")
+	req.Header.Set("Authorization", "Bearer bogus_expo_token")
+	router.ServeHTTP(respRec, req)
+	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
+}
+
+// Use-Expo-Auth happy path: caller's Expo token resolves to the same username
+// as the app's EXPO_ACCESS_TOKEN (ValidateExpoAuth's match check) so the
+// middleware lets the request through to the handler.
+func TestDashboardUseExpoAuthHappyPath(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
+		func(req *http.Request) (*http.Response, error) {
+			op := req.Header.Get("operationName")
+			if op == "FetchExpoUserAccountInformations" {
+				// Both the caller's token and the app's EXPO_ACCESS_TOKEN
+				// resolve to "test_username" — that's what makes the
+				// match in ValidateExpoAuth succeed.
+				return MockExpoAccountResponse(map[string]interface{}{
+					"id":       "123",
+					"username": "test_username",
+					"email":    "test@example.com",
+				})
+			}
+			// Handler-level call once auth passes.
+			return MockExpoBranchesMappingResponse(
+				[]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}},
+				[]map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}},
+			)
+		})
+
+	router := infrastructure.NewRouter()
+	respRec := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branches", nil)
+	req.Header.Set("Use-Expo-Auth", "true")
+	req.Header.Set("Authorization", "Bearer expo_test_token")
+	router.ServeHTTP(respRec, req)
+	assert.Equal(t, http.StatusOK, respRec.Code)
+}
+
 func TestRuntimeVersionsWithoutAuth(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
