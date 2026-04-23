@@ -215,6 +215,24 @@ func TestToRetrieveBundleAsset(t *testing.T) {
 	assert.NotEmpty(t, queryParams.Get("Key-Pair-Id"), "Key-Pair-Id should not be empty")
 }
 
+// TestUnknownAppIdForAssets mirrors the manifest-side 404 guard: an
+// unknown expo-app-id must fail at the edge before any outbound Expo API
+// call is attempted, otherwise the handler ends up proxying a confusing
+// upstream 401 as a 500.
+func TestUnknownAppIdForAssets(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	url, _ := update.BuildFinalManifestAssetUrlURL("http://localhost:3000", "bundles/android-82adadb1fb6e489d04ad95fd79670deb.js", "1", "android", "staging")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", url, nil)
+	r.Header.Set("expo-channel-name", "staging")
+	r.Header.Set("expo-app-id", "this-id-is-not-in-apps-json")
+
+	handlers.AssetsHandler(w, r)
+	assert.Equal(t, 404, w.Code, "Unknown app id must fail early with 404")
+	assert.Equal(t, "Unknown app id\n", w.Body.String())
+}
+
 func TestToRetrieveBundleAssetWithGzipCompression(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()

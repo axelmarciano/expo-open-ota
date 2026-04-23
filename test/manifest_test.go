@@ -139,6 +139,28 @@ func TestNotValidPlatformForManifest(t *testing.T) {
 	assert.Equal(t, "Invalid platform\n", w.Body.String(), "Expected 'IInvalid platform' message")
 }
 
+// TestUnknownAppIdForManifest locks in the 404-on-unknown-app behaviour so
+// we never regress into firing an outbound Expo API call with an empty
+// Bearer token — which used to surface as an opaque 500 to the client.
+func TestUnknownAppIdForManifest(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+
+	q := "http://localhost:3000/manifest"
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", q, nil)
+	r.Header.Add("expo-platform", "ios")
+	r.Header.Add("expo-runtime-version", "1")
+	r.Header.Add("expo-protocol-version", "1")
+	r.Header.Add("expo-expect-signature", "true")
+	r.Header.Add("expo-channel-name", "staging")
+	r.Header.Add("expo-app-id", "this-id-is-not-in-apps-json")
+
+	handlers.ManifestHandler(w, r)
+	assert.Equal(t, 404, w.Code, "Unknown app id must fail early with 404")
+	assert.Equal(t, "Unknown app id\n", w.Body.String())
+}
+
 func TestNotValidRuntimeVersionForManifest(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()

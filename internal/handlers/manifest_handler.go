@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"expo-open-ota/config"
 	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/keyStore"
 	"expo-open-ota/internal/metrics"
@@ -157,6 +158,16 @@ func ManifestHandler(w http.ResponseWriter, r *http.Request) {
 	if appId == "" {
 		log.Printf("[RequestID: %s] No app id provided", requestID)
 		http.Error(w, "No app id provided", http.StatusBadRequest)
+		return
+	}
+	// Reject unknown app ids at the edge with a clean 404 — otherwise
+	// downstream services.FetchExpoChannelMapping → GetExpoAccessToken
+	// returns an empty token for the unknown id and we end up POSTing to
+	// api.expo.dev with `Bearer ` (no token), surfacing the upstream 401
+	// as an opaque 500 to the client.
+	if _, err := config.GetAppConfig(appId); err != nil {
+		log.Printf("[RequestID: %s] Unknown app id %q", requestID, appId)
+		http.Error(w, "Unknown app id", http.StatusNotFound)
 		return
 	}
 	channelName := r.Header.Get("expo-channel-name")

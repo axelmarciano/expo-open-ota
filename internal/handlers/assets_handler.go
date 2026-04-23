@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"expo-open-ota/config"
 	"expo-open-ota/internal/assets"
 	cdn2 "expo-open-ota/internal/cdn"
 	"expo-open-ota/internal/compression"
@@ -17,6 +18,14 @@ func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 	if appId == "" {
 		log.Printf("[RequestID: %s] No app id provided", requestID)
 		http.Error(w, "No app id provided", http.StatusBadRequest)
+		return
+	}
+	// Same edge check as ManifestHandler — reject unknown ids with 404
+	// rather than letting them flow into FetchExpoChannelMapping and
+	// surfacing the upstream 401 as a 500.
+	if _, err := config.GetAppConfig(appId); err != nil {
+		log.Printf("[RequestID: %s] Unknown app id %q", requestID, appId)
+		http.Error(w, "Unknown app id", http.StatusNotFound)
 		return
 	}
 	channelName := r.Header.Get("expo-channel-name")
