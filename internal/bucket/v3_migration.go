@@ -15,10 +15,10 @@ import (
 	"google.golang.org/api/iterator"
 )
 
-// v2_migration.go — one-shot data re-path from the v1 bucket layout
-// ({prefix}/{branch}/{rv}/{updateId}/…) to the v2 layout
+// v3_migration.go — one-shot data re-path from the v2 bucket layout
+// ({prefix}/{branch}/{rv}/{updateId}/…) to the v3 layout
 // ({prefix}/{appId}/{branch}/{rv}/{updateId}/…). Driven by the migration
-// 20260422_v2_scope_data_under_appid registered in internal/migrations/.
+// 20260422_v3_scope_data_under_appid registered in internal/migrations/.
 //
 // Each backend exposes a MoveRootEntriesUnder(appId) method that is
 // idempotent under interruption: entries already moved are detected
@@ -29,20 +29,20 @@ import (
 // it must stay at the bucket root so the migration ledger keeps working
 // across deploys.
 
-// ErrAppIdCollidesWithV1Branch is returned when a v1 bucket contains a
+// ErrAppIdCollidesWithV2Branch is returned when a v2 bucket contains a
 // branch whose name happens to equal the target appId. Auto-migrating
-// would nest v1 data under itself and corrupt the layout, so the
+// would nest v2 data under itself and corrupt the layout, so the
 // migration refuses and the operator must resolve it manually (rename
-// the branch, re-path the data, or set SKIP_V1_TO_V2_BUCKET_MIGRATION
+// the branch, re-path the data, or set SKIP_V2_TO_V3_BUCKET_MIGRATION
 // and migrate by hand).
-var ErrAppIdCollidesWithV1Branch = fmt.Errorf("app id collides with a v1 branch of the same name; resolve manually and rerun with SKIP_V1_TO_V2_BUCKET_MIGRATION=true")
+var ErrAppIdCollidesWithV2Branch = fmt.Errorf("app id collides with a v2 branch of the same name; resolve manually and rerun with SKIP_V2_TO_V3_BUCKET_MIGRATION=true")
 
 // MoveRootEntriesUnder walks the LocalBucket root and moves every
-// immediate child directory that LOOKS LIKE a v1 branch into
-// {rootPath}/{appId}/. An entry is considered a v1 branch when it
+// immediate child directory that LOOKS LIKE a v2 branch into
+// {rootPath}/{appId}/. An entry is considered a v2 branch when it
 // contains a .check or update-metadata.json file at depth 3 — the exact
-// shape produced by the v1 publish pipeline
-// ({branch}/{runtimeVersion}/{updateId}/.check). v2 directories hold the
+// shape produced by the v2 publish pipeline
+// ({branch}/{runtimeVersion}/{updateId}/.check). v3 directories hold the
 // same files at depth 4 ({appId}/{branch}/{rv}/{updateId}/.check) and so
 // are correctly identified as non-branch-shaped and left alone. Uses
 // os.Rename per entry, atomic on POSIX when src/dst share a filesystem.
@@ -57,17 +57,17 @@ func (b *LocalBucket) MoveRootEntriesUnder(appId string) error {
 	}
 
 	// Pre-flight collision check: if {root}/{appId}/ itself has the
-	// shape of a v1 branch (marker at depth 2 inside it), it was a
-	// coincidentally-named v1 branch BEFORE this migration started.
-	// looksLikeV1Branch walks depth 3 from the root, so it returns
-	// true for a v1 branch named appId and false for a v2-shaped
+	// shape of a v2 branch (marker at depth 2 inside it), it was a
+	// coincidentally-named v2 branch BEFORE this migration started.
+	// looksLikeV2Branch walks depth 3 from the root, so it returns
+	// true for a v2 branch named appId and false for a v3-shaped
 	// {appId}/ (which has its marker one level deeper).
-	if b.looksLikeV1Branch(appId) {
-		return fmt.Errorf("%w: %q", ErrAppIdCollidesWithV1Branch, appId)
+	if b.looksLikeV2Branch(appId) {
+		return fmt.Errorf("%w: %q", ErrAppIdCollidesWithV2Branch, appId)
 	}
 
 	// Figure out what actually needs moving before creating the target
-	// dir — on a bucket that's already fully v2 we don't want to litter
+	// dir — on a bucket that's already fully v3 we don't want to litter
 	// an empty {appId}/ entry.
 	var toMove []string
 	for _, e := range entries {
@@ -75,7 +75,7 @@ func (b *LocalBucket) MoveRootEntriesUnder(appId string) error {
 		if name == appId || name == ".migrationhistory" || !e.IsDir() {
 			continue
 		}
-		if b.looksLikeV1Branch(name) {
+		if b.looksLikeV2Branch(name) {
 			toMove = append(toMove, name)
 		}
 	}
@@ -97,11 +97,11 @@ func (b *LocalBucket) MoveRootEntriesUnder(appId string) error {
 	return nil
 }
 
-// looksLikeV1Branch returns true when {rootPath}/{name} contains a .check
+// looksLikeV2Branch returns true when {rootPath}/{name} contains a .check
 // or update-metadata.json file at depth 3 (branch/rv/updateId/.check).
 // The check short-circuits on the first match so a branch with many
 // runtime versions is cheap to classify.
-func (b *LocalBucket) looksLikeV1Branch(name string) bool {
+func (b *LocalBucket) looksLikeV2Branch(name string) bool {
 	branchDir := filepath.Join(b.rootPath(), name)
 	rvs, err := os.ReadDir(branchDir)
 	if err != nil {
@@ -131,18 +131,18 @@ func (b *LocalBucket) looksLikeV1Branch(name string) bool {
 	return false
 }
 
-// MoveRootEntriesUnder copies every object that belongs to a confirmed v1
+// MoveRootEntriesUnder copies every object that belongs to a confirmed v2
 // branch into the new {KeyPrefix}{appId}/ namespace, then deletes the
 // source. Copy+delete is S3's only move primitive; each object copy is
 // its own atomic API call, so interruptions leave the bucket in a
 // consistent (maybe duplicated) state and re-running converges.
 //
-// Two-pass structural detection: first pass collects confirmed v1
-// (branch, rv, updateId) triples by looking for a v1-only marker file
+// Two-pass structural detection: first pass collects confirmed v2
+// (branch, rv, updateId) triples by looking for a v2-only marker file
 // (.check or update-metadata.json) at exactly segment 4. Second pass
 // moves only objects whose first 3 segments land in a confirmed triple.
-// This is the equivalent of looksLikeV1Branch for LocalBucket and is
-// what keeps a bucket co-hosting v2 data for other apps safe — those
+// This is the equivalent of looksLikeV2Branch for LocalBucket and is
+// what keeps a bucket co-hosting v3 data for other apps safe — those
 // keys have their marker at segment 5, so their triple never gets
 // confirmed and they are left alone.
 func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
@@ -153,9 +153,9 @@ func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
 	ctx := context.TODO()
 	appPrefix := b.prefixedKey(appId + "/")
 
-	// Pre-flight collision check: scan objects under appPrefix for a v1
+	// Pre-flight collision check: scan objects under appPrefix for a v2
 	// marker shape ({appId}/{rv}/{updateId}/.check — 4 segments after
-	// the key prefix). v2 objects under the same appPrefix sit at 5
+	// the key prefix). v3 objects under the same appPrefix sit at 5
 	// segments and are ignored here.
 	pc := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
 		Bucket: aws.String(b.BucketName),
@@ -168,8 +168,8 @@ func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
 		}
 		for _, obj := range page.Contents {
 			relKey := strings.TrimPrefix(*obj.Key, b.KeyPrefix)
-			if _, ok := v1BranchTripleFromMarker(relKey); ok {
-				return fmt.Errorf("%w: %q", ErrAppIdCollidesWithV1Branch, appId)
+			if _, ok := v2BranchTripleFromMarker(relKey); ok {
+				return fmt.Errorf("%w: %q", ErrAppIdCollidesWithV2Branch, appId)
 			}
 		}
 	}
@@ -190,7 +190,7 @@ func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
 				continue
 			}
 			relKey := strings.TrimPrefix(key, b.KeyPrefix)
-			if triple, ok := v1BranchTripleFromMarker(relKey); ok {
+			if triple, ok := v2BranchTripleFromMarker(relKey); ok {
 				confirmed[triple] = true
 			}
 		}
@@ -245,13 +245,13 @@ func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
 	return nil
 }
 
-// v1BranchTripleFromMarker returns (triple, true) iff relKey is exactly
-// {branch}/{rv}/{updateId}/{marker} where {marker} is a v1-only sentinel
+// v2BranchTripleFromMarker returns (triple, true) iff relKey is exactly
+// {branch}/{rv}/{updateId}/{marker} where {marker} is a v2-only sentinel
 // file. The 4-segment requirement is important: the same sentinel at
-// segment 5 ({appId}/{branch}/{rv}/{updateId}/.check) identifies a v2
+// segment 5 ({appId}/{branch}/{rv}/{updateId}/.check) identifies a v3
 // branch belonging to some OTHER app and must not seed a triple here,
 // otherwise we'd re-parent that app's data under the current appId.
-func v1BranchTripleFromMarker(relKey string) (string, bool) {
+func v2BranchTripleFromMarker(relKey string) (string, bool) {
 	parts := strings.Split(relKey, "/")
 	if len(parts) != 4 {
 		return "", false
@@ -266,8 +266,8 @@ func v1BranchTripleFromMarker(relKey string) (string, bool) {
 }
 
 // inConfirmedTriple returns true when relKey's first three segments
-// match a triple that was positively confirmed as v1 in pass 1. Any
-// depth under the triple is allowed — v1 nested assets like
+// match a triple that was positively confirmed as v2 in pass 1. Any
+// depth under the triple is allowed — v2 nested assets like
 // branch/rv/updateId/assets/foo.png must be moved along with their
 // branch.
 func inConfirmedTriple(relKey string, confirmed map[string]bool) bool {
@@ -317,8 +317,8 @@ func (b *GCSBucket) MoveRootEntriesUnder(appId string) error {
 			return fmt.Errorf("list objects: %w", err)
 		}
 		relKey := strings.TrimPrefix(attrs.Name, b.KeyPrefix)
-		if _, ok := v1BranchTripleFromMarker(relKey); ok {
-			return fmt.Errorf("%w: %q", ErrAppIdCollidesWithV1Branch, appId)
+		if _, ok := v2BranchTripleFromMarker(relKey); ok {
+			return fmt.Errorf("%w: %q", ErrAppIdCollidesWithV2Branch, appId)
 		}
 	}
 
@@ -337,7 +337,7 @@ func (b *GCSBucket) MoveRootEntriesUnder(appId string) error {
 			continue
 		}
 		relKey := strings.TrimPrefix(key, b.KeyPrefix)
-		if triple, ok := v1BranchTripleFromMarker(relKey); ok {
+		if triple, ok := v2BranchTripleFromMarker(relKey); ok {
 			confirmed[triple] = true
 		}
 	}

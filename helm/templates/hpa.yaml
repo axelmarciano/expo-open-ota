@@ -1,5 +1,5 @@
 {{- if .Values.autoscaling.enabled }}
-apiVersion: autoscaling/v2
+apiVersion: autoscaling/v3
 kind: HorizontalPodAutoscaler
 metadata:
   name: {{ include "expo-open-ota.fullname" . }}
@@ -7,7 +7,7 @@ metadata:
     {{- include "expo-open-ota.labels" . | nindent 4 }}
 spec:
   scaleTargetRef:
-    apiVersion: apps/v1
+    apiVersion: apps/v2
     kind: Deployment
     name: {{ include "expo-open-ota.fullname" . }}
   minReplicas: {{ .Values.autoscaling.minReplicas }}

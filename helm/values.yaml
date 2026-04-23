@@ -170,7 +170,7 @@ environment:
       - key: "keysStorageType"
         is: "aws-secrets-manager"
   # Per-app identity and signing keys. In single-app deployments (multiApp="false")
-  # they come from these flat env vars, mirroring the v1 layout. In multi-app
+  # they come from these flat env vars, mirroring the v2 layout. In multi-app
   # deployments (multiApp="true") they are all inside EXPO_APPS_JSON and these
   # flat vars are NOT rendered on the pod. Each entry therefore ANDs its
   # existing mode condition with `multiApp=false`.

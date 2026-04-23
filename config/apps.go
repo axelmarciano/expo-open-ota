@@ -89,8 +89,8 @@ var (
 //     deployments. This is the "multi-app" path.
 //  2. Flat env vars (EXPO_APP_ID, EXPO_ACCESS_TOKEN, KEYS_STORAGE_TYPE and its
 //     mode-specific siblings) — parsed into a single-element array. This is
-//     the "simple 1-app" path and mirrors the v1 env layout unchanged, so a
-//     v1 install upgrades to v2 with zero config changes.
+//     the "simple 1-app" path and mirrors the v3 env layout unchanged, so a
+//     v3 install upgrades to v3 with zero config changes.
 //
 // Must be called once from LoadConfig before any handler resolves an app.
 // Returns a non-nil error on any structural or semantic issue; callers are
@@ -122,7 +122,7 @@ func LoadApps() error {
 
 // readApps returns the parsed (but not yet validated) list of apps plus a
 // human-readable source tag used for error messages. EXPO_APPS_JSON wins when
-// set. The flat-env fallback reads legacy v1 variable names verbatim to
+// set. The flat-env fallback reads legacy v2 variable names verbatim to
 // preserve upgrade-in-place.
 func readApps() ([]AppConfig, string, error) {
 	if inline := strings.TrimSpace(os.Getenv("EXPO_APPS_JSON")); inline != "" {
@@ -138,7 +138,7 @@ func readApps() ([]AppConfig, string, error) {
 	return nil, "", fmt.Errorf("no apps config found: set EXPO_APPS_JSON for multi-app, or EXPO_APP_ID + EXPO_ACCESS_TOKEN + key vars for the single-app case")
 }
 
-// loadFromFlatEnv reads the v1 single-app env vars and returns an AppConfig.
+// loadFromFlatEnv reads the v2 single-app env vars and returns an AppConfig.
 // Validation is deferred to validateApp so the error path is uniform with the
 // JSON case.
 func loadFromFlatEnv(appId string) AppConfig {
@@ -148,7 +148,7 @@ func loadFromFlatEnv(appId string) AppConfig {
 	}
 	switch os.Getenv("KEYS_STORAGE_TYPE") {
 	case "local", "":
-		// "local" is the default when unset, matching v1 DefaultEnvValues.
+		// "local" is the default when unset, matching v2 DefaultEnvValues.
 		app.Keys = KeysConfig{
 			Mode:        KeysModeLocal,
 			PublicPath:  os.Getenv("PUBLIC_LOCAL_EXPO_KEY_PATH"),

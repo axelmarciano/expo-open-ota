@@ -377,7 +377,7 @@ func TestLoadApps_FromJSON_WhitespaceOnlyIsTreatedAsUnset(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// LoadApps — flat env fallback. One-app path, v1-compat. Each mode, and
+// LoadApps — flat env fallback. One-app path, v2-compat. Each mode, and
 // failure modes.
 // -----------------------------------------------------------------------------
 
@@ -399,7 +399,7 @@ func TestLoadApps_FromFlatEnv_LocalMode(t *testing.T) {
 }
 
 func TestLoadApps_FromFlatEnv_DefaultsToLocalWhenStorageTypeUnset(t *testing.T) {
-	// v1 DefaultEnvValues had KEYS_STORAGE_TYPE=local; in v2 that default
+	// v2 DefaultEnvValues had KEYS_STORAGE_TYPE=local; in v3 that default
 	// moved into loadFromFlatEnv itself. Unsetting the var must behave the
 	// same as setting it to "local".
 	resetAppsEnv(t)

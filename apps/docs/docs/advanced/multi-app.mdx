@@ -7,7 +7,7 @@ sidebar_position: 2
 A single **Expo Open OTA** server can host updates for several Expo projects at once. You enable this by setting a single structured `EXPO_APPS_JSON` environment variable on the server; clients continue to hit the same server but each request is scoped to one app via the `expo-app-id` header.
 
 :::info When to use multi-app
-If you host only one Expo project, stick with the flat env vars documented on the [Prerequisites page](/docs/getting-started/prerequisites) — it's simpler and matches the v1 layout. Switch to `EXPO_APPS_JSON` the moment you need 2+ apps on the same server.
+If you host only one Expo project, stick with the flat env vars documented on the [Prerequisites page](/docs/getting-started/prerequisites) — it's simpler and matches the v2 layout. Switch to `EXPO_APPS_JSON` the moment you need 2+ apps on the same server.
 :::
 
 ## Resolution order
@@ -160,7 +160,7 @@ export default ({ config }) => ({
 ```
 
 :::caution Native rebuild required
-`updates.requestHeaders` are baked into the **native** bundle at build time (written into `Expo.plist` on iOS and `AndroidManifest.xml` on Android). Changing this value — adding, renaming, or removing a header — requires `npx expo prebuild --clean` + a native rebuild to take effect. Shipping a JS-only OTA update will **not** propagate a header change. See the [Migration guide](/docs/migration-v1-to-v2) for the full procedure.
+`updates.requestHeaders` are baked into the **native** bundle at build time (written into `Expo.plist` on iOS and `AndroidManifest.xml` on Android). Changing this value — adding, renaming, or removing a header — requires `npx expo prebuild --clean` + a native rebuild to take effect. Shipping a JS-only OTA update will **not** propagate a header change. See the [Migration guide](/docs/migration-v3-to-v3) for the full procedure.
 :::
 
 The `eoas` CLI writes this header automatically when you run `npx eoas init`.

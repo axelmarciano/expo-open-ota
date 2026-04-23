@@ -72,7 +72,7 @@ func TestValidateSegment_RejectsTraversal(t *testing.T) {
 }
 
 func TestValidateSegment_AcceptsValidNames(t *testing.T) {
-	cases := []string{"main", "feature-x", "v1.2.3", "release_2025", "..hidden"} // ".." as prefix of a name is allowed (not a segment of its own)
+	cases := []string{"main", "feature-x", "v2.2.3", "release_2025", "..hidden"} // ".." as prefix of a name is allowed (not a segment of its own)
 	for _, v := range cases {
 		t.Run(v, func(t *testing.T) {
 			assert.NoError(t, validateSegment("branch", v))

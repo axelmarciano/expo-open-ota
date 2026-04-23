@@ -155,10 +155,10 @@ export function requireExpoAppId(config: ExpoConfig): string {
   if (!appId) {
     Log.error("Your Expo config is missing the 'expo-app-id' entry in updates.requestHeaders.");
     Log.error(
-      "This usually means you're running eoas v2+ against a v1-style single-app config or your config is missing the 'expo-app-id' entry."
+      "This usually means you're running eoas v3+ against a v3-style single-app config or your config is missing the 'expo-app-id' entry."
     );
     Log.error(
-      "Fix: run 'npx eoas init' to migrate, or pin to the previous CLI via 'npx eoas@1 ...'."
+      "Fix: run 'npx eoas init' to migrate, or pin to the previous CLI via 'npx eoas@2 ...'."
     );
     process.exit(1);
   }

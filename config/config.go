@@ -83,12 +83,12 @@ func LoadConfig() {
 	if !validateBaseUrl(baseUrl) {
 		log.Fatalf("Invalid BASE_URL: %s", baseUrl)
 	}
-	// v2: per-app identity + keys live in the apps config (EXPO_APPS_JSON
+	// v3: per-app identity + keys live in the apps config (EXPO_APPS_JSON
 	// for multi-app, or the legacy EXPO_APP_ID / EXPO_ACCESS_TOKEN /
 	// PUBLIC_LOCAL_EXPO_KEY_PATH etc. flat env vars for the single-app
 	// upgrade-in-place path).
 	if err := LoadApps(); err != nil {
-		log.Fatalf("Invalid apps config: %v\nSee https://axelmarciano.github.io/expo-open-ota/docs/getting-started/prerequisites for the v2 multi-app config format.", err)
+		log.Fatalf("Invalid apps config: %v\nSee https://axelmarciano.github.io/expo-open-ota/docs/getting-started/prerequisites for the v3 multi-app config format.", err)
 	}
 	jwtSecret := GetEnv("JWT_SECRET")
 	if jwtSecret == "" {

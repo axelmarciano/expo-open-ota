@@ -169,7 +169,7 @@ func TestGetTotalUpdateDownloadsByUpdate(t *testing.T) {
 }
 
 // Metrics for two different apps with identical branch/runtime/update must
-// not merge — before v2 the cache keys were only scoped by branch so two apps
+// not merge — before v3 the cache keys were only scoped by branch so two apps
 // with the same branch name would pollute each other's unique-user counts.
 //
 // The appIds here are intentionally unique to this test (not reused

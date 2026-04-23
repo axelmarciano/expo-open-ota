@@ -2,11 +2,11 @@
 sidebar_position: 3
 ---
 
-# Migrating from v1 to v2
+# Migrating from v3 to v3
 
-v2 of **Expo Open OTA** introduces multi-app support on a single server. The server-side env var names are unchanged on the single-app path, **but v2 is still a breaking upgrade**:
+v3 of **Expo Open OTA** introduces multi-app support on a single server. The server-side env var names are unchanged on the single-app path, **but v3 is still a breaking upgrade**:
 
-1. The **bucket/storage layout changed** from `{prefix}/{branch}/{runtimeVersion}/{updateId}/…` to `{prefix}/{appId}/{branch}/{runtimeVersion}/{updateId}/…`. A v2 server pointed at a v1 bucket **will not see any previously published updates** — your apps effectively lose OTA coverage until data is re-pathed.
+1. The **bucket/storage layout changed** from `{prefix}/{branch}/{runtimeVersion}/{updateId}/…` to `{prefix}/{appId}/{branch}/{runtimeVersion}/{updateId}/…`. A v3 server pointed at a v2 bucket **will not see any previously published updates** — your apps effectively lose OTA coverage until data is re-pathed.
 2. Every Expo client must be updated to send the new `expo-app-id` HTTP header. Since this header is baked into the native bundle, it requires a **native rebuild and app store re-submission**.
 
 :::danger Not a zero-downtime in-place upgrade
@@ -14,12 +14,12 @@ Bucket data must be moved AND clients must be rebuilt. Skipping either step resu
 :::
 
 :::danger Native rebuild is mandatory
-Even if your server-side `.env` is unchanged, **the Expo client will get `400 No app id provided` from v2 until you add `'expo-app-id'` to `updates.requestHeaders` in `app.config.ts` AND ship a new native build** (iOS `.ipa` / Android `.apk`/`.aab`). A JS-only OTA update is not enough — `requestHeaders` are baked into `Expo.plist` / `AndroidManifest.xml` at build time.
+Even if your server-side `.env` is unchanged, **the Expo client will get `400 No app id provided` from v3 until you add `'expo-app-id'` to `updates.requestHeaders` in `app.config.ts` AND ship a new native build** (iOS `.ipa` / Android `.apk`/`.aab`). A JS-only OTA update is not enough — `requestHeaders` are baked into `Expo.plist` / `AndroidManifest.xml` at build time.
 :::
 
 ## What changed on the wire
 
-| Concern | v1 | v2 |
+| Concern | v2 | v3 |
 | --- | --- | --- |
 | Server identifies the app by | `EXPO_APP_ID` env var (one per deploy) | `expo-app-id` HTTP header sent by the client |
 | Config shape | Flat env vars | Flat env vars (single-app, unchanged) **OR** `EXPO_APPS_JSON` (multi-app) |
@@ -30,22 +30,22 @@ Even if your server-side `.env` is unchanged, **the Expo client will get `400 No
 
 ### Single-app deployments
 
-1. **Upgrade the server image** to the v2 release. No env var changes are required on the single-app path — v2 reads the same `EXPO_APP_ID`, `EXPO_ACCESS_TOKEN`, `KEYS_STORAGE_TYPE`, and key-storage env vars as v1.
+1. **Upgrade the server image** to the v3 release. No env var changes are required on the single-app path — v3 reads the same `EXPO_APP_ID`, `EXPO_ACCESS_TOKEN`, `KEYS_STORAGE_TYPE`, and key-storage env vars as v2.
 
     :::tip Automatic bucket re-path
-    On first boot, the v2 server runs the `20260422_v2_scope_data_under_appid` migration which **automatically moves your v1 bucket data into the new `{appId}/…` layout**. It only touches directories that match the v1 branch shape (`{branch}/{runtimeVersion}/{updateId}/.check`), leaves `.migrationhistory` at the bucket root, and records its success in the migration ledger so it runs exactly once. An interrupted run picks up where it left off on the next boot.
+    On first boot, the v3 server runs the `20260422_v3_scope_data_under_appid` migration which **automatically moves your v2 bucket data into the new `{appId}/…` layout**. It only touches directories that match the v2 branch shape (`{branch}/{runtimeVersion}/{updateId}/.check`), leaves `.migrationhistory` at the bucket root, and records its success in the migration ledger so it runs exactly once. An interrupted run picks up where it left off on the next boot.
 
-    If you'd rather re-path the data yourself (e.g. you have a huge bucket and want to do it offline with `aws s3 mv`), set `SKIP_V1_TO_V2_BUCKET_MIGRATION=true` (also accepts `1`, `yes`) before first boot — the migration records itself as applied but skips the work. See [Manual bucket re-path](#manual-bucket-re-path) below for the commands.
+    If you'd rather re-path the data yourself (e.g. you have a huge bucket and want to do it offline with `aws s3 mv`), set `SKIP_V2_TO_V3_BUCKET_MIGRATION=true` (also accepts `1`, `yes`) before first boot — the migration records itself as applied but skips the work. See [Manual bucket re-path](#manual-bucket-re-path) below for the commands.
 
-    The automatic migration is **only** run when `EXPO_APP_ID` is set (single-app flat-env path). Multi-app upgrades are ambiguous — the server cannot know which v1 branch belonged to which configured app — so they require a manual re-path per app.
+    The automatic migration is **only** run when `EXPO_APP_ID` is set (single-app flat-env path). Multi-app upgrades are ambiguous — the server cannot know which v2 branch belonged to which configured app — so they require a manual re-path per app.
     :::
 
     :::warning Take writers offline during the automatic S3/GCS re-path
-    On object-storage backends the migration uses a two-phase listing: it first scans the bucket to confirm every v1 `(branch, runtimeVersion, updateId)` triple, then copies + deletes each object into the `{appId}/` layout. **Any publish / republish / rollback that lands between those two phases — or after phase 2 for a new triple — will not be picked up**, and its files stay at the old root. Stop CI publishes and point clients away from the bucket until the migration completes and the log prints `✅ v1→v2 bucket re-path complete.` The local filesystem backend is not affected (it reads the root once and `os.Rename` per entry).
+    On object-storage backends the migration uses a two-phase listing: it first scans the bucket to confirm every v2 `(branch, runtimeVersion, updateId)` triple, then copies + deletes each object into the `{appId}/` layout. **Any publish / republish / rollback that lands between those two phases — or after phase 2 for a new triple — will not be picked up**, and its files stay at the old root. Stop CI publishes and point clients away from the bucket until the migration completes and the log prints `✅ v2→v3 bucket re-path complete.` The local filesystem backend is not affected (it reads the root once and `os.Rename` per entry).
     :::
 
-    :::note App-id / v1-branch name collision
-    If your target `EXPO_APP_ID` happens to match the name of an existing v1 branch (e.g. `EXPO_APP_ID=staging` and you had a branch called `staging`), the migration refuses to run and boot fails with `app id collides with a v1 branch of the same name`. Rename the branch on disk, re-path that branch manually, or set `SKIP_V1_TO_V2_BUCKET_MIGRATION=true` and do the whole move by hand per [Manual bucket re-path](#manual-bucket-re-path).
+    :::note App-id / v2-branch name collision
+    If your target `EXPO_APP_ID` happens to match the name of an existing v2 branch (e.g. `EXPO_APP_ID=staging` and you had a branch called `staging`), the migration refuses to run and boot fails with `app id collides with a v2 branch of the same name`. Rename the branch on disk, re-path that branch manually, or set `SKIP_V2_TO_V3_BUCKET_MIGRATION=true` and do the whole move by hand per [Manual bucket re-path](#manual-bucket-re-path).
     :::
 
 2. **Upgrade the `eoas` CLI** (`npm i -D eoas@latest`). The CLI now writes `expo-app-id` into your `app.config.ts` automatically when you run `npx eoas init`.
@@ -58,7 +58,7 @@ Even if your server-side `.env` is unchanged, **the Expo client will get `400 No
         url: 'https://ota.mysite.com/manifest',
         requestHeaders: {
           'expo-channel-name': process.env.RELEASE_CHANNEL,
-          // New in v2 — value must match the server-side EXPO_APP_ID
+          // New in v3 — value must match the server-side EXPO_APP_ID
           'expo-app-id': 'a45ed151-0387-4419-a97c-d008d8f214c7',
         },
         // ...
@@ -87,17 +87,17 @@ Even if your server-side `.env` is unchanged, **the Expo client will get `400 No
 
     Same check on Android: `android/app/src/main/AndroidManifest.xml` must carry a matching `meta-data` entry for `expo.modules.updates.EXPO_UPDATES_REQUEST_HEADERS`.
 
-5. **Ship the new native build** through the App Store / Play Store / internal distribution. OTA updates alone will **not** roll out this header change — clients with the v1 binary keep sending no `expo-app-id` and will see `400 No app id provided` against the v2 server.
+5. **Ship the new native build** through the App Store / Play Store / internal distribution. OTA updates alone will **not** roll out this header change — clients with the v2 binary keep sending no `expo-app-id` and will see `400 No app id provided` against the v3 server.
 
 6. Once the new binary is in your users' hands, regular OTA updates resume as usual via `npx eoas publish --branch=<branch>`.
 
 :::tip Rolling upgrade
-If you can't rebuild every client at once, keep a v1 server instance alive for the legacy fleet and point the v2 server at a new URL for the rebuilt clients. Once adoption of the new binary is high enough, retire v1.
+If you can't rebuild every client at once, keep a v2 server instance alive for the legacy fleet and point the v3 server at a new URL for the rebuilt clients. Once adoption of the new binary is high enough, retire v2.
 :::
 
 ### Migrating to multi-app
 
-Once you're on v2 and want to host a second Expo project on the same server:
+Once you're on v3 and want to host a second Expo project on the same server:
 
 1. Compose an `EXPO_APPS_JSON` that contains your existing app as the first entry and the new app as the second. See the [Multi-app](/docs/advanced/multi-app) page for the full schema.
 2. Set `EXPO_APPS_JSON` on the server. You can leave the old flat env vars (`EXPO_APP_ID`, `EXPO_ACCESS_TOKEN`, `KEYS_STORAGE_TYPE`, …) in place — they're ignored when `EXPO_APPS_JSON` is set.
@@ -106,7 +106,7 @@ Once you're on v2 and want to host a second Expo project on the same server:
 
 ## Manual bucket re-path
 
-Use these commands if you set `SKIP_V1_TO_V2_BUCKET_MIGRATION=true` and want to move v1 data into the `{appId}/` layout yourself, or if you're migrating a multi-app install (where the automatic migration intentionally skips — the server can't guess which branch belongs to which app). Replace `<APP_ID>` with the exact value of your `EXPO_APP_ID` (single-app) or one of your `apps[].id` (multi-app), and **take the v1 server offline before starting** to prevent concurrent writes into the old paths.
+Use these commands if you set `SKIP_V2_TO_V3_BUCKET_MIGRATION=true` and want to move v2 data into the `{appId}/` layout yourself, or if you're migrating a multi-app install (where the automatic migration intentionally skips — the server can't guess which branch belongs to which app). Replace `<APP_ID>` with the exact value of your `EXPO_APP_ID` (single-app) or one of your `apps[].id` (multi-app), and **take the v2 server offline before starting** to prevent concurrent writes into the old paths.
 
 ```bash title="Local filesystem"
 cd "$LOCAL_BUCKET_BASE_PATH"
@@ -148,4 +148,4 @@ After the move, your layout should be `{prefix}<APP_ID>/{branch}/{runtimeVersion
 
 ### Dashboard shows `404 page not found`
 
-- The dashboard is hitting the new `/api/apps/{APP_ID}/…` routes. If you see 404s after a v2 upgrade, you're likely running the v1 dashboard bundle against a v2 server — redeploy the server (which ships the updated dashboard bundle) or clear your browser's cached asset for `/dashboard/`.
+- The dashboard is hitting the new `/api/apps/{APP_ID}/…` routes. If you see 404s after a v3 upgrade, you're likely running the v2 dashboard bundle against a v3 server — redeploy the server (which ships the updated dashboard bundle) or clear your browser's cached asset for `/dashboard/`.

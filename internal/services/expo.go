@@ -65,7 +65,7 @@ func ValidateExpoAuth(appId string, expoAuth types.ExpoAuth) (*ExpoUserAccount, 
 }
 
 // GetExpoAccessToken returns the Expo access token configured for the given
-// app in the v2 apps config. Returns "" if the app is unknown so callers
+// app in the v3 apps config. Returns "" if the app is unknown so callers
 // that treat it as "missing token" produce the same auth-failure path.
 func GetExpoAccessToken(appId string) string {
 	app, err := config.GetAppConfig(appId)

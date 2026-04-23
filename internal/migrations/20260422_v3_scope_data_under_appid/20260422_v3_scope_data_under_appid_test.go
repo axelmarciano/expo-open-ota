@@ -1,4 +1,4 @@
-package _0260422_v2_scope_data_under_appid
+package _0260422_v3_scope_data_under_appid
 
 import (
 	"expo-open-ota/internal/bucket"
@@ -69,7 +69,7 @@ func (u unreachableBucket) RemoveMigrationFromHistory(string) error {
 // process.
 func resetEnv(t *testing.T) {
 	t.Helper()
-	vars := []string{"SKIP_V1_TO_V2_BUCKET_MIGRATION", "EXPO_APPS_JSON", "EXPO_APP_ID"}
+	vars := []string{"SKIP_V2_TO_V3_BUCKET_MIGRATION", "EXPO_APPS_JSON", "EXPO_APP_ID"}
 	prev := map[string]string{}
 	for _, v := range vars {
 		prev[v] = os.Getenv(v)
@@ -92,7 +92,7 @@ func TestUp_SkipFlagRespected(t *testing.T) {
 	for _, v := range []string{"true", "1", "True", "TRUE", "t"} {
 		t.Run("skip="+v, func(t *testing.T) {
 			resetEnv(t)
-			os.Setenv("SKIP_V1_TO_V2_BUCKET_MIGRATION", v)
+			os.Setenv("SKIP_V2_TO_V3_BUCKET_MIGRATION", v)
 			os.Setenv("EXPO_APP_ID", "app-1")
 			// A truthy skip must return nil without touching the bucket.
 			assert.NoError(t, up(unreachableBucket{t: t}))
@@ -102,14 +102,14 @@ func TestUp_SkipFlagRespected(t *testing.T) {
 
 func TestUp_SkipFlag_FalseyValuesDoNotSkip(t *testing.T) {
 	// Values that parse as false (or don't parse at all) must NOT skip.
-	// This is a regression guard: v1 of this code used == "true", so
+	// This is a regression guard: v2 of this code used == "true", so
 	// "false" string skipped by accident because the comparison was
 	// literal. With strconv.ParseBool the only way to skip is a truthy
 	// value, which is what we want.
 	for _, v := range []string{"false", "0", "", "yesplease"} {
 		t.Run("skip="+v, func(t *testing.T) {
 			resetEnv(t)
-			os.Setenv("SKIP_V1_TO_V2_BUCKET_MIGRATION", v)
+			os.Setenv("SKIP_V2_TO_V3_BUCKET_MIGRATION", v)
 			// Multi-app guard will now skip us instead — that's fine; the
 			// point is the SKIP flag did NOT cause the skip.
 			os.Setenv("EXPO_APPS_JSON", "[]")
@@ -120,8 +120,8 @@ func TestUp_SkipFlag_FalseyValuesDoNotSkip(t *testing.T) {
 
 func TestUp_SkipsWhenMultiAppConfig(t *testing.T) {
 	// Multi-app deployments must be re-pathed manually — we can't know
-	// which v1 branch belongs to which configured app. The migration
-	// must no-op rather than dump every v1 branch under an arbitrary
+	// which v2 branch belongs to which configured app. The migration
+	// must no-op rather than dump every v2 branch under an arbitrary
 	// appId.
 	resetEnv(t)
 	os.Setenv("EXPO_APPS_JSON", `[{"id":"app-1"}]`)
@@ -130,15 +130,15 @@ func TestUp_SkipsWhenMultiAppConfig(t *testing.T) {
 }
 
 func TestUp_SkipsWhenEXPOAppIdUnset(t *testing.T) {
-	// Without EXPO_APP_ID there is no v1 install to migrate from —
-	// typically a fresh v2 deploy. Must no-op cleanly.
+	// Without EXPO_APP_ID there is no v2 install to migrate from —
+	// typically a fresh v3 deploy. Must no-op cleanly.
 	resetEnv(t)
 	assert.NoError(t, up(unreachableBucket{t: t}))
 }
 
 func TestUp_RunsOnSingleAppFlatEnv(t *testing.T) {
 	// Positive path: single-app flat env + SKIP not set → up() must
-	// reach the bucket. Use a real LocalBucket on a v1 fixture to prove
+	// reach the bucket. Use a real LocalBucket on a v2 fixture to prove
 	// end-to-end that the migration actually runs (not just returns nil).
 	resetEnv(t)
 	os.Setenv("EXPO_APP_ID", "app-1")
@@ -150,7 +150,7 @@ func TestUp_RunsOnSingleAppFlatEnv(t *testing.T) {
 	b := &bucket.LocalBucket{BasePath: base}
 	require.NoError(t, up(b))
 
-	// The v1 branch should now live under app-1/.
+	// The v2 branch should now live under app-1/.
 	_, err := os.Stat(filepath.Join(base, "app-1", "branch-a", "1", "12345", ".check"))
 	assert.NoError(t, err)
 }

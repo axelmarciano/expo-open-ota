@@ -10,7 +10,7 @@ You can set these variables in a `.env` file for local development or in your de
 :::info Single-app or Multi-app?
 **One server can host one or many Expo projects.** The rest of this page reflects that:
 
-- **Single-app** — flat env vars (`EXPO_APP_ID`, `EXPO_ACCESS_TOKEN`, `KEYS_STORAGE_TYPE`, …). Unchanged from v1.
+- **Single-app** — flat env vars (`EXPO_APP_ID`, `EXPO_ACCESS_TOKEN`, `KEYS_STORAGE_TYPE`, …). Unchanged from v2.
 - **Multi-app** — a single `EXPO_APPS_JSON` env var describing every app.
 
 When both are set, `EXPO_APPS_JSON` wins. See the [Expo Apps Configuration](#-expo-apps-configuration) section below and the [app configuration guide](/docs/getting-started/prerequisites#app-configuration).
@@ -34,7 +34,7 @@ When both are set, `EXPO_APPS_JSON` wins. See the [Expo Apps Configuration](#-ex
 The server supports one or many Expo apps on the same deployment. Choose the
 path that matches how many apps you host — both use the exact same runtime.
 
-**Path A — single app (keeps v1 env var names unchanged)** — set:
+**Path A — single app (keeps v2 env var names unchanged)** — set:
 
 | Name | Required | Description | Example |
 | --- | --- | --- | --- |
@@ -58,12 +58,12 @@ path that matches how many apps you host — both use the exact same runtime.
 above are used to build a single-app config. If neither path is configured
 the server fails to start with a clear boot error.
 
-:::caution v2 is a breaking upgrade
-The **env var names are identical to v1** on the single-app path, but the
+:::caution v3 is a breaking upgrade
+The **env var names are identical to v2** on the single-app path, but the
 server still requires **client-side changes** (every app must now send an
-`expo-app-id` header — see the [Migration guide](/docs/advanced/migration-v1-to-v2))
+`expo-app-id` header — see the [Migration guide](/docs/advanced/migration-v3-to-v3))
 **and** the underlying bucket layout changed from `{prefix}/{branch}/…` to
-`{prefix}/{appId}/{branch}/…`. Existing v1 bucket data is not read by a v2
+`{prefix}/{appId}/{branch}/…`. Existing v2 bucket data is not read by a v3
 server without a one-time data re-path. The Migration guide has the
 procedure.
 :::
@@ -92,7 +92,7 @@ procedure.
 
 ### 🔐 **Expo Signing Keys**
 
-Since v2, Expo signing keys are part of each app's `keys` block in
+Since v3, Expo signing keys are part of each app's `keys` block in
 `EXPO_APPS_JSON` (or the per-app flat env vars on the single-app path —
 see above). CloudFront keys stay global and are configured via env vars
 below.
@@ -128,4 +128,4 @@ below.
 #### **Migration**
 | Name | Required | Description | Example | Reference |
 | --- | --- | --- | --- | --- |
-| `SKIP_V1_TO_V2_BUCKET_MIGRATION` | ❌ | Set to `true` to opt out of the automatic one-shot bucket re-path that moves v1 data under `{appId}/` on first v2 boot. Useful when you want to re-path the data manually. Only meaningful on the single-app flat-env path. | `true` | [Ref](/docs/advanced/migration-v1-to-v2) |
+| `SKIP_V2_TO_V3_BUCKET_MIGRATION` | ❌ | Set to `true` to opt out of the automatic one-shot bucket re-path that moves v2 data under `{appId}/` on first v3 boot. Useful when you want to re-path the data manually. Only meaningful on the single-app flat-env path. | `true` | [Ref](/docs/advanced/migration-v3-to-v3) |

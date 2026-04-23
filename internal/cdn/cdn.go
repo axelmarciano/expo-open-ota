@@ -4,7 +4,7 @@ import "sync"
 
 type CDN interface {
 	isCDNAvailable() bool
-	// ComputeRedirectionURLForAsset mirrors the v2 bucket layout:
+	// ComputeRedirectionURLForAsset mirrors the v3 bucket layout:
 	// {keyPrefix}{appId}/{branch}/{runtimeVersion}/{updateId}/{asset}.
 	// Missing the appId segment produces a 404 against S3/CloudFront and
 	// GCS-direct (objects are not at the top level anymore).
