@@ -21,7 +21,7 @@ export default class Publish extends Command {
     }),
     platform: Flags.string({
       type: 'option',
-      options: ['ios', 'android'],
+      options: ['ios', 'android', 'all'],
       default: 'all',
       required: true,
     }),
