@@ -131,6 +131,12 @@ export default class Publish extends Command {
         u.updateUUID !== 'Rollback to embedded' && (platform === 'all' || u.platform === platform)
       );
     });
+    if (updates.length === 0) {
+      Log.error(
+        `No republishable updates found for runtime version ${selectedRuntimeVersion.runtimeVersion} on platform ${platform}.`
+      );
+      process.exit(1);
+    }
     const selectedUpdated = await promptAsync({
       type: 'select',
       name: 'update',
