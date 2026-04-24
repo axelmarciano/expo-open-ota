@@ -2,7 +2,7 @@ package cdn
 
 import (
 	"expo-open-ota/config"
-	"fmt"
+	"net/url"
 )
 
 type GenericCDN struct{}
@@ -13,6 +13,14 @@ func (c *GenericCDN) isCDNAvailable() bool {
 
 func (c *GenericCDN) ComputeRedirectionURLForAsset(branch, runtimeVersion, updateId, asset string) (string, error) {
 	prefix := config.GetEnv("S3_CDN_PREFIX")
-	url := fmt.Sprintf("%s/%s/%s/%s/%s", prefix, branch, runtimeVersion, updateId, asset)
-	return url, nil
+	keyPrefix := config.GetEnv("S3_KEY_PREFIX")
+	elems := []string{branch, runtimeVersion, updateId, asset}
+	if keyPrefix != "" {
+		elems = append([]string{keyPrefix}, elems...)
+	}
+	cdnUrl, err := url.JoinPath(prefix, elems...)
+	if err != nil {
+		return "", err
+	}
+	return cdnUrl, nil
 }

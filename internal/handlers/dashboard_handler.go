@@ -11,11 +11,12 @@ import (
 	"expo-open-ota/internal/types"
 	update2 "expo-open-ota/internal/update"
 	"fmt"
-	"github.com/gorilla/mux"
 	"net/http"
 	"sort"
 	"strconv"
 	"time"
+
+	"github.com/gorilla/mux"
 )
 
 type BranchMapping struct {
@@ -60,6 +61,7 @@ type SettingsEnv struct {
 	REDIS_PORT                             string `json:"REDIS_PORT"`
 	STORAGE_MODE                           string `json:"STORAGE_MODE"`
 	S3_BUCKET_NAME                         string `json:"S3_BUCKET_NAME"`
+	S3_CDN_PREFIX                          string `json:"S3_CDN_PREFIX"`
 	LOCAL_BUCKET_BASE_PATH                 string `json:"LOCAL_BUCKET_BASE_PATH"`
 	KEYS_STORAGE_TYPE                      string `json:"KEYS_STORAGE_TYPE"`
 	AWSSM_EXPO_PUBLIC_KEY_SECRET_ID        string `json:"AWSSM_EXPO_PUBLIC_KEY_SECRET_ID"`
@@ -99,6 +101,7 @@ func GetSettingsHandler(w http.ResponseWriter, r *http.Request) {
 		REDIS_PORT:                             config.GetEnv("REDIS_PORT"),
 		STORAGE_MODE:                           config.GetEnv("STORAGE_MODE"),
 		S3_BUCKET_NAME:                         config.GetEnv("S3_BUCKET_NAME"),
+		S3_CDN_PREFIX:                          config.GetEnv("S3_CDN_PREFIX"),
 		LOCAL_BUCKET_BASE_PATH:                 config.GetEnv("LOCAL_BUCKET_BASE_PATH"),
 		KEYS_STORAGE_TYPE:                      config.GetEnv("KEYS_STORAGE_TYPE"),
 		AWSSM_EXPO_PUBLIC_KEY_SECRET_ID:        config.GetEnv("AWSSM_EXPO_PUBLIC_KEY_SECRET_ID"),
