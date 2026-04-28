@@ -69,6 +69,7 @@ type SettingsEnv struct {
 	PRIVATE_LOCAL_EXPO_KEY_PATH            string `json:"PRIVATE_LOCAL_EXPO_KEY_PATH"`
 	AWS_REGION                             string `json:"AWS_REGION"`
 	AWS_BASE_ENDPOINT                      string `json:"AWS_BASE_ENDPOINT"`
+	AWS_S3_FORCE_PATH_STYLE                string `json:"AWS_S3_FORCE_PATH_STYLE"`
 	AWS_ACCESS_KEY_ID                      string `json:"AWS_ACCESS_KEY_ID"`
 	CLOUDFRONT_DOMAIN                      string `json:"CLOUDFRONT_DOMAIN"`
 	CLOUDFRONT_KEY_PAIR_ID                 string `json:"CLOUDFRONT_KEY_PAIR_ID"`
@@ -108,6 +109,7 @@ func GetSettingsHandler(w http.ResponseWriter, r *http.Request) {
 		PRIVATE_LOCAL_EXPO_KEY_PATH:            config.GetEnv("PRIVATE_LOCAL_EXPO_KEY_PATH"),
 		AWS_REGION:                             config.GetEnv("AWS_REGION"),
 		AWS_BASE_ENDPOINT:                      config.GetEnv("AWS_BASE_ENDPOINT"),
+		AWS_S3_FORCE_PATH_STYLE:                config.GetEnv("AWS_S3_FORCE_PATH_STYLE"),
 		AWS_ACCESS_KEY_ID:                      maskSecret(config.GetEnv("AWS_ACCESS_KEY_ID")),
 		CLOUDFRONT_DOMAIN:                      config.GetEnv("CLOUDFRONT_DOMAIN"),
 		CLOUDFRONT_KEY_PAIR_ID:                 maskSecret(config.GetEnv("CLOUDFRONT_KEY_PAIR_ID")),

@@ -106,6 +106,9 @@ environment:
   - name: "AWS_BASE_ENDPOINT"
     value: ""
     required: false
+  - name: "AWS_S3_FORCE_PATH_STYLE"
+    value: ""
+    required: false
   - name: "S3_BUCKET_NAME"
     value: ""
     required:

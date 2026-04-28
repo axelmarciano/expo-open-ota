@@ -46,6 +46,12 @@ import TabItem from '@theme/TabItem';
     S3_BUCKET_NAME=your-bucket-name
     ```
 
+    If your provider requires path-style addressing instead of virtual-hosted-style URLs, also set:
+
+    ```bash title=".env"
+    AWS_S3_FORCE_PATH_STYLE=true
+    ```
+
     If your are not using AWS IAM roles, you also need to set the following environment variables:
     ```bash title=".env"
     AWS_ACCESS_KEY_ID=your-access-key-id

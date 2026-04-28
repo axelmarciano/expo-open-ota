@@ -75,6 +75,7 @@ You can set these variables in a `.env` file for local development or in your de
 | --- | --- | --- | --- | --- |
 | `AWS_REGION` | ✅ if using `aws-secrets-manager` or `s3` | AWS Region | `us-east-1` | [Ref](/docs/server-configuration/key-store?keyStore=aws-secrets-manager#key-store-configuration), [Storage](/docs/server-configuration/storage?storage=s3) |
 | `AWS_BASE_ENDPOINT` | ❌ | Custom S3-compatible endpoint for alternative object storage | `https://account-id.r2.cloudflarestorage.com` | [Storage](/docs/server-configuration/storage?storage=s3) |
+| `AWS_S3_FORCE_PATH_STYLE` | ❌ | Force path-style S3 addressing instead of virtual-hosted-style URLs | `true` | [Storage](/docs/server-configuration/storage?storage=s3) |
 | `AWS_ACCESS_KEY_ID` | ✅ if using `aws-secrets-manager` or `s3` without IAM roles | AWS Access Key ID | `ACCESSKEYID` | [Ref](/docs/server-configuration/key-store?keyStore=aws-secrets-manager#key-store-configuration), [Storage](/docs/server-configuration/storage?storage=s3) |
 | `AWS_SECRET_ACCESS_KEY` | ✅ if using `aws-secrets-manager` or `s3` without IAM roles | AWS Secret Access Key | `SECRETACCESSKEY` | [Ref](/docs/server-configuration/key-store?keyStore=aws-secrets-manager#key-store-configuration), [Storage](/docs/server-configuration/storage?storage=s3) |
 
