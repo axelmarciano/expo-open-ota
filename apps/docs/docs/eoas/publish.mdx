@@ -14,7 +14,7 @@ It supports the fingerprint policy.
 To publish an update, run the following command in your Expo project:
 
 ```bash
-npx eoas publish --branch <branch-name> [--nonInteractive] [--outputDir <outputDir>] [--platform <platform>] [--packageRunner <runner>] [--message <message>]
+npx eoas publish --branch <branch-name> [--nonInteractive] [--outputDir <outputDir>] [--platform <platform>] [--packageRunner <runner>] [--message <message>] [--dumpSourcemap]
 ```
 
 This command will retrieve the expo credentials from your .expo/state.json file or an EXPO_TOKEN in your runtime environment to authenticate
@@ -65,6 +65,16 @@ npx eoas publish --branch production --packageRunner bunx
 # Via environment variable
 EOAS_PACKAGE_RUNNER=bunx eoas publish --branch production
 ```
+
+## Source maps
+
+Pass `--dumpSourcemap` to emit Hermes source maps alongside the bundle in the output directory. This forwards `--dump-sourcemap` to the underlying `expo export` call.
+
+```bash
+npx eoas publish --branch production --dumpSourcemap
+```
+
+The source maps land next to each platform's bundle (e.g. `dist/_expo/static/js/ios/*.map`) and are not uploaded to the OTA server. They can be uploaded to a symbolication service like Sentry or PostHog from the same `dist/` directory, guaranteeing the source maps match the bundle that was published.
 
 ## CI/CD
 
