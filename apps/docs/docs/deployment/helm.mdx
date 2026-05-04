@@ -27,7 +27,7 @@ The environment variables used by the application depend on the following key se
 
 - **`secretName`**: If defined, environment variables are loaded from the specified Kubernetes secret instead of being set directly.
 - **`storageMode`**:
-  - `s3`: Requires `AWS_REGION` and `S3_BUCKET_NAME` to be set. Optionally supports `AWS_BASE_ENDPOINT` for S3-compatible object storage.
+  - `s3`: Requires `AWS_REGION` and `S3_BUCKET_NAME` to be set. Optionally supports `AWS_BASE_ENDPOINT` for S3-compatible object storage and `AWS_S3_FORCE_PATH_STYLE=true` for providers that require path-style addressing.
   - `local`: Requires `LOCAL_BUCKET_BASE_PATH` to be set.
 - **`keysStorageType`**:
   - `aws-secrets-manager`: Requires AWS Secrets Manager variables (`AWSSM_EXPO_PUBLIC_KEY_SECRET_ID`, `AWSSM_EXPO_PRIVATE_KEY_SECRET_ID`).
@@ -62,4 +62,3 @@ For additional configuration details, refer to the [Environment Variables](/docs
 
 ## Ingress Configuration
 The Ingress configuration is crucial for exposing Expo Open OTA through a specific domain and must match the BASE_URL defined in the application.
-
