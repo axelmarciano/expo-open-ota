@@ -22,6 +22,11 @@ func GetCDN() CDN {
 			gcsCDN := GCSDirectCDN{}
 			if (&gcsCDN).isCDNAvailable() {
 				cdnInstance = &gcsCDN
+			} else {
+				genericCDN := GenericCDN{}
+				if (&genericCDN).isCDNAvailable() {
+					cdnInstance = &genericCDN
+				}
 			}
 		}
 	})

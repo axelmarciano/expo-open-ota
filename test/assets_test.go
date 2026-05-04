@@ -334,7 +334,7 @@ func TestAutomaticUrlRedirectionIfCDNIsSet(t *testing.T) {
 	os.Setenv("CLOUDFRONT_KEY_PAIR_ID", "test")
 
 	mockWorkingExpoResponse("staging")
-	url, _ := update.BuildFinalManifestAssetUrlURL("http://localhost:3000", "bundles/ios-9d01842d6ee1224f7188971c5d397115.js", "1", "android", "staging")
+	url, _ := update.BuildFinalManifestAssetUrlURL("http://localhost:3000", "bundles/android-82adadb1fb6e489d04ad95fd79670deb.js", "1", "android", "staging")
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", url, nil)
 	r.Header.Set("Accept-Encoding", "gzip")
@@ -343,6 +343,25 @@ func TestAutomaticUrlRedirectionIfCDNIsSet(t *testing.T) {
 	handlers.AssetsHandler(w, r)
 
 	assert.Equal(t, 302, w.Code, "Expected status code 302")
+}
+
+func TestPathTraversalRejectedForCDNAsset(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	mockWorkingExpoResponse("staging")
+	os.Setenv("S3_CDN_PREFIX", "https://cdn.example.com")
+	defer os.Unsetenv("S3_CDN_PREFIX")
+	request := assets.AssetsRequest{
+		Branch:         "branch-1",
+		AssetName:      "../../etc/passwd",
+		RuntimeVersion: "1",
+		Platform:       "android",
+		RequestID:      "test",
+	}
+	response, err := assets.HandleAssetsWithURL(request, &cdn.GenericCDN{})
+	assert.Nil(t, err)
+	assert.Equal(t, 404, response.StatusCode)
+	assert.Empty(t, response.URL)
 }
 
 func TestPreventCDNRedirectionHeader(t *testing.T) {

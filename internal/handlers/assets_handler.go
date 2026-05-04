@@ -57,5 +57,9 @@ func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, string(resp.Body), resp.StatusCode)
+		return
+	}
 	http.Redirect(w, r, resp.URL, http.StatusFound)
 }

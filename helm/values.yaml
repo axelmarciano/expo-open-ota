@@ -28,6 +28,7 @@ storageMode: "s3"
 keysStorageType: "aws-secrets-manager"
 useCloudfrontRedirect: "false"
 useAWSAccessKeys: "false"
+useGenericCDN: "false"
 cacheMode: "redis"
 useDashboard: "false"
 useRedisTLS: "false"
@@ -117,6 +118,11 @@ environment:
   - name: "S3_KEY_PREFIX"
     value: ""
     required: false
+  - name: "S3_CDN_PREFIX"
+    value: ""
+    required:
+      - key: "useGenericCDN"
+        is: "true"
   - name: "LOCAL_BUCKET_BASE_PATH"
     value: ""
     required:

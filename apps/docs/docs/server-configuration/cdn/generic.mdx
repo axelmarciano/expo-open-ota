@@ -1,0 +1,31 @@
+---
+sidebar_position: 2
+---
+
+# Generic
+
+The generic CDN feature requires your storage mode to be set to `s3`. You can follow the [storage guide](/docs/server-configuration/storage) to set up your storage solution.
+
+:::note
+The environment variables required for each CDN are listed below. You can set them in a `.env` file in the root of the project or keep them in a safe place to prepare for deployment.
+:::
+
+:::warning
+
+The generic CDN feature currently only supports public endpoints (i.e. the resources served by CDN URL must be accessible without any signature or token).
+
+:::
+
+## Configure environment variables
+
+Specify your CDN accelerated domain in `S3_CDN_PREFIX` variable.
+
+```bash title=".env"
+S3_CDN_PREFIX=https://cdn.example.com
+```
+
+If your CDN domain requires bucket name to be set, please specify it in the prefix manually.
+
+```bash title=".env"
+S3_CDN_PREFIX=https://cdn.example.com/my-bucket
+```

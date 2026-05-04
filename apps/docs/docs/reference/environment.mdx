@@ -88,6 +88,11 @@ You can set these variables in a `.env` file for local development or in your de
 | `AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID` | ✅ if using `aws-secrets-manager` & CLOUDFRONT_DOMAIN is set | CloudFront private key in AWS Secrets Manager | `my-cloudfront-private-key` | [Ref](/docs/server-configuration/cdn/cloudfront) |
 | `PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH` | ✅ if using `local` & CLOUDFRONT_DOMAIN is set | Path to CloudFront private key | `/path/to/cloudfront-private-key.pem` | [Ref](/docs/server-configuration/cdn/cloudfront) |
 
+#### **Generic CDN Settings**
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
+| `S3_CDN_PREFIX` | ❌ | CDN domain prefix for S3 assets | `https://cdn.example.com` | [Ref](/docs/server-configuration/cdn/generic) |
+
 #### **Prometheus Configuration**
 | Name | Required | Description | Example | Reference |
 | --- | --- | --- | --- | --- |
