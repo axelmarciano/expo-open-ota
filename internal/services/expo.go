@@ -258,6 +258,22 @@ func FetchExpoBranches() ([]string, error) {
 }
 
 func FetchExpoUserAccountInformations(expoAuth types.ExpoAuth) (*ExpoUserAccount, error) {
+	cache := cache2.GetCache()
+	var cacheKey string
+	if expoAuth.Token != nil {
+		cacheKey = fmt.Sprintf("expoUserAccount:token:%s", *expoAuth.Token)
+	} else if expoAuth.SessionSecret != nil {
+		cacheKey = fmt.Sprintf("expoUserAccount:session:%s", *expoAuth.SessionSecret)
+	}
+	if cacheKey != "" {
+		if cachedValue := cache.Get(cacheKey); cachedValue != "" {
+			var account ExpoUserAccount
+			if err := json.Unmarshal([]byte(cachedValue), &account); err == nil {
+				return &account, nil
+			}
+		}
+	}
+
 	query := `
 		query GetCurrentUserAccount {
 			me {
@@ -284,10 +300,22 @@ func FetchExpoUserAccountInformations(expoAuth types.ExpoAuth) (*ExpoUserAccount
 		return nil, err
 	}
 
+	if cacheKey != "" {
+		if cacheValue, err := json.Marshal(resp.Data.Me); err == nil {
+			ttl := 300
+			_ = cache.Set(cacheKey, string(cacheValue), &ttl)
+		}
+	}
+
 	return &resp.Data.Me, nil
 }
 
 func FetchSelfExpoUsername() string {
+	cache := cache2.GetCache()
+	cacheKey := fmt.Sprintf("selfExpoUsername:%s", version.Version)
+	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
+		return cachedValue
+	}
 	token := GetExpoAccessToken()
 	expoAccount, err := FetchExpoUserAccountInformations(types.ExpoAuth{
 		Token: &token,
@@ -295,6 +323,8 @@ func FetchSelfExpoUsername() string {
 	if err != nil {
 		return ""
 	}
+	ttl := 86400
+	_ = cache.Set(cacheKey, expoAccount.Username, &ttl)
 	return expoAccount.Username
 }
 
