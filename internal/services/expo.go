@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"expo-open-ota/config"
@@ -261,9 +262,11 @@ func FetchExpoUserAccountInformations(expoAuth types.ExpoAuth) (*ExpoUserAccount
 	cache := cache2.GetCache()
 	var cacheKey string
 	if expoAuth.Token != nil {
-		cacheKey = fmt.Sprintf("expoUserAccount:token:%s", *expoAuth.Token)
+		h := sha256.Sum256([]byte(*expoAuth.Token))
+		cacheKey = fmt.Sprintf("expoUserAccount:token:%x", h)
 	} else if expoAuth.SessionSecret != nil {
-		cacheKey = fmt.Sprintf("expoUserAccount:session:%s", *expoAuth.SessionSecret)
+		h := sha256.Sum256([]byte(*expoAuth.SessionSecret))
+		cacheKey = fmt.Sprintf("expoUserAccount:session:%x", h)
 	}
 	if cacheKey != "" {
 		if cachedValue := cache.Get(cacheKey); cachedValue != "" {
