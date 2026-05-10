@@ -315,11 +315,11 @@ func FetchExpoUserAccountInformations(expoAuth types.ExpoAuth) (*ExpoUserAccount
 
 func FetchSelfExpoUsername() string {
 	cache := cache2.GetCache()
-	cacheKey := fmt.Sprintf("selfExpoUsername:%s", version.Version)
+	token := GetExpoAccessToken()
+	cacheKey := fmt.Sprintf("selfExpoUsername:%s:%x", version.Version, sha256.Sum256([]byte(token)))
 	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
 		return cachedValue
 	}
-	token := GetExpoAccessToken()
 	expoAccount, err := FetchExpoUserAccountInformations(types.ExpoAuth{
 		Token: &token,
 	})
