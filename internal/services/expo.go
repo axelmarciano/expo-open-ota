@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"expo-open-ota/config"
@@ -258,6 +259,24 @@ func FetchExpoBranches() ([]string, error) {
 }
 
 func FetchExpoUserAccountInformations(expoAuth types.ExpoAuth) (*ExpoUserAccount, error) {
+	cache := cache2.GetCache()
+	var cacheKey string
+	if expoAuth.Token != nil {
+		h := sha256.Sum256([]byte(*expoAuth.Token))
+		cacheKey = fmt.Sprintf("expoUserAccount:token:%x", h)
+	} else if expoAuth.SessionSecret != nil {
+		h := sha256.Sum256([]byte(*expoAuth.SessionSecret))
+		cacheKey = fmt.Sprintf("expoUserAccount:session:%x", h)
+	}
+	if cacheKey != "" {
+		if cachedValue := cache.Get(cacheKey); cachedValue != "" {
+			var account ExpoUserAccount
+			if err := json.Unmarshal([]byte(cachedValue), &account); err == nil {
+				return &account, nil
+			}
+		}
+	}
+
 	query := `
 		query GetCurrentUserAccount {
 			me {
@@ -284,17 +303,31 @@ func FetchExpoUserAccountInformations(expoAuth types.ExpoAuth) (*ExpoUserAccount
 		return nil, err
 	}
 
+	if cacheKey != "" {
+		if cacheValue, err := json.Marshal(resp.Data.Me); err == nil {
+			ttl := 300
+			_ = cache.Set(cacheKey, string(cacheValue), &ttl)
+		}
+	}
+
 	return &resp.Data.Me, nil
 }
 
 func FetchSelfExpoUsername() string {
+	cache := cache2.GetCache()
 	token := GetExpoAccessToken()
+	cacheKey := fmt.Sprintf("selfExpoUsername:%s:%x", version.Version, sha256.Sum256([]byte(token)))
+	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
+		return cachedValue
+	}
 	expoAccount, err := FetchExpoUserAccountInformations(types.ExpoAuth{
 		Token: &token,
 	})
 	if err != nil {
 		return ""
 	}
+	ttl := 86400
+	_ = cache.Set(cacheKey, expoAccount.Username, &ttl)
 	return expoAccount.Username
 }
 
