@@ -46,6 +46,18 @@ func ResolveCacheType() CacheType {
 	}
 }
 
+func parseSentinelAddrs(addrs string) []string {
+	parts := strings.Split(addrs, ",")
+	sentinelAddrs := make([]string, 0, len(parts))
+	for _, part := range parts {
+		addr := strings.TrimSpace(part)
+		if addr != "" {
+			sentinelAddrs = append(sentinelAddrs, addr)
+		}
+	}
+	return sentinelAddrs
+}
+
 var (
 	cacheInstance Cache
 	once          sync.Once
@@ -67,7 +79,10 @@ func GetCache() Cache {
 			cacheInstance = NewRedisCache(host, password, port, useTLS, username, caCertB64)
 		case RedisSentinelCacheType:
 			sentinelAddrsStr := config.GetEnv("REDIS_SENTINEL_ADDRS")
-			sentinelAddrs := strings.Split(sentinelAddrsStr, ",")
+			sentinelAddrs := parseSentinelAddrs(sentinelAddrsStr)
+			if len(sentinelAddrs) == 0 {
+				panic("REDIS_SENTINEL_ADDRS must contain at least one Sentinel address")
+			}
 			masterName := config.GetEnv("REDIS_SENTINEL_MASTER_NAME")
 			if masterName == "" {
 				masterName = "mymaster"

@@ -53,8 +53,9 @@ environment:
       - key: "cacheMode"
         is: "redis-sentinel"
   - name: "REDIS_SENTINEL_MASTER_NAME"
-    value: ""
-    required:
+    value: "mymaster"
+    required: false
+    enabled:
       - key: "cacheMode"
         is: "redis-sentinel"
   - name: "REDIS_HOST"
@@ -71,7 +72,9 @@ environment:
     value: "true"
     required:
       - key: "cacheMode"
-        is: "redis"
+        in:
+          - "redis"
+          - "redis-sentinel"
       - key: "useRedisTLS"
         is: "true"
   - name: "REDIS_PASSWORD"
@@ -79,12 +82,29 @@ environment:
     required:
       - key: "cacheMode"
         is: "redis"
+    enabled:
+      - key: "cacheMode"
+        in:
+          - "redis"
+          - "redis-sentinel"
   - name: "REDIS_USERNAME"
     value: ""
     required: false
+    enabled:
+      - key: "cacheMode"
+        in:
+          - "redis"
+          - "redis-sentinel"
   - name: "REDIS_CA_CERT_B64"
     value: ""
     required: false
+    enabled:
+      - key: "cacheMode"
+        in:
+          - "redis"
+          - "redis-sentinel"
+      - key: "useRedisTLS"
+        is: "true"
   - name: "STORAGE_MODE"
     key: "storageMode"
     required: true
