@@ -67,4 +67,32 @@ No additional configuration is required to use the local cache.
     :::
 
   </TabItem>
+  <TabItem value="redis-sentinel" label="Redis Sentinel">
+    To use Redis Sentinel for high availability with automatic master failover, set the following environment variables:
+    ```bash title=".env"
+    CACHE_MODE=redis-sentinel
+    REDIS_SENTINEL_ADDRS=sentinel-0:26379,sentinel-1:26379,sentinel-2:26379
+    REDIS_SENTINEL_MASTER_NAME=mymaster // optional, defaults to "mymaster"
+    REDIS_PASSWORD=your-redis-password // optional if auth is enabled
+    REDIS_USE_TLS=true // optional if you are using a TLS connection
+    REDIS_USERNAME=your-redis-username // optional for ACL authentication
+    REDIS_CA_CERT_B64=base64-encoded-ca-certificate // optional for TLS with custom CA
+    ```
+
+    :::info How it works
+
+    The server uses `go-redis` `NewFailoverClient`, which:
+    1. Connects to Sentinel nodes to discover the current master.
+    2. Automatically follows master failover — when Sentinel promotes a new master, the client reconnects transparently.
+    3. Requires no application restart on failover.
+
+    :::
+
+    :::tip TLS/ACL/CA settings
+
+    The same `REDIS_PASSWORD`, `REDIS_USERNAME`, `REDIS_USE_TLS`, and `REDIS_CA_CERT_B64` variables used for direct Redis connections also apply to Sentinel mode.
+
+    :::
+
+  </TabItem>
 </Tabs>

@@ -19,8 +19,9 @@ type Cache interface {
 type CacheType string
 
 const (
-	LocalCacheType CacheType = "local"
-	RedisCacheType CacheType = "redis"
+	LocalCacheType         CacheType = "local"
+	RedisCacheType         CacheType = "redis"
+	RedisSentinelCacheType CacheType = "redis-sentinel"
 )
 
 const defaultPrefix = "expoopenota"
@@ -32,10 +33,6 @@ func withPrefix(key string) string {
 	}
 	return prefix + ":" + key
 }
-
-const (
-	RedisSentinelCacheType CacheType = "redis-sentinel"
-)
 
 func ResolveCacheType() CacheType {
 	cacheType := config.GetEnv("CACHE_MODE")
