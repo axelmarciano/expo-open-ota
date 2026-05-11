@@ -55,17 +55,36 @@ spec:
               {{- end }}
             {{- range $env := .Values.environment }}
               {{- $isRequired := true }}
+              {{- $isEnabled := true }}
               {{- if eq (typeOf $env.required) "bool" }}
                 {{- $isRequired = $env.required }}
               {{- else if hasKey $env "required" }}
                 {{- range $condition := $env.required }}
-                  {{- $keyValue := index $.Values $condition.key }}
-                  {{- if or (not $keyValue) (ne $keyValue $condition.is) }}
+                  {{- $keyValue := toString (index $.Values $condition.key) }}
+                  {{- if hasKey $condition "in" }}
+                    {{- if not (has $keyValue $condition.in) }}
+                      {{- $isRequired = false }}
+                    {{- end }}
+                  {{- else if or (not $keyValue) (ne $keyValue (toString $condition.is)) }}
                     {{- $isRequired = false }}
                   {{- end }}
                 {{- end }}
               {{- end }}
-              {{- if $isRequired }}
+              {{- $isEnabled = $isRequired }}
+              {{- if hasKey $env "enabled" }}
+                {{- $isEnabled = true }}
+                {{- range $condition := $env.enabled }}
+                  {{- $keyValue := toString (index $.Values $condition.key) }}
+                  {{- if hasKey $condition "in" }}
+                    {{- if not (has $keyValue $condition.in) }}
+                      {{- $isEnabled = false }}
+                    {{- end }}
+                  {{- else if or (not $keyValue) (ne $keyValue (toString $condition.is)) }}
+                    {{- $isEnabled = false }}
+                  {{- end }}
+                {{- end }}
+              {{- end }}
+              {{- if $isEnabled }}
                 {{- if $env.computed }}
             - name: {{ $env.name }}
               value: "{{ index $.Values $env.key }}"
@@ -75,7 +94,10 @@ spec:
                 secretKeyRef:
                   name: {{ $.Values.secretName }}
                   key: {{ $env.name }}
-                {{- else }}
+                  {{- if not $isRequired }}
+                  optional: true
+                  {{- end }}
+                {{- else if or $isRequired $env.value }}
             - name: {{ $env.name }}
               value: "{{ $env.value }}"
                 {{- end }}
@@ -91,5 +113,9 @@ spec:
       {{- end }}
       {{- with .Values.tolerations }}
       tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.dnsConfig }}
+      dnsConfig:
         {{- toYaml . | nindent 8 }}
       {{- end }}
