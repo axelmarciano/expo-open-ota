@@ -267,17 +267,29 @@ function stringifyWithEnv(obj: Record<string, any>): string {
   return JSON.stringify(obj, null, 2).replace(/"process\.env\.(\w+)"/g, 'process.env.$1');
 }
 
-export async function resolveServerUrl(config: ExpoConfig): Promise<string> {
-  const updateUrl = config.updates?.url;
+interface ResolveServerUrlOptions {
+  config: ExpoConfig;
+  customServerUrl?: string;
+}
+
+export async function resolveServerUrl({
+  config,
+  customServerUrl,
+}: ResolveServerUrlOptions): Promise<string> {
+  const updateUrl = customServerUrl ?? config.updates?.url;
+
   if (!updateUrl) {
-    throw new Error('No update URL found in the Expo config.');
+    throw new Error('Could not resolve server URL from Expo config or flags.');
   }
+
   let baseUrl: string;
+
   try {
     const parsedUrl = new URL(updateUrl);
     baseUrl = parsedUrl.origin;
   } catch (e) {
     throw new Error('Invalid update URL.');
   }
+
   return baseUrl;
 }
