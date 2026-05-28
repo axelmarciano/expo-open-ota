@@ -7,9 +7,6 @@ import (
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/types"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"io"
 	"runtime"
 	"sort"
@@ -17,6 +14,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 type S3Bucket struct {
@@ -355,9 +356,10 @@ func (b *S3Bucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId st
 				defer getObjOutput.Body.Close()
 
 				_, err = s3Client.PutObject(context.TODO(), &s3.PutObjectInput{
-					Bucket: aws.String(b.BucketName),
-					Key:    aws.String(dstKey),
-					Body:   getObjOutput.Body,
+					Bucket:        aws.String(b.BucketName),
+					Key:           aws.String(dstKey),
+					Body:          getObjOutput.Body,
+					ContentLength: getObjOutput.ContentLength,
 				})
 				if err != nil {
 					errChan <- fmt.Errorf("error putting object %s: %w", dstKey, err)
