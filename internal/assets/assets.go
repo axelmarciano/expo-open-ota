@@ -11,12 +11,13 @@ import (
 )
 
 type AssetsRequest struct {
-	AppId           string
+	AppId          string
 	Branch         string
 	AssetName      string
 	RuntimeVersion string
 	Platform       string
 	RequestID      string
+	Update         *types.Update
 }
 
 type AssetsResponse struct {
@@ -45,12 +46,7 @@ func getAssetMetadata(req AssetsRequest, returnAsset bool) (AssetsResponse, *typ
 		return AssetsResponse{StatusCode: http.StatusBadRequest, Body: []byte("No runtime version provided")}, nil, "", nil
 	}
 
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion(req.AppId,req.Branch, req.RuntimeVersion, req.Platform)
-	if err != nil || lastUpdate == nil {
-		log.Printf("[RequestID: %s] No update found for runtimeVersion: %s", requestID, req.RuntimeVersion)
-		return AssetsResponse{StatusCode: http.StatusNotFound, Body: []byte("No update found")}, nil, "", nil
-	}
-
+	lastUpdate := req.Update
 	if !returnAsset {
 		headers := map[string]string{
 			"expo-protocol-version": "1",

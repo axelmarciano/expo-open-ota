@@ -60,7 +60,7 @@ func RollbackLastMigration(b bucket.Bucket) error {
 }
 
 func RunMigrationsWithLock() {
-	log.Println("🔧 Checking if migrations should run...")
+	log.Println("🔧 [BUCKET] Checking if migrations should run...")
 	b := bucket.GetBucket()
 	c := cache.GetCache()
 	ok, err := c.TryLock("migration-lock", 120)
@@ -68,12 +68,12 @@ func RunMigrationsWithLock() {
 		log.Fatalf("❌ Failed to acquire migration lock: %v", err)
 	}
 	if !ok {
-		log.Println("⏩ Migration already in progress or completed on another instance – skipping.")
+		log.Println("⏩ [BUCKET] Migration already in progress or completed on another instance – skipping.")
 		return
 	}
-	log.Println("✅ Migration lock acquired – starting migrations...")
+	log.Println("✅ [BUCKET] Migration lock acquired – starting migrations...")
 	if err := RunMigrations(b); err != nil {
-		log.Fatalf("🚨 Migration failed: %v", err)
+		log.Fatalf("🚨 [BUCKET] Migration failed: %v", err)
 	}
-	log.Println("🎉 Migrations completed successfully.")
+	log.Println("🎉 [BUCKET] Migrations completed successfully.")
 }

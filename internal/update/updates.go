@@ -6,7 +6,7 @@ import (
 	"expo-open-ota/internal/bucket"
 	cache2 "expo-open-ota/internal/cache"
 	"expo-open-ota/internal/crypto"
-	"expo-open-ota/internal/dashboard"
+	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/version"
 	"fmt"
@@ -47,7 +47,7 @@ func GetAllUpdatesForRuntimeVersion(appId, branch string, runtimeVersion string,
 	return updates, nil
 }
 
-func StoreUpdateUUIDInMetadata(update types.Update) error {
+func StoreUpdateUUIDInMetadata(update types.Update, updateUUID string) error {
 	resolvedBucket := bucket.GetBucket()
 	file, err := resolvedBucket.GetFile(update, "update-metadata.json")
 	if err != nil {
@@ -59,11 +59,7 @@ func StoreUpdateUUIDInMetadata(update types.Update) error {
 	if err != nil {
 		return err
 	}
-	metadata, err := GetMetadata(update)
-	if err != nil {
-		return err
-	}
-	storedMetadata.UpdateUUID = crypto.ConvertSHA256HashToUUID(metadata.ID)
+	storedMetadata.UpdateUUID = updateUUID
 	updatedMetadata, err := json.Marshal(storedMetadata)
 	if err != nil {
 		return err
@@ -77,33 +73,12 @@ func StoreUpdateUUIDInMetadata(update types.Update) error {
 }
 
 func MarkUpdateAsChecked(update types.Update) error {
-	cache := cache2.GetCache()
-	branchesCacheKey := dashboard.ComputeGetBranchesCacheKey(update.AppId)
-	runTimeVersionsCacheKey := dashboard.ComputeGetRuntimeVersionsCacheKey(update.AppId, update.Branch)
-	updatesCacheKey := dashboard.ComputeGetUpdatesCacheKey(update.AppId, update.Branch, update.RuntimeVersion)
-	storedMetadata, err := RetrieveUpdateStoredMetadata(update)
-	if err != nil || storedMetadata == nil {
-		return err
-	}
 	resolvedBucket := bucket.GetBucket()
-	err = StoreUpdateUUIDInMetadata(update)
+	reader := strings.NewReader(".check")
+	err := resolvedBucket.UploadFileIntoUpdate(update, ".check", reader)
 	if err != nil {
 		return err
 	}
-	// Write .check BEFORE invalidating the lastUpdate cache. IsUpdateValid
-	// uses .check as the "this update is complete and pickable" sentinel;
-	// if we deleted the cache first, a concurrent /manifest request would
-	// miss, re-scan updates, find this one without .check, filter it out,
-	// and re-cache the previous update for the full TTL (1800s) — serving
-	// a stale manifest for up to 30 minutes after a publish or rollback.
-	reader := strings.NewReader(".check")
-	_ = resolvedBucket.UploadFileIntoUpdate(update, ".check", reader)
-	cacheKeys := []string{ComputeLastUpdateCacheKey(update.AppId, update.Branch, update.RuntimeVersion, storedMetadata.Platform), branchesCacheKey, runTimeVersionsCacheKey, updatesCacheKey}
-	for _, cacheKey := range cacheKeys {
-		cache.Delete(cacheKey)
-	}
-	go PreWarmManifestCache(update.AppId, update.Branch, update.RuntimeVersion, "ios")
-	go PreWarmManifestCache(update.AppId, update.Branch, update.RuntimeVersion, "android")
 	return nil
 }
 
@@ -116,6 +91,19 @@ func IsUpdateValid(Update types.Update) bool {
 		return true
 	}
 	return false
+}
+
+func GetUpdateCheckStatus(update types.Update) time.Time {
+	resolvedBucket := bucket.GetBucket()
+	file, err := resolvedBucket.GetFile(update, ".check")
+	if err != nil {
+		return time.Time{}
+	}
+	if file == nil {
+		return time.Time{}
+	}
+	defer file.Reader.Close()
+	return file.CreatedAt.UTC()
 }
 
 func ComputeLastUpdateCacheKey(appId string, branch string, runtimeVersion string, platform string) string {
@@ -179,7 +167,7 @@ func GetUpdate(appId string, branch string, runtimeVersion string, updateId stri
 		Branch:         branch,
 		RuntimeVersion: runtimeVersion,
 		UpdateId:       updateId,
-		CreatedAt:      time.Duration(updateIdInt64) * time.Millisecond,
+		CreatedAt:      helpers.NormalizeTimestampToDuration(updateIdInt64),
 	}, nil
 }
 
@@ -196,17 +184,7 @@ func AreUpdatesIdentical(update1, update2 types.Update) (bool, error) {
 }
 
 func GetLatestUpdateBundlePathForRuntimeVersion(appId string, branch string, runtimeVersion string, platform string) (*types.Update, error) {
-	cache := cache2.GetCache()
-	cacheKey := ComputeLastUpdateCacheKey(appId, branch, runtimeVersion, platform)
-	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
-		var update types.Update
-		err := json.Unmarshal([]byte(cachedValue), &update)
-		if err != nil {
-			return nil, err
-		}
-		return &update, nil
-	}
-	updates, err := GetAllUpdatesForRuntimeVersion(appId,branch, runtimeVersion, platform)
+	updates, err := GetAllUpdatesForRuntimeVersion(appId, branch, runtimeVersion, platform)
 	if err != nil {
 		return nil, err
 	}
@@ -217,12 +195,6 @@ func GetLatestUpdateBundlePathForRuntimeVersion(appId string, branch string, run
 		}
 	}
 	if len(filteredUpdates) > 0 {
-		cacheValue, err := json.Marshal(filteredUpdates[0])
-		if err != nil {
-			return &filteredUpdates[0], nil
-		}
-		ttl := 1800
-		err = cache.Set(cacheKey, string(cacheValue), &ttl)
 		return &filteredUpdates[0], nil
 	}
 	return nil, nil
@@ -508,14 +480,7 @@ func ComposeUpdateManifest(
 	return manifest, nil
 }
 
-func CreateRollbackDirective(update types.Update) (types.RollbackDirective, error) {
-	resolvedBucket := bucket.GetBucket()
-	object, err := resolvedBucket.GetFile(update, "rollback")
-	if err != nil {
-		return types.RollbackDirective{}, err
-	}
-	commitTime := object.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z")
-	defer object.Reader.Close()
+func CreateRollbackDirective(update types.Update, commitTime string) (types.RollbackDirective, error) {
 	return types.RollbackDirective{
 		Type: "rollBackToEmbedded",
 		Parameters: types.RollbackDirectiveParameters{
@@ -562,8 +527,33 @@ func createUpdateMetadata(platform, commitHash string) (*strings.Reader, error) 
 	return strings.NewReader(string(jsonData)), nil
 }
 
-func GenerateUpdateTimestamp() int64 {
-	return time.Now().UnixNano() / int64(time.Millisecond)
+// Originally, this function returned a raw millisecond timestamp without parameters.
+// When deployment clients (like the Expo CLI) send concurrent, parallel requests for
+// both iOS and Android simultaneously, they arrive at the server in the same millisecond.
+//
+//   - In No-DB (Stateless) Mode: Outbound HTTP network hops to external Expo verification
+//     APIs introduce variable internet delays. This naturally staggered the execution
+//     threads across distinct millisecond clock ticks, hiding duplicate-ID risks.
+//
+//   - In DB Mode: Because operations complete in microseconds, both the iOS and Android
+//     execution threads regularly reach this generation line within the exact same 1ms window.
+//
+// To prevent concurrent platform requests from generating identical IDs and triggering
+// unique-key/constraint conflicts in relational stores, we append a deterministic
+// platform identifier digit (+1 for iOS, +2 for Android) to the end of the timestamp,
+// mathematically decoupling their identities under any hardware concurrency schedule.
+func GenerateUpdateTimestamp(platform string) int64 {
+	milli := time.Now().UnixNano() / int64(time.Millisecond)
+	var platformModifier int64 = 0
+	switch strings.ToLower(platform) {
+	case "ios":
+		platformModifier = 1
+	case "android":
+		platformModifier = 2
+	default:
+		platformModifier = 9
+	}
+	return milli*10 + platformModifier
 }
 
 func ConvertUpdateTimestampToString(updateId int64) string {
@@ -571,13 +561,13 @@ func ConvertUpdateTimestampToString(updateId int64) string {
 }
 
 func CreateRollback(appId, platform, commitHash, runtimeVersion, branchName string) (*types.Update, error) {
-	updateId := GenerateUpdateTimestamp()
+	updateId := GenerateUpdateTimestamp(platform)
 	update := types.Update{
 		AppId:          appId,
 		UpdateId:       ConvertUpdateTimestampToString(updateId),
 		Branch:         branchName,
 		RuntimeVersion: runtimeVersion,
-		CreatedAt:      time.Duration(updateId) * time.Millisecond,
+		CreatedAt:      helpers.NormalizeTimestampToDuration(updateId),
 	}
 	resolvedBucket := bucket.GetBucket()
 	reader, err := createUpdateMetadata(platform, commitHash)
@@ -593,21 +583,12 @@ func CreateRollback(appId, platform, commitHash, runtimeVersion, branchName stri
 	if err != nil {
 		return nil, err
 	}
-	err = StoreUpdateUUIDInMetadata(update)
-	if err != nil {
-		return nil, err
-	}
-	err = MarkUpdateAsChecked(update)
-	if err != nil {
-		return nil, err
-	}
-
 	return &update, nil
 }
 
 func RepublishUpdate(previousUpdate *types.Update, platform, commitHash string) (*types.Update, error) {
 	resolvedBucket := bucket.GetBucket()
-	updateId := GenerateUpdateTimestamp()
+	updateId := GenerateUpdateTimestamp(platform)
 	newUpdate, err := resolvedBucket.CreateUpdateFrom(previousUpdate, ConvertUpdateTimestampToString(updateId))
 	if err != nil {
 		return nil, err
@@ -617,10 +598,6 @@ func RepublishUpdate(previousUpdate *types.Update, platform, commitHash string) 
 		return nil, err
 	}
 	err = resolvedBucket.UploadFileIntoUpdate(*newUpdate, "update-metadata.json", reader)
-	if err != nil {
-		return nil, err
-	}
-	err = StoreUpdateUUIDInMetadata(*newUpdate)
 	if err != nil {
 		return nil, err
 	}

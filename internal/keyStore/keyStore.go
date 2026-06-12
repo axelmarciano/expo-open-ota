@@ -3,7 +3,8 @@ package keyStore
 import (
 	"encoding/base64"
 	"expo-open-ota/config"
-	"expo-open-ota/internal/services"
+	"expo-open-ota/internal/crypto"
+	"expo-open-ota/internal/providers"
 	"fmt"
 	"io"
 	"log"
@@ -15,21 +16,32 @@ import (
 // Manager, or inline b64). Returns "" on any read failure — callers that need
 // to differentiate "not configured" from "read error" should use
 // ReadExpoKey with the "public" selector.
-func GetPublicExpoKey(appId string) string {
-	app, err := config.GetAppConfig(appId)
-	if err != nil {
-		return ""
-	}
+func GetPublicExpoKey(app config.AppConfig) string {
 	return readExpoKey(app.Keys, true)
 }
 
 // GetPrivateExpoKey mirrors GetPublicExpoKey for the private half.
-func GetPrivateExpoKey(appId string) string {
-	app, err := config.GetAppConfig(appId)
-	if err != nil {
-		return ""
-	}
+func GetPrivateExpoKey(app config.AppConfig) string {
 	return readExpoKey(app.Keys, false)
+}
+
+// ReadControlPlaneMasterKey retrieves the 32-byte symmetric master key as a raw
+// binary string. To avoid the logistical overhead and lack of native OpenSSL standard
+// commands for symmetric PEM files, the secret is strictly managed as a standard 44-character Base64 text string.
+// It decodes the payload at runtime into its 32 binary characters, supporting both production
+// (AWS Secrets Manager) and local development (flat environment variables) workflows.
+func ReadControlPlaneMasterKey() string {
+	if secretId := config.GetEnv("AWSSM_CONTROL_PLANE_MASTER_KEY_B64_SECRET_ID"); secretId != "" {
+		b64Secret := providers.FetchSecret(secretId)
+		if b64Secret == "" {
+			return ""
+		}
+		return decodeB64(b64Secret)
+	}
+	if b64Env := config.GetEnv("CONTROL_PLANE_MASTER_KEY_B64"); b64Env != "" {
+		return decodeB64(b64Env)
+	}
+	return ""
 }
 
 func readExpoKey(k config.KeysConfig, public bool) string {
@@ -41,14 +53,29 @@ func readExpoKey(k config.KeysConfig, public bool) string {
 		return readPEMFile(k.PrivatePath)
 	case config.KeysModeAWSSM:
 		if public {
-			return services.FetchSecret(k.PublicSecretId)
+			return providers.FetchSecret(k.PublicSecretId)
 		}
-		return services.FetchSecret(k.PrivateSecretId)
+		return providers.FetchSecret(k.PrivateSecretId)
 	case config.KeysModeEnvironment:
 		if public {
 			return decodeB64(k.PublicB64)
 		}
 		return decodeB64(k.PrivateB64)
+	case config.KeysModeDatabase:
+		if public {
+			key, err := crypto.UnsealAESGCM(k.SealedPublicKey, []byte(ReadControlPlaneMasterKey()))
+			if err != nil {
+				log.Printf("Failed to unseal sealed public key: %v", err)
+				return ""
+			}
+			return string(key)
+		}
+		key, err := crypto.UnsealAESGCM(k.SealedPrivateKey, []byte(ReadControlPlaneMasterKey()))
+		if err != nil {
+			log.Printf("Failed to unseal sealed private key: %v", err)
+			return ""
+		}
+		return string(key)
 	}
 	return ""
 }
@@ -59,7 +86,7 @@ func readExpoKey(k config.KeysConfig, public bool) string {
 // PRIVATE_CLOUDFRONT_KEY_B64, PRIVATE_CLOUDFRONT_KEY_PATH.
 func GetPrivateCloudfrontKey() string {
 	if secretId := config.GetEnv("AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID"); secretId != "" {
-		return services.FetchSecret(secretId)
+		return providers.FetchSecret(secretId)
 	}
 	if b64 := config.GetEnv("PRIVATE_CLOUDFRONT_KEY_B64"); b64 != "" {
 		return decodeB64(b64)

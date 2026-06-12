@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 )
 
@@ -37,6 +38,7 @@ const (
 	KeysModeLocal       KeysMode = "local"
 	KeysModeAWSSM       KeysMode = "aws-secrets-manager"
 	KeysModeEnvironment KeysMode = "environment"
+	KeysModeDatabase    KeysMode = "database"
 )
 
 // KeysConfig is a tagged union: exactly one set of fields must be populated,
@@ -56,6 +58,17 @@ type KeysConfig struct {
 	// mode=environment
 	PublicB64  string `json:"publicB64,omitempty"`
 	PrivateB64 string `json:"privateB64,omitempty"`
+
+	// mode=database
+	SealedPublicKey  string `json:"sealedPublicKey,omitempty"`
+	SealedPrivateKey string `json:"sealedPrivateKey,omitempty"`
+}
+
+type ControlPlaneMasterKeyConfig struct {
+	Mode            KeysMode `json:"mode"`
+	PrivatePath     string   `json:"privatePath,omitempty"`
+	PrivateSecretId string   `json:"privateSecretId,omitempty"`
+	PrivateB64      string   `json:"privateB64,omitempty"`
 }
 
 // AppConfig is one entry of the EXPO_APPS_JSON config. Each app has its own
@@ -63,10 +76,11 @@ type KeysConfig struct {
 // purely as a display label in the dashboard — it does not participate in
 // request routing, which always goes by Id.
 type AppConfig struct {
-	Id          string     `json:"id"`
-	Name        string     `json:"name,omitempty"`
-	AccessToken string     `json:"accessToken"`
-	Keys        KeysConfig `json:"keys"`
+	Id          string        `json:"id"`
+	Name        string        `json:"name,omitempty"`
+	AccessToken string        `json:"accessToken"`
+	Keys        KeysConfig    `json:"keys"`
+	CreatedAt   time.Duration `json:"createTime,omitempty"`
 }
 
 // AppDescriptor is the public-safe view of an AppConfig (no token, no keys)
@@ -96,7 +110,7 @@ var (
 // Returns a non-nil error on any structural or semantic issue; callers are
 // expected to log.Fatal on error.
 func LoadApps() error {
-	apps, source, err := readApps()
+	apps, source, err := ReadApps()
 	if err != nil {
 		return err
 	}
@@ -124,7 +138,7 @@ func LoadApps() error {
 // human-readable source tag used for error messages. EXPO_APPS_JSON wins when
 // set. The flat-env fallback reads legacy v1 variable names verbatim to
 // preserve upgrade-in-place.
-func readApps() ([]AppConfig, string, error) {
+func ReadApps() ([]AppConfig, string, error) {
 	if inline := strings.TrimSpace(os.Getenv("EXPO_APPS_JSON")); inline != "" {
 		var apps []AppConfig
 		if err := json.Unmarshal([]byte(inline), &apps); err != nil {
@@ -181,7 +195,7 @@ func validateApp(app *AppConfig, index int) error {
 	if app.AccessToken == "" {
 		return fmt.Errorf("%s.accessToken is required", prefix)
 	}
-	return validateKeys(&app.Keys, prefix+".keys")
+	return ValidateKeys(&app.Keys, prefix+".keys")
 }
 
 // ValidateAppId centralizes every rule an app id must satisfy before it can
@@ -228,27 +242,42 @@ func ValidateAppId(id, fieldPath string) error {
 	return nil
 }
 
-func validateKeys(k *KeysConfig, prefix string) error {
+func ValidateKeys(k *KeysConfig, prefix string) error {
+	// No config.IsDBMode() check here since to avoid circular depdency
+	isDBMode := os.Getenv("DB_URL") != ""
+	allowedModes := []string{string(KeysModeLocal), string(KeysModeAWSSM), string(KeysModeEnvironment)}
+	if isDBMode {
+		allowedModes = append(allowedModes, string(KeysModeDatabase))
+	}
+
+	if k.Mode == "" {
+		return fmt.Errorf("%s.mode is required (%s)", prefix, strings.Join(allowedModes, "|"))
+	}
+
+	hasLocal := k.PublicPath != "" || k.PrivatePath != ""
+	hasAWSSM := k.PublicSecretId != "" || k.PrivateSecretId != ""
+	hasEnv := k.PublicB64 != "" || k.PrivateB64 != ""
+
 	switch k.Mode {
 	case KeysModeLocal:
 		if k.PublicPath == "" || k.PrivatePath == "" {
 			return fmt.Errorf("%s: mode=local requires publicPath and privatePath", prefix)
 		}
-		if k.PublicSecretId != "" || k.PrivateSecretId != "" || k.PublicB64 != "" || k.PrivateB64 != "" {
+		if hasAWSSM || hasEnv {
 			return fmt.Errorf("%s: mode=local must not set aws-sm or b64 fields", prefix)
 		}
 	case KeysModeAWSSM:
 		if k.PublicSecretId == "" || k.PrivateSecretId == "" {
 			return fmt.Errorf("%s: mode=aws-secrets-manager requires publicSecretId and privateSecretId", prefix)
 		}
-		if k.PublicPath != "" || k.PrivatePath != "" || k.PublicB64 != "" || k.PrivateB64 != "" {
+		if hasLocal || hasEnv {
 			return fmt.Errorf("%s: mode=aws-secrets-manager must not set local or b64 fields", prefix)
 		}
 	case KeysModeEnvironment:
 		if k.PublicB64 == "" || k.PrivateB64 == "" {
 			return fmt.Errorf("%s: mode=environment requires publicB64 and privateB64", prefix)
 		}
-		if k.PublicPath != "" || k.PrivatePath != "" || k.PublicSecretId != "" || k.PrivateSecretId != "" {
+		if hasLocal || hasAWSSM {
 			return fmt.Errorf("%s: mode=environment must not set local or aws-sm fields", prefix)
 		}
 		if err := validatePEMKeyB64(k.PublicB64, prefix+".publicB64"); err != nil {
@@ -257,10 +286,15 @@ func validateKeys(k *KeysConfig, prefix string) error {
 		if err := validatePEMKeyB64(k.PrivateB64, prefix+".privateB64"); err != nil {
 			return err
 		}
-	case "":
-		return fmt.Errorf("%s.mode is required (local|aws-secrets-manager|environment)", prefix)
+	case KeysModeDatabase:
+		if !isDBMode {
+			return fmt.Errorf("%s: mode=database is not allowed when DB_URL is not set", prefix)
+		}
+		if hasLocal || hasAWSSM {
+			return fmt.Errorf("%s: mode=database must not set local or aws-sm fields", prefix)
+		}
 	default:
-		return fmt.Errorf("%s.mode=%q is invalid (expected local|aws-secrets-manager|environment)", prefix, k.Mode)
+		return fmt.Errorf("%s.mode=%q is invalid (expected %s)", prefix, k.Mode, strings.Join(allowedModes, "|"))
 	}
 	return nil
 }

@@ -2,18 +2,29 @@ package handlers
 
 import (
 	"encoding/json"
-	"expo-open-ota/internal/branch"
 	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/services"
 	types2 "expo-open-ota/internal/types"
-	update2 "expo-open-ota/internal/update"
-	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 	"log"
 	"net/http"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 )
 
-func RepublishHandler(w http.ResponseWriter, r *http.Request) {
+type RepublishHandler struct {
+	authService       *services.AuthService
+	deploymentService *services.DeploymentService
+}
+
+func NewRepublishHandler(authService *services.AuthService, deploymentService *services.DeploymentService) *RepublishHandler {
+	return &RepublishHandler{
+		authService:       authService,
+		deploymentService: deploymentService,
+	}
+}
+
+func (h *RepublishHandler) HandleRepublish(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	vars := mux.Vars(r)
 	appId := vars["APP_ID"]
@@ -29,20 +40,11 @@ func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No branch provided", http.StatusBadRequest)
 		return
 	}
-	expoAuth := helpers.GetExpoAuth(r)
-	// ValidateExpoAuth(appId, ...) enforces that the caller's Expo session
-	// matches the app identified by APP_ID — without the appId check,
-	// FetchExpoUserAccountInformations alone would accept any authenticated
-	// Expo user against any app (cross-tenant authz bypass).
-	expoAccount, err := services.ValidateExpoAuth(appId, expoAuth)
+	auth := helpers.GetAuth(r)
+	err := h.authService.ValidateAuth(r.Context(), appId, auth)
 	if err != nil {
-		log.Printf("[RequestID: %s] Error validating expo auth: %v", requestID, err)
-		http.Error(w, "Error validating expo auth", http.StatusUnauthorized)
-		return
-	}
-	if expoAccount == nil {
-		log.Printf("[RequestID: %s] No expo account found", requestID)
-		http.Error(w, "No expo account found", http.StatusUnauthorized)
+		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
+		http.Error(w, "Error validating auth", http.StatusUnauthorized)
 		return
 	}
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")
@@ -58,54 +60,14 @@ func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No updateId provided", http.StatusBadRequest)
 		return
 	}
-	err = branch.UpsertBranch(appId, branchName)
+	previousUpdate := &types2.Update{
+		AppId:          appId,
+		Branch:         branchName,
+		RuntimeVersion: runtimeVersion,
+		UpdateId:       updateId,
+	}
+	newUpdate, err := h.deploymentService.RepublishUpdate(r.Context(), previousUpdate, platform, commitHash)
 	if err != nil {
-		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
-		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
-		return
-	}
-	update, err := update2.GetUpdate(appId, branchName, runtimeVersion, updateId)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error getting update: %v", requestID, err)
-		http.Error(w, "Error getting update", http.StatusBadRequest)
-		return
-	}
-	if update == nil {
-		log.Printf("[RequestID: %s] No update found for runtimeVersion: %s in branch: %s", requestID, runtimeVersion, branchName)
-		http.Error(w, "No update found", http.StatusNotFound)
-		return
-	}
-	updateType := update2.GetUpdateType(*update)
-	if updateType != types2.NormalUpdate {
-		log.Printf("[RequestID: %s] Update type is not normal update", requestID)
-		http.Error(w, "Update type is not normal update", http.StatusBadRequest)
-		return
-	}
-	storedMetadata, err := update2.RetrieveUpdateStoredMetadata(*update)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error retrieving update commit hash and platform: %v", requestID, err)
-		http.Error(w, "Error retrieving update commit hash and platform", http.StatusInternalServerError)
-		return
-	}
-	if storedMetadata == nil {
-		log.Printf("[RequestID: %s] No stored metadata found for update: %s", requestID, updateId)
-		http.Error(w, "No stored metadata found for update", http.StatusNotFound)
-		return
-	}
-	isValid := update2.IsUpdateValid(*update)
-	if !isValid {
-		log.Printf("[RequestID: %s] Update is not valid", requestID)
-		http.Error(w, "Update is not valid", http.StatusBadRequest)
-		return
-	}
-	if storedMetadata.Platform != platform {
-		log.Printf("[RequestID: %s] Update platform mismatch: %s != %s", requestID, storedMetadata.Platform, platform)
-		http.Error(w, "Update platform mismatch", http.StatusBadRequest)
-		return
-	}
-	newUpdate, err := update2.RepublishUpdate(update, platform, commitHash)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error republishing update: %v", requestID, err)
 		http.Error(w, "Error republishing update", http.StatusInternalServerError)
 		return
 	}

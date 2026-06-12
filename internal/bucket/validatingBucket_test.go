@@ -20,7 +20,7 @@ type stubBucket struct {
 func (s *stubBucket) mark() { s.called = true }
 
 func (s *stubBucket) GetBranches(appId string) ([]string, error) { s.mark(); return nil, nil }
-func (s *stubBucket) GetRuntimeVersions(appId, branch string) ([]RuntimeVersionWithStats, error) {
+func (s *stubBucket) GetRuntimeVersions(appId, branch string) ([]types.RuntimeVersionWithStats, error) {
 	s.mark()
 	return nil, nil
 }

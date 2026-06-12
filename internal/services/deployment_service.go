@@ -1,0 +1,395 @@
+package services
+
+import (
+	"context"
+	"errors"
+	"expo-open-ota/internal/bucket"
+	"expo-open-ota/internal/cache"
+	"expo-open-ota/internal/crypto"
+	"expo-open-ota/internal/dashboard"
+	"expo-open-ota/internal/types"
+	update2 "expo-open-ota/internal/update"
+	"fmt"
+	"log"
+	"mime/multipart"
+	"strconv"
+)
+
+var (
+	ErrInvalidUpdate     = errors.New("invalid update")
+	ErrNoChangesDetected = errors.New("no changes detected in the update from the previous one")
+	ErrInvalidBucketType = errors.New("the configured storage engine does not support local uploads")
+	ErrInvalidToken      = errors.New("the provided upload token is invalid or expired")
+	ErrTokenAppMismatch  = errors.New("upload token does not match the requested application context")
+	ErrUploadFailed      = errors.New("failed to write upload file stream to destination storage")
+)
+
+type ProcessUpdateParams struct {
+	RequestID      string
+	AppID          string
+	BranchName     string
+	Platform       string
+	RuntimeVersion string
+	UpdateID       string
+}
+
+type RequestLocalFileUploadParams struct {
+	RequestID  string
+	AppID      string
+	Token      string
+	TokenAppID string
+	FilePath   string
+	Body       multipart.File
+}
+
+type RequestUploadURLParams struct {
+	RequestID      string
+	AppID          string
+	BranchName     string
+	Platform       string
+	CommitHash     string
+	RuntimeVersion string
+	FileNames      []string
+	Message        string
+}
+
+type RequestUploadURLResponse struct {
+	UpdateID       int64
+	UploadRequests []bucket.FileUploadRequest
+}
+
+type RollbackParams struct {
+	RequestID      string
+	AppID          string
+	BranchName     string
+	Platform       string
+	RuntimeVersion string
+	CommitHash     string
+}
+
+type RepublishParams struct {
+	AppID          string
+	BranchName     string
+	Platform       string
+	RuntimeVersion string
+	CommitHash     string
+	UpdateID       string
+	RequestID      string
+}
+
+type DeploymentService struct {
+	branchService *BranchService
+	updateService *UpdateService
+	updateRepo    UpdateRepository
+	bucket        bucket.Bucket
+}
+
+func NewDeploymentService(branchService *BranchService, updateService *UpdateService, updateRepo UpdateRepository, bucket bucket.Bucket) *DeploymentService {
+	return &DeploymentService{
+		branchService: branchService,
+		updateService: updateService,
+		updateRepo:    updateRepo,
+		bucket:        bucket,
+	}
+}
+
+func (s *DeploymentService) ProcessUploadedUpdate(ctx context.Context, params ProcessUpdateParams) error {
+
+	err := s.branchService.UpsertBranchAndRuntimeVersion(ctx, params.AppID, params.BranchName, params.RuntimeVersion)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error upserting branch and runtime version: %v", params.RequestID, err)
+		return err
+	}
+
+	currentUpdate, err := s.updateRepo.GetUpdate(ctx, params.AppID, params.BranchName, params.RuntimeVersion, params.UpdateID)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error getting update: %v", params.RequestID, err)
+		return err
+	}
+
+	errorVerify := update2.VerifyUploadedUpdate(*currentUpdate)
+	if errorVerify != nil {
+		// Delete folder and throw error
+		log.Printf("[RequestID: %s] Invalid update, deleting folder...", params.RequestID)
+		err := s.bucket.DeleteUpdateFolder(params.AppID, params.BranchName, params.RuntimeVersion, params.UpdateID)
+		if err != nil {
+			log.Printf("[RequestID: %s] Error deleting update folder: %v", params.RequestID, err)
+			return err
+		}
+		log.Printf("[RequestID: %s] Invalid update, folder deleted", params.RequestID)
+		return fmt.Errorf("%w: %s", ErrInvalidUpdate, errorVerify)
+	}
+	// Now we have to retrieve the latest update and compare hash changes
+	latestUpdate, err := s.updateService.GetLatestUpdate(ctx, params.AppID, params.BranchName, params.RuntimeVersion, params.Platform)
+	shouldMarkAsChecked := false
+
+	if err != nil {
+		log.Printf("[RequestID: %s] Warning: store.GetLatestUpdate returned error, falling back to checked state: %v", params.RequestID, err)
+		shouldMarkAsChecked = true
+	} else if latestUpdate == nil {
+		log.Printf("[RequestID: %s] No latest update found, marking current update as checked", params.RequestID)
+		shouldMarkAsChecked = true
+	}
+
+	if shouldMarkAsChecked {
+		err = s.MarkUpdateAsChecked(ctx, *currentUpdate, types.NormalUpdate)
+		if err != nil {
+			log.Printf("[RequestID: %s] Error marking update as checked: %v", params.RequestID, err)
+			return err
+		}
+		log.Printf("[RequestID: %s] Latest update evaluation triggered auto-check routine.", params.RequestID)
+		return nil
+	}
+
+	areUpdatesIdentical, err := update2.AreUpdatesIdentical(*currentUpdate, *latestUpdate)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error comparing updates: %v", params.RequestID, err)
+		return err
+	}
+
+	if !areUpdatesIdentical {
+		err = s.MarkUpdateAsChecked(ctx, *currentUpdate, types.NormalUpdate)
+		if err != nil {
+			log.Printf("[RequestID: %s] Error marking update as checked: %v", params.RequestID, err)
+			return err
+		}
+		log.Printf("[RequestID: %s] Updates are not identical, update marked as checked", params.RequestID)
+		return nil
+	}
+
+	log.Printf("[RequestID: %s] Updates are identical, delete folder...", params.RequestID)
+	err = s.bucket.DeleteUpdateFolder(params.AppID, params.BranchName, params.RuntimeVersion, currentUpdate.UpdateId)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error deleting update folder: %v", params.RequestID, err)
+		return err
+	}
+	log.Printf("[RequestID: %s] Updates are identical, folder deleted", params.RequestID)
+
+	return ErrNoChangesDetected
+}
+
+func getUpdateUUIDFromMetadata(update types.Update) string {
+	metadata, err := update2.GetMetadata(update)
+	if err != nil {
+		return ""
+	}
+	updateUUID := crypto.ConvertSHA256HashToUUID(metadata.ID)
+	return updateUUID
+}
+
+func (s *DeploymentService) MarkUpdateAsChecked(ctx context.Context, update types.Update, updateType types.UpdateType) error {
+	cache := cache.GetCache()
+	branchesCacheKey := dashboard.ComputeGetBranchesCacheKey(update.AppId)
+	runTimeVersionsCacheKey := dashboard.ComputeGetRuntimeVersionsCacheKey(update.AppId, update.Branch)
+	updatesCacheKey := dashboard.ComputeGetUpdatesCacheKey(update.AppId, update.Branch, update.RuntimeVersion)
+	storedMetadata, err := s.updateRepo.RetrieveUpdateStoredMetadata(ctx, update)
+	if err != nil || storedMetadata == nil {
+		return err
+	}
+	// Retrieve the update UUID only for normal updates, as rollbacks don't have metadata stored
+	if updateType == types.NormalUpdate {
+		updateUUID := getUpdateUUIDFromMetadata(update)
+		err = s.updateRepo.StoreUpdateUUIDInMetadata(ctx, update, updateUUID)
+		if err != nil {
+			return err
+		}
+	}
+	// Mark update as checked BEFORE invalidating the lastUpdate cache.
+	// The check on valid update uses .check as the "this update is complete
+	// and pickable" sentinel;
+	// if we deleted the cache first, a concurrent /manifest request would
+	// miss, re-scan updates, find this one without .check, filter it out,
+	// and re-cache the previous update for the full TTL (1800s) — serving
+	// a stale manifest for up to 30 minutes after a publish or rollback.
+	err = s.updateRepo.MarkUpdateAsChecked(ctx, update)
+	if err != nil {
+		return err
+	}
+	cacheKeys := []string{update2.ComputeLastUpdateCacheKey(update.AppId, update.Branch, update.RuntimeVersion, storedMetadata.Platform), branchesCacheKey, runTimeVersionsCacheKey, updatesCacheKey}
+	for _, cacheKey := range cacheKeys {
+		cache.Delete(cacheKey)
+	}
+	go PreWarmManifestCache(s.updateService, update.AppId, update.Branch, update.RuntimeVersion, "ios")
+	go PreWarmManifestCache(s.updateService, update.AppId, update.Branch, update.RuntimeVersion, "android")
+	return nil
+}
+
+func (s *DeploymentService) RequestUploadLocalFile(ctx context.Context, params RequestLocalFileUploadParams) error {
+	bucketType := bucket.ResolveBucketType()
+	if bucketType != bucket.LocalBucketType {
+		log.Printf("[RequestID: %s] Invalid bucket type: %s", params.RequestID, bucketType)
+		return ErrInvalidBucketType
+	}
+
+	// Defense against a leaked-token cross-app write: the token claim must
+	// match the app id on the URL. Without this check, a valid token scoped
+	// to AppA could be replayed via /{AppB}/uploadLocalFile to land bytes
+	// under AppA's bucket tree from an AppB-authenticated session.
+	if params.TokenAppID != params.AppID {
+		log.Printf("[RequestID: %s] Token appId mismatch: token=%q url=%q", params.RequestID, params.TokenAppID, params.AppID)
+		return ErrTokenAppMismatch
+	}
+
+	success, err := bucket.HandleUploadFile(params.FilePath, params.Body)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error handling upload file: %v", params.RequestID, err)
+		return err
+	}
+	if !success {
+		log.Printf("[RequestID: %s] Error handling upload file", params.RequestID)
+		return ErrUploadFailed
+	}
+
+	return nil
+}
+
+func (s *DeploymentService) RequestUploadURLs(ctx context.Context, params RequestUploadURLParams) (*RequestUploadURLResponse, error) {
+	err := s.branchService.UpsertBranchAndRuntimeVersion(ctx, params.AppID, params.BranchName, params.RuntimeVersion)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error upserting branch and runtime version: %v", params.RequestID, err)
+		return nil, err
+	}
+
+	updateId := update2.GenerateUpdateTimestamp(params.Platform)
+	updateStr := update2.ConvertUpdateTimestampToString(updateId)
+
+	updateRequests, err := bucket.RequestUploadUrlsForFileUpdates(
+		params.AppID,
+		params.BranchName,
+		params.RuntimeVersion,
+		updateStr,
+		params.FileNames,
+	)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error requesting upload urls: %v", params.RequestID, err)
+		return nil, err
+	}
+
+	newUpdate, err := s.updateRepo.CreateUpdate(
+		ctx,
+		params.AppID,
+		updateId,
+		params.BranchName,
+		params.RuntimeVersion,
+		params.Platform,
+		params.CommitHash,
+		params.Message,
+	)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error uploading file update metadata: %v", params.RequestID, err)
+		return nil, err
+	}
+	if newUpdate == nil {
+		log.Printf("[RequestID: %s] Error creating update record: no update returned", params.RequestID)
+		return nil, fmt.Errorf("failed to create update record: no update returned")
+	}
+	// newUpdate.UpdateId is already a string, no need to format
+	updateIdInt, _ := strconv.ParseInt(newUpdate.UpdateId, 10, 64)
+
+	return &RequestUploadURLResponse{
+		UpdateID:       updateIdInt,
+		UploadRequests: updateRequests,
+	}, nil
+}
+
+func (s *DeploymentService) RollbackRelease(ctx context.Context, params RollbackParams) (*types.Update, error) {
+	err := s.branchService.UpsertBranchAndRuntimeVersion(ctx, params.AppID, params.BranchName, params.RuntimeVersion)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error upserting branch and runtime version: %v", params.RequestID, err)
+		return nil, err
+	}
+	rollback, err := s.CreateRollback(ctx, params.AppID, params.BranchName, params.RuntimeVersion, params.Platform, params.CommitHash)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error creating rollback: %v", params.RequestID, err)
+		return nil, err
+	}
+	return rollback, nil
+}
+
+func (s *DeploymentService) CreateRollback(ctx context.Context, appId, platform, commitHash, runtimeVersion, branchName string) (*types.Update, error) {
+	updateId := update2.GenerateUpdateTimestamp(platform)
+	rollback, err := s.updateRepo.CreateRollback(ctx, appId, updateId, branchName, runtimeVersion, platform, commitHash)
+	if err != nil {
+		return nil, err
+	}
+	if rollback == nil {
+		return nil, fmt.Errorf("failed to create rollback: no update returned")
+	}
+	err = s.MarkUpdateAsChecked(ctx, *rollback, types.Rollback)
+	if err != nil {
+		return nil, err
+	}
+	return rollback, nil
+}
+
+func (s *DeploymentService) RepublishRelease(ctx context.Context, params RepublishParams) (*types.Update, error) {
+	err := s.branchService.UpsertBranchAndRuntimeVersion(ctx, params.AppID, params.BranchName, params.RuntimeVersion)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error upserting branch and runtime version: %v", params.RequestID, err)
+		return nil, err
+	}
+
+	targetUpdate, err := s.updateRepo.GetUpdate(ctx, params.AppID, params.BranchName, params.RuntimeVersion, params.UpdateID)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error getting update: %v", params.RequestID, err)
+	}
+	if targetUpdate == nil {
+		log.Printf("[RequestID: %s] Validation failed: Source update %s not found for branch %s", params.RequestID, params.UpdateID, params.BranchName)
+		return nil, fmt.Errorf("source update record not found")
+	}
+
+	updateType, err := s.updateRepo.GetUpdateType(ctx, *targetUpdate)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error determining update type: %v", params.RequestID, err)
+		return nil, fmt.Errorf("failed to determine source update type: %w", err)
+	}
+	if updateType != types.NormalUpdate {
+		log.Printf("[RequestID: %s] Update type is not normal update", params.RequestID)
+		return nil, fmt.Errorf("republish aborted: Update type is not normal update")
+	}
+
+	if !update2.IsUpdateValid(*targetUpdate) {
+		log.Printf("[RequestID: %s] Update is not valid", params.RequestID)
+		return nil, fmt.Errorf("republish aborted: Update is not valid")
+	}
+
+	storedMetadata, err := s.updateRepo.RetrieveUpdateStoredMetadata(ctx, *targetUpdate)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error retrieving update commit hash and platform: %v", params.RequestID, err)
+		return nil, fmt.Errorf("Error retrieving update commit hash and platform: %w", err)
+	}
+	if storedMetadata == nil {
+		log.Printf("[RequestID: %s] No stored metadata found for update: %s", params.RequestID, params.UpdateID)
+		return nil, fmt.Errorf("No stored metadata found for update")
+	}
+
+	if storedMetadata.Platform != params.Platform {
+		log.Printf("[RequestID: %s] Update platform mismatch: %s != %s", params.RequestID, storedMetadata.Platform, params.Platform)
+		return nil, fmt.Errorf("platform identifier mismatch: package compiled for %s cannot target %s", storedMetadata.Platform, params.Platform)
+	}
+
+	newUpdate, err := s.RepublishUpdate(ctx, targetUpdate, params.Platform, params.CommitHash)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error republishing update: %v", params.RequestID, err)
+		return nil, fmt.Errorf("Error republishing update: %w", err)
+	}
+
+	return newUpdate, nil
+}
+
+func (s *DeploymentService) RepublishUpdate(ctx context.Context, previousUpdate *types.Update, platform, commitHash string) (*types.Update, error) {
+	updateId := update2.GenerateUpdateTimestamp(platform)
+	_, err := s.bucket.CreateUpdateFrom(previousUpdate, update2.ConvertUpdateTimestampToString(updateId))
+	if err != nil {
+		return nil, err
+	}
+	newUpdate, err := s.updateRepo.CreateUpdate(ctx, previousUpdate.AppId, updateId, previousUpdate.Branch, previousUpdate.RuntimeVersion, platform, commitHash, "")
+	if err != nil {
+		return nil, err
+	}
+	err = s.MarkUpdateAsChecked(ctx, *newUpdate, types.NormalUpdate)
+	if err != nil {
+		return nil, err
+	}
+	return newUpdate, nil
+}

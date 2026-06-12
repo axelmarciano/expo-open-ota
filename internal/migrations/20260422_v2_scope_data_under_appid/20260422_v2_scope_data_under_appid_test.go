@@ -23,7 +23,7 @@ func (u unreachableBucket) GetBranches(string) ([]string, error) {
 	u.t.Fatal("migration should have skipped; GetBranches should not be called")
 	return nil, nil
 }
-func (u unreachableBucket) GetRuntimeVersions(string, string) ([]bucket.RuntimeVersionWithStats, error) {
+func (u unreachableBucket) GetRuntimeVersions(string, string) ([]types.RuntimeVersionWithStats, error) {
 	u.t.Fatal("migration should have skipped")
 	return nil, nil
 }

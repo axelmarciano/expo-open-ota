@@ -36,7 +36,7 @@ export default class Init extends Command {
       ?.projectId;
     const { appId } = await promptAsync({
       message:
-        'Enter the Expo project id for this project (sent as the expo-app-id header).\n' +
+        'Enter the project id for this project (sent as the expo-app-id header).\n' +
         '  See https://axelmarciano.github.io/expo-open-ota/docs/getting-started/prerequisites for details.',
       name: 'appId',
       type: 'text',

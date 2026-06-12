@@ -1,7 +1,7 @@
 import { Env, Platform } from '@expo/eas-build-job';
 import { Command, Flags } from '@oclif/core';
 
-import { getAuthExpoHeaders, retrieveExpoCredentials } from '../lib/auth';
+import { getAuthHeaders, retrieveCredentials, validateCredentials } from '../lib/auth';
 import {
   RequestedPlatform,
   getExpoConfigUpdateUrl,
@@ -49,9 +49,11 @@ export default class Publish extends Command {
     };
   }
   public async run(): Promise<void> {
-    const credentials = retrieveExpoCredentials();
-    if (!credentials.token && !credentials.sessionSecret) {
-      Log.error('You are not logged to eas, please run `eas login`');
+    const credentials = retrieveCredentials();
+    if (!validateCredentials(credentials)) {
+      Log.error(
+        'Invalid credentials. Please run `eas login or set EXPO_ACCESS_TOKEN or EOO_TOKEN environment variable`'
+      );
       process.exit(1);
     }
     const { flags } = await this.parse(Publish);
@@ -159,7 +161,7 @@ export default class Publish extends Command {
         const response = await fetchWithRetries(rollbackUrl.toString(), {
           method: 'POST',
           headers: {
-            ...getAuthExpoHeaders(credentials),
+            ...getAuthHeaders(credentials),
           },
         });
         if (!response.ok) {

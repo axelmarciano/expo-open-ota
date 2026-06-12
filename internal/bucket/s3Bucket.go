@@ -4,12 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"expo-open-ota/internal/services"
+	"expo-open-ota/internal/helpers"
+	"expo-open-ota/internal/providers"
 	"expo-open-ota/internal/types"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"io"
 	"runtime"
 	"sort"
@@ -17,6 +15,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 type S3Bucket struct {
@@ -33,7 +35,7 @@ func (b *S3Bucket) DeleteUpdateFolder(appId, branch, runtimeVersion, updateId st
 		return errors.New("BucketName not set")
 	}
 
-	s3Client, err := services.GetS3Client()
+	s3Client, err := providers.GetS3Client()
 	if err != nil {
 		return fmt.Errorf("error getting S3 client: %w", err)
 	}
@@ -89,11 +91,11 @@ func (b *S3Bucket) DeleteUpdateFolder(appId, branch, runtimeVersion, updateId st
 	return nil
 }
 
-func (b *S3Bucket) GetRuntimeVersions(appId string, branch string) ([]RuntimeVersionWithStats, error) {
+func (b *S3Bucket) GetRuntimeVersions(appId string, branch string) ([]types.RuntimeVersionWithStats, error) {
 	if b.BucketName == "" {
 		return nil, errors.New("BucketName not set")
 	}
-	s3Client, errS3 := services.GetS3Client()
+	s3Client, errS3 := providers.GetS3Client()
 	if errS3 != nil {
 		return nil, errS3
 	}
@@ -109,7 +111,7 @@ func (b *S3Bucket) GetRuntimeVersions(appId string, branch string) ([]RuntimeVer
 		return nil, fmt.Errorf("ListObjectsV2 error: %w", err)
 	}
 
-	var runtimeVersions []RuntimeVersionWithStats
+	var runtimeVersions []types.RuntimeVersionWithStats
 	prefixLen := len(branchPrefix)
 
 	for _, commonPrefix := range resp.CommonPrefixes {
@@ -141,10 +143,10 @@ func (b *S3Bucket) GetRuntimeVersions(appId string, branch string) ([]RuntimeVer
 
 		sort.Slice(updateTimestamps, func(i, j int) bool { return updateTimestamps[i] < updateTimestamps[j] })
 
-		runtimeVersions = append(runtimeVersions, RuntimeVersionWithStats{
+		runtimeVersions = append(runtimeVersions, types.RuntimeVersionWithStats{
 			RuntimeVersion:  runtimeVersion,
-			CreatedAt:       time.UnixMilli(updateTimestamps[0]).UTC().Format(time.RFC3339),
-			LastUpdatedAt:   time.UnixMilli(updateTimestamps[len(updateTimestamps)-1]).UTC().Format(time.RFC3339),
+			CreatedAt:       helpers.NormalizeTimestamp(updateTimestamps[0]).Format(time.RFC3339),
+			LastUpdatedAt:   helpers.NormalizeTimestamp(updateTimestamps[len(updateTimestamps)-1]).Format(time.RFC3339),
 			NumberOfUpdates: len(updateTimestamps),
 		})
 	}
@@ -156,7 +158,7 @@ func (b *S3Bucket) GetBranches(appId string) ([]string, error) {
 	if b.BucketName == "" {
 		return nil, errors.New("BucketName not set")
 	}
-	s3Client, errS3 := services.GetS3Client()
+	s3Client, errS3 := providers.GetS3Client()
 	if errS3 != nil {
 		return nil, errS3
 	}
@@ -183,7 +185,7 @@ func (b *S3Bucket) GetUpdates(appId string, branch string, runtimeVersion string
 	if b.BucketName == "" {
 		return nil, errors.New("BucketName not set")
 	}
-	s3Client, errS3 := services.GetS3Client()
+	s3Client, errS3 := providers.GetS3Client()
 	if errS3 != nil {
 		return nil, errS3
 	}
@@ -206,7 +208,7 @@ func (b *S3Bucket) GetUpdates(appId string, branch string, runtimeVersion string
 				Branch:         branch,
 				RuntimeVersion: runtimeVersion,
 				UpdateId:       strconv.FormatInt(updateId, 10),
-				CreatedAt:      time.Duration(updateId) * time.Millisecond,
+				CreatedAt:      helpers.NormalizeTimestampToDuration(updateId),
 			})
 		}
 	}
@@ -219,7 +221,7 @@ func (b *S3Bucket) GetFile(update types.Update, assetPath string) (*types.Bucket
 	}
 	key := b.prefixedKey(update.AppId + "/" + update.Branch + "/" + update.RuntimeVersion + "/" + update.UpdateId + "/" + assetPath)
 
-	s3Client, err := services.GetS3Client()
+	s3Client, err := providers.GetS3Client()
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +250,7 @@ func (b *S3Bucket) RequestUploadUrlForFileUpdate(appId string, branch string, ru
 		return "", errors.New("BucketName not set")
 	}
 
-	s3Client, err := services.GetS3Client()
+	s3Client, err := providers.GetS3Client()
 	if err != nil {
 		return "", fmt.Errorf("error getting S3 client: %w", err)
 	}
@@ -276,7 +278,7 @@ func (b *S3Bucket) UploadFileIntoUpdate(update types.Update, fileName string, fi
 	if b.BucketName == "" {
 		return errors.New("BucketName not set")
 	}
-	s3Client, err := services.GetS3Client()
+	s3Client, err := providers.GetS3Client()
 	if err != nil {
 		return err
 	}
@@ -307,7 +309,7 @@ func (b *S3Bucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId st
 		return nil, errors.New("newUpdateId is empty")
 	}
 
-	s3Client, err := services.GetS3Client()
+	s3Client, err := providers.GetS3Client()
 	if err != nil {
 		return nil, fmt.Errorf("error getting S3 client: %w", err)
 	}
@@ -388,7 +390,7 @@ func (b *S3Bucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId st
 		Branch:         previousUpdate.Branch,
 		RuntimeVersion: previousUpdate.RuntimeVersion,
 		UpdateId:       newUpdateId,
-		CreatedAt:      time.Duration(updateId) * time.Millisecond,
+		CreatedAt:      helpers.NormalizeTimestampToDuration(updateId),
 	}, nil
 }
 
@@ -396,7 +398,7 @@ func (b *S3Bucket) RetrieveMigrationHistory() ([]string, error) {
 	if b.BucketName == "" {
 		return nil, errors.New("BucketName not set")
 	}
-	s3Client, errS3 := services.GetS3Client()
+	s3Client, errS3 := providers.GetS3Client()
 	if errS3 != nil {
 		return nil, errS3
 	}
@@ -446,7 +448,7 @@ func (b *S3Bucket) ApplyMigration(migrationId string) error {
 		return nil
 	}
 
-	s3Client, errS3 := services.GetS3Client()
+	s3Client, errS3 := providers.GetS3Client()
 	if errS3 != nil {
 		return errS3
 	}
@@ -503,7 +505,7 @@ func (b *S3Bucket) RemoveMigrationFromHistory(migrationId string) error {
 		}
 	}
 
-	s3Client, errS3 := services.GetS3Client()
+	s3Client, errS3 := providers.GetS3Client()
 	if errS3 != nil {
 		return errS3
 	}

@@ -1,11 +1,11 @@
 package bucket
 
 import (
+	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/types"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -24,7 +24,7 @@ func TestGetFile_ValidAssetPath(t *testing.T) {
 		Branch:         "branch-1",
 		RuntimeVersion: "1",
 		UpdateId:       "1674170951",
-		CreatedAt:      time.Duration(1674170951) * time.Millisecond,
+		CreatedAt:      helpers.NormalizeTimestampToDuration(1674170951),
 	}
 
 	file, err := b.GetFile(update, "metadata.json")

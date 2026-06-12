@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"expo-open-ota/config"
+	"expo-open-ota/internal/handlers"
+	"expo-open-ota/internal/services"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -16,19 +18,21 @@ import (
 // unknown app ids return 404 here, instead of falling through to handlers
 // that try to validate the request against api.expo.dev with no token and
 // surface that as a misleading 401.
-func AppResolverMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		appId := mux.Vars(r)["APP_ID"]
-		if !isValidAppID(appId) {
-			http.Error(w, "invalid app id", http.StatusBadRequest)
-			return
-		}
-		if _, err := config.GetAppConfig(appId); err != nil {
-			http.Error(w, "Unknown app id", http.StatusNotFound)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+func AppResolverMiddleware(appRepository services.AppRepository) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			appId := mux.Vars(r)["APP_ID"]
+			if !isValidAppID(appId) {
+				handlers.RenderError(w, http.StatusBadRequest, "invalid app id")
+				return
+			}
+			if _, err := appRepository.GetAppByID(r.Context(), appId); err != nil {
+				handlers.RenderError(w, http.StatusNotFound, "app not found")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // isValidAppID short-circuits obviously-malformed ids before hitting the

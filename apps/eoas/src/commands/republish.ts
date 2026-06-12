@@ -2,7 +2,7 @@ import { Env } from '@expo/eas-build-job';
 import { Command, Flags } from '@oclif/core';
 import ora from 'ora';
 
-import { getAuthExpoHeaders, retrieveExpoCredentials } from '../lib/auth';
+import { getAuthHeaders, retrieveCredentials, validateCredentials } from '../lib/auth';
 import {
   getExpoConfigUpdateUrl,
   getPrivateExpoConfigAsync,
@@ -40,9 +40,11 @@ export default class Publish extends Command {
     };
   }
   public async run(): Promise<void> {
-    const credentials = retrieveExpoCredentials();
-    if (!credentials.token && !credentials.sessionSecret) {
-      Log.error('You are not logged to eas, please run `eas login`');
+    const credentials = retrieveCredentials();
+    if (!validateCredentials(credentials)) {
+      Log.error(
+        'Invalid credentials. Please run `eas login or set EXPO_ACCESS_TOKEN or EOO_TOKEN environment variable`'
+      );
       process.exit(1);
     }
     const { flags } = await this.parse(Publish);
@@ -86,8 +88,8 @@ export default class Publish extends Command {
     const runtimeVersionsEndpoint = `${baseUrl}/api/apps/${appId}/branch/${branch}/runtimeVersions`;
     const response = await fetchWithRetries(runtimeVersionsEndpoint, {
       headers: {
-        ...getAuthExpoHeaders(credentials),
-        'use-expo-auth': 'true',
+        ...getAuthHeaders(credentials),
+        'use-cli-auth': 'true',
       },
     });
     if (!response.ok) {
@@ -121,8 +123,8 @@ export default class Publish extends Command {
     const updatesEndpoint = `${baseUrl}/api/apps/${appId}/branch/${branch}/runtimeVersion/${selectedRuntimeVersion.runtimeVersion}/updates`;
     const updatesResponse = await fetchWithRetries(updatesEndpoint, {
       headers: {
-        ...getAuthExpoHeaders(credentials),
-        'use-expo-auth': 'true',
+        ...getAuthHeaders(credentials),
+        'use-cli-auth': 'true',
       },
     });
     if (!updatesResponse.ok) {
@@ -140,6 +142,10 @@ export default class Publish extends Command {
     ).filter(u => {
       return u.updateUUID !== 'Rollback to embedded' && u.platform === platform;
     });
+    if (updates.length === 0) {
+      Log.error('No updates found for the selected runtime version and platform');
+      process.exit(1);
+    }
     const selectedUpdated = await promptAsync({
       type: 'select',
       name: 'update',
@@ -160,7 +166,8 @@ export default class Publish extends Command {
     const republishResponse = await fetchWithRetries(republishUrl.toString(), {
       method: 'POST',
       headers: {
-        ...getAuthExpoHeaders(credentials),
+        ...getAuthHeaders(credentials),
+        'use-cli-auth': 'true',
         'Content-Type': 'application/json',
       },
     });

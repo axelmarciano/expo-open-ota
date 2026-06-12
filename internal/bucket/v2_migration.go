@@ -2,7 +2,7 @@ package bucket
 
 import (
 	"context"
-	"expo-open-ota/internal/services"
+	"expo-open-ota/internal/providers"
 	"fmt"
 	"net/url"
 	"os"
@@ -146,7 +146,7 @@ func (b *LocalBucket) looksLikeV1Branch(name string) bool {
 // keys have their marker at segment 5, so their triple never gets
 // confirmed and they are left alone.
 func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
-	client, err := services.GetS3Client()
+	client, err := providers.GetS3Client()
 	if err != nil {
 		return err
 	}

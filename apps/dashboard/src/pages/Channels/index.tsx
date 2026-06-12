@@ -21,13 +21,13 @@ export const Channels = () => {
     mutationKey: ['update-branch'],
     mutationFn: async ({
       branchName,
-      releaseChannelId,
+      releaseChannel,
     }: {
       branchName: string;
-      releaseChannelId: string;
+      releaseChannel: string;
     }) => {
       return api.updateChannelBranchMapping(branchName, {
-        releaseChannel: releaseChannelId,
+        releaseChannel
       });
     },
   });
@@ -39,7 +39,7 @@ export const Channels = () => {
       try {
         await mutation.mutateAsync({
           branchName,
-          releaseChannelId: channelId,
+          releaseChannel: channelId,
         });
         await refetch();
         toast({

@@ -139,16 +139,9 @@ func resolveKeyPrefix() string {
 	return prefix
 }
 
-type RuntimeVersionWithStats struct {
-	RuntimeVersion  string `json:"runtimeVersion"`
-	LastUpdatedAt   string `json:"lastUpdatedAt"`
-	CreatedAt       string `json:"createdAt"`
-	NumberOfUpdates int    `json:"numberOfUpdates"`
-}
-
 type Bucket interface {
 	GetBranches(appId string) ([]string, error)
-	GetRuntimeVersions(appId string, branch string) ([]RuntimeVersionWithStats, error)
+	GetRuntimeVersions(appId string, branch string) ([]types.RuntimeVersionWithStats, error)
 	GetUpdates(appId string, branch string, runtimeVersion string) ([]types.Update, error)
 	GetFile(update types.Update, assetPath string) (*types.BucketFile, error)
 	RequestUploadUrlForFileUpdate(appId string, branch string, runtimeVersion string, updateId string, fileName string) (string, error)

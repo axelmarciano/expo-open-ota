@@ -7,7 +7,7 @@ import mime from 'mime';
 import path from 'path';
 
 import { RequestUploadUrlItem, computeFilesRequests, requestUploadUrls } from '../lib/assets';
-import { getAuthExpoHeaders, retrieveExpoCredentials } from '../lib/auth';
+import { getAuthHeaders, retrieveCredentials, validateCredentials } from '../lib/auth';
 import {
   RequestedPlatform,
   getPrivateExpoConfigAsync,
@@ -97,10 +97,12 @@ export default class Publish extends Command {
     };
   }
   public async run(): Promise<void> {
-    const credentials = retrieveExpoCredentials();
+    const credentials = retrieveCredentials();
 
-    if (!credentials.token && !credentials.sessionSecret) {
-      Log.error('You are not logged to eas, please run `eas login`');
+    if (!validateCredentials(credentials)) {
+      Log.error(
+        'Invalid credentials. Please run `eas login or set EXPO_ACCESS_TOKEN or EOO_TOKEN environment variable`'
+      );
       process.exit(1);
     }
     const { flags } = await this.parse(Publish);
@@ -308,7 +310,7 @@ export default class Publish extends Command {
               method: 'PUT',
               headers: {
                 ...formData.getHeaders(),
-                ...getAuthExpoHeaders(credentials),
+                ...getAuthHeaders(credentials),
               },
               body: formData,
             });
@@ -362,7 +364,7 @@ export default class Publish extends Command {
         const response = await fetchWithRetries(markAsUploadedUrl.toString(), {
           method: 'POST',
           headers: {
-            ...getAuthExpoHeaders(credentials),
+            ...getAuthHeaders(credentials),
             'Content-Type': 'application/json',
           },
         });

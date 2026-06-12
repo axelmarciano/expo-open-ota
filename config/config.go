@@ -3,6 +3,7 @@ package config
 import (
 	"expo-open-ota/internal/helpers"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 
@@ -19,6 +20,27 @@ func GetPort() string {
 		port = "3000"
 	}
 	return port
+}
+
+func GetDBURL() string {
+	return GetEnv("DB_URL")
+}
+
+func IsDBMode() bool {
+	return GetDBURL() != ""
+}
+
+func ValidateMasterKey() error {
+	awsKeyId := GetEnv("AWSSM_CONTROL_PLANE_MASTER_KEY_B64_SECRET_ID")
+	localKey := GetEnv("CONTROL_PLANE_MASTER_KEY_B64")
+	if awsKeyId == "" && localKey == "" {
+		return fmt.Errorf("Neither AWSSM_CONTROL_PLANE_MASTER_KEY_B64_SECRET_ID nor CONTROL_PLANE_MASTER_KEY_B64 is set")
+	}
+	if awsKeyId != "" && localKey != "" {
+		log.Printf("Both AWSSM_CONTROL_PLANE_MASTER_KEY_B64_SECRET_ID and CONTROL_PLANE_MASTER_KEY_B64 are set; please set only one")
+		return fmt.Errorf("Both AWSSM_CONTROL_PLANE_MASTER_KEY_B64_SECRET_ID and CONTROL_PLANE_MASTER_KEY_B64 are set; please set only one")
+	}
+	return nil
 }
 
 func validateBucketParams(storageMode string) bool {
@@ -65,7 +87,6 @@ func resolveDefaultBaseUrl() string {
 	return "http://localhost:" + port
 }
 
-
 func LoadConfig() {
 	err := godotenv.Load()
 	if err != nil {
@@ -83,13 +104,6 @@ func LoadConfig() {
 	if !validateBaseUrl(baseUrl) {
 		log.Fatalf("Invalid BASE_URL: %s", baseUrl)
 	}
-	// v2: per-app identity + keys live in the apps config (EXPO_APPS_JSON
-	// for multi-app, or the legacy EXPO_APP_ID / EXPO_ACCESS_TOKEN /
-	// PUBLIC_LOCAL_EXPO_KEY_PATH etc. flat env vars for the single-app
-	// upgrade-in-place path).
-	if err := LoadApps(); err != nil {
-		log.Fatalf("Invalid apps config: %v\nSee https://axelmarciano.github.io/expo-open-ota/docs/getting-started/prerequisites for the v2 multi-app config format.", err)
-	}
 	jwtSecret := GetEnv("JWT_SECRET")
 	if jwtSecret == "" {
 		log.Fatalf("JWT_SECRET not set")
@@ -103,8 +117,14 @@ var DefaultEnvValues = map[string]string{
 	"JWT_SECRET":             "",
 	"AWS_REGION":             "eu-west-3",
 	"AWS_BASE_ENDPOINT":      "",
-}
 
+	// Database connection defaults
+	"DB_URL":                "",
+	"DB_MAX_CONNS":          "25",
+	"DB_MIN_CONNS":          "5",
+	"DB_MAX_CONN_LIFETIME":  "30m",
+	"DB_MAX_CONN_IDLE_TIME": "5m",
+}
 
 func GetEnv(key string) string {
 	value := os.Getenv(key)

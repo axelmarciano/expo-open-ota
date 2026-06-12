@@ -46,7 +46,7 @@ func resetAppsEnv(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// validateApp / validateKeys — unit tests on the validator only. No env.
+// validateApp / ValidateKeys — unit tests on the validator only. No env.
 // -----------------------------------------------------------------------------
 
 func TestValidateApp_AcceptsEachMode(t *testing.T) {
@@ -88,25 +88,25 @@ func TestValidateApp_AcceptsEachMode(t *testing.T) {
 
 func TestValidateApp_RejectsBadId(t *testing.T) {
 	cases := map[string]string{
-		"empty":            "",
-		"slash":            "foo/bar",
-		"backslash":        "foo\\bar",
-		"space":            "foo bar",
-		"tab":              "foo\tbar",
-		"newline":          "foo\nbar",
-		"carriage-return":  "foo\rbar",
-		"null-byte":        "foo\x00bar",
-		"control-char":     "foo\x01bar",
-		"dot":              ".",
-		"dotdot":           "..",
-		"unicode-letter":   "app-é",
-		"unicode-cjk":      "app中",
-		"unicode-slash":    "app∕bar", // U+2215 division slash, a `/` lookalike
-		"fullwidth-slash":  "app／bar", // U+FF0F
-		"colon":            "app:1",
-		"plus":             "app+1",
-		"at":               "app@1",
-		"emoji":            "app🚀",
+		"empty":           "",
+		"slash":           "foo/bar",
+		"backslash":       "foo\\bar",
+		"space":           "foo bar",
+		"tab":             "foo\tbar",
+		"newline":         "foo\nbar",
+		"carriage-return": "foo\rbar",
+		"null-byte":       "foo\x00bar",
+		"control-char":    "foo\x01bar",
+		"dot":             ".",
+		"dotdot":          "..",
+		"unicode-letter":  "app-é",
+		"unicode-cjk":     "app中",
+		"unicode-slash":   "app∕bar", // U+2215 division slash, a `/` lookalike
+		"fullwidth-slash": "app／bar", // U+FF0F
+		"colon":           "app:1",
+		"plus":            "app+1",
+		"at":              "app@1",
+		"emoji":           "app🚀",
 	}
 	for name, badId := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -194,16 +194,16 @@ func TestValidateApp_RejectsMissingAccessToken(t *testing.T) {
 
 func TestValidateKeys_RejectsMissingModeFields(t *testing.T) {
 	cases := map[string]KeysConfig{
-		"local missing public":  {Mode: KeysModeLocal, PrivatePath: "/q"},
-		"local missing private": {Mode: KeysModeLocal, PublicPath: "/p"},
-		"aws-sm missing public": {Mode: KeysModeAWSSM, PrivateSecretId: "/q"},
-		"aws-sm missing private": {Mode: KeysModeAWSSM, PublicSecretId: "/p"},
+		"local missing public":        {Mode: KeysModeLocal, PrivatePath: "/q"},
+		"local missing private":       {Mode: KeysModeLocal, PublicPath: "/p"},
+		"aws-sm missing public":       {Mode: KeysModeAWSSM, PrivateSecretId: "/q"},
+		"aws-sm missing private":      {Mode: KeysModeAWSSM, PublicSecretId: "/p"},
 		"environment missing public":  {Mode: KeysModeEnvironment, PrivateB64: "xx"},
 		"environment missing private": {Mode: KeysModeEnvironment, PublicB64: "xx"},
 	}
 	for name, k := range cases {
 		t.Run(name, func(t *testing.T) {
-			err := validateKeys(&k, "apps[0].keys")
+			err := ValidateKeys(&k, "apps[0].keys")
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "requires")
 		})
@@ -239,7 +239,7 @@ func TestValidateKeys_RejectsCrossModeFields(t *testing.T) {
 	}
 	for name, k := range cases {
 		t.Run(name, func(t *testing.T) {
-			err := validateKeys(&k, "apps[0].keys")
+			err := ValidateKeys(&k, "apps[0].keys")
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "must not set")
 		})
@@ -254,7 +254,7 @@ func TestValidateKeys_EnvironmentMode_RejectsInvalidBase64(t *testing.T) {
 		PublicB64:  "not-base64!!",
 		PrivateB64: stubPEMB64,
 	}
-	err := validateKeys(&k, "apps[0].keys")
+	err := ValidateKeys(&k, "apps[0].keys")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid base64")
 	assert.Contains(t, err.Error(), "publicB64")
@@ -270,7 +270,7 @@ func TestValidateKeys_EnvironmentMode_RejectsNonPEM(t *testing.T) {
 		PublicB64:  stubPEMB64,
 		PrivateB64: rawB64,
 	}
-	err := validateKeys(&k, "apps[0].keys")
+	err := ValidateKeys(&k, "apps[0].keys")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a PEM key")
 	assert.Contains(t, err.Error(), "privateB64")
@@ -278,12 +278,12 @@ func TestValidateKeys_EnvironmentMode_RejectsNonPEM(t *testing.T) {
 
 func TestValidateKeys_RejectsMissingOrUnknownMode(t *testing.T) {
 	t.Run("missing", func(t *testing.T) {
-		err := validateKeys(&KeysConfig{}, "apps[0].keys")
+		err := ValidateKeys(&KeysConfig{}, "apps[0].keys")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "required")
 	})
 	t.Run("unknown", func(t *testing.T) {
-		err := validateKeys(&KeysConfig{Mode: "env-b64"}, "apps[0].keys")
+		err := ValidateKeys(&KeysConfig{Mode: "env-b64"}, "apps[0].keys")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid")
 		// The "env-b64" value is a common migration mistake — the message

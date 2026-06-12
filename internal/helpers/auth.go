@@ -6,20 +6,20 @@ import (
 	"strings"
 )
 
-func GetExpoAuth(r *http.Request) types.ExpoAuth {
+func GetAuth(r *http.Request) types.Auth {
 	bearerToken, _ := GetBearerToken(r)
 	if bearerToken != "" {
-		return types.ExpoAuth{
+		return types.Auth{
 			Token: &bearerToken,
 		}
 	}
 	sessionSecret := r.Header.Get("expo-session")
 	if sessionSecret != "" {
-		return types.ExpoAuth{
+		return types.Auth{
 			SessionSecret: &sessionSecret,
 		}
 	}
-	return types.ExpoAuth{}
+	return types.Auth{}
 }
 
 func GetBearerToken(r *http.Request) (string, error) {

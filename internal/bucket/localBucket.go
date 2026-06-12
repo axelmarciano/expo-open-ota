@@ -3,12 +3,11 @@ package bucket
 import (
 	"bufio"
 	"errors"
-	"strings"
 	"expo-open-ota/config"
-	"expo-open-ota/internal/services"
+	"expo-open-ota/internal/helpers"
+	"expo-open-ota/internal/providers"
 	"expo-open-ota/internal/types"
 	"fmt"
-	"github.com/golang-jwt/jwt/v5"
 	"io"
 	"io/fs"
 	"mime/multipart"
@@ -18,8 +17,11 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type LocalBucket struct {
@@ -51,8 +53,8 @@ func (b *LocalBucket) RequestUploadUrlForFileUpdate(appId string, branch string,
 	if err != nil {
 		return "", err
 	}
-	token, err := services.GenerateJWTToken(config.GetEnv("JWT_SECRET"), jwt.MapClaims{
-		"sub":      services.FetchSelfExpoUsername(appId),
+	token, err := providers.GenerateJWTToken(config.GetEnv("JWT_SECRET"), jwt.MapClaims{
+		"sub":      GetSubjectForApp(appId),
 		"exp":      time.Now().Add(time.Minute * 10).Unix(),
 		"filePath": filepath.Join(dirPath, fileName),
 		"action":   "uploadLocalFile",
@@ -96,7 +98,7 @@ func (b *LocalBucket) GetUpdates(appId string, branch string, runtimeVersion str
 					Branch:         branch,
 					RuntimeVersion: runtimeVersion,
 					UpdateId:       strconv.FormatInt(updateId, 10),
-					CreatedAt:      time.Duration(updateId) * time.Millisecond,
+					CreatedAt:      helpers.NormalizeTimestampToDuration(updateId),
 				})
 			}
 		}
@@ -157,7 +159,7 @@ func (b *LocalBucket) GetBranches(appId string) ([]string, error) {
 	return branches, nil
 }
 
-func (b *LocalBucket) GetRuntimeVersions(appId string, branch string) ([]RuntimeVersionWithStats, error) {
+func (b *LocalBucket) GetRuntimeVersions(appId string, branch string) ([]types.RuntimeVersionWithStats, error) {
 	if b.BasePath == "" {
 		return nil, errors.New("BasePath not set")
 	}
@@ -166,7 +168,7 @@ func (b *LocalBucket) GetRuntimeVersions(appId string, branch string) ([]Runtime
 	if err != nil {
 		return nil, err
 	}
-	var runtimeVersions []RuntimeVersionWithStats
+	var runtimeVersions []types.RuntimeVersionWithStats
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -194,10 +196,10 @@ func (b *LocalBucket) GetRuntimeVersions(appId string, branch string) ([]Runtime
 
 		sort.Slice(updateTimestamps, func(i, j int) bool { return updateTimestamps[i] < updateTimestamps[j] })
 
-		runtimeVersions = append(runtimeVersions, RuntimeVersionWithStats{
+		runtimeVersions = append(runtimeVersions, types.RuntimeVersionWithStats{
 			RuntimeVersion:  runtimeVersion,
-			CreatedAt:       time.UnixMilli(updateTimestamps[0]).UTC().Format(time.RFC3339),
-			LastUpdatedAt:   time.UnixMilli(updateTimestamps[len(updateTimestamps)-1]).UTC().Format(time.RFC3339),
+			CreatedAt:       helpers.NormalizeTimestamp(updateTimestamps[0]).Format(time.RFC3339),
+			LastUpdatedAt:   helpers.NormalizeTimestamp(updateTimestamps[len(updateTimestamps)-1]).Format(time.RFC3339),
 			NumberOfUpdates: len(updateTimestamps),
 		})
 	}
@@ -223,6 +225,22 @@ func (b *LocalBucket) UploadFileIntoUpdate(update types.Update, fileName string,
 	return nil
 }
 
+// GetSubjectForApp resolves the tamper-proof identity token subject (sub) based
+// on the active runtime environment mode. If no relational database configuration
+// is present, it defaults to the legacy dual-mode behavior by requesting the account
+// owner's Expo username. In standalone deployments (indicated by a
+// configured DB URL), it bypasses external third-party dependencies completely and
+// returns a deterministic, app-scoped identifier prefixed with 'app:' to cleanly
+// lock down token claims to that specific target binary application.
+func GetSubjectForApp(appId string) string {
+	isDBMode := config.IsDBMode()
+	if !isDBMode {
+		// Fetch expo username
+		return providers.FetchSelfExpoUsername(appId)
+	}
+	return fmt.Sprintf("app:%s", appId)
+}
+
 // ValidateUploadTokenAndResolveFilePath decodes and verifies the JWT emitted
 // by RequestUploadUrlForFileUpdate. It returns the resolved filesystem path
 // plus the appId claim so the caller can confirm the token is scoped to the
@@ -231,7 +249,7 @@ func (b *LocalBucket) UploadFileIntoUpdate(update types.Update, fileName string,
 // /{AppB}/uploadLocalFile?token=<appA_token>.
 func ValidateUploadTokenAndResolveFilePath(token string) (filePath string, appId string, err error) {
 	claims := jwt.MapClaims{}
-	decodedToken, err := services.DecodeAndExtractJWTToken(config.GetEnv("JWT_SECRET"), token, claims)
+	decodedToken, err := providers.DecodeAndExtractJWTToken(config.GetEnv("JWT_SECRET"), token, claims)
 	if err != nil {
 		return "", "", err
 	}
@@ -242,7 +260,7 @@ func ValidateUploadTokenAndResolveFilePath(token string) (filePath string, appId
 	filePath, _ = claims["filePath"].(string)
 	sub, _ := claims["sub"].(string)
 	appId, _ = claims["appId"].(string)
-	if appId == "" || sub != services.FetchSelfExpoUsername(appId) {
+	if appId == "" || sub != GetSubjectForApp(appId) {
 		return "", "", errors.New("invalid token sub")
 	}
 	if action != "uploadLocalFile" {
@@ -341,7 +359,7 @@ func (b *LocalBucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId
 		Branch:         previousUpdate.Branch,
 		RuntimeVersion: previousUpdate.RuntimeVersion,
 		UpdateId:       newUpdateId,
-		CreatedAt:      time.Duration(updateId) * time.Millisecond,
+		CreatedAt:      helpers.NormalizeTimestampToDuration(updateId),
 	}, nil
 }
 

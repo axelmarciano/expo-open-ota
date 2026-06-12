@@ -31,7 +31,9 @@ export class ApiClient {
       // Guarded separately from the server 400 so the failure mode is a
       // clear console error instead of a confusing "No app id provided"
       // coming back from the server.
-      throw new Error('No app selected — set one via SelectedAppContext before making app-scoped calls.');
+      throw new Error(
+        'No app selected — set one via SelectedAppContext before making app-scoped calls.'
+      );
     }
     return `/api/apps/${encodeURIComponent(this.appId)}`;
   }
@@ -56,6 +58,10 @@ export class ApiClient {
 
     if (!response.ok) {
       throw new Error(`HTTP error! Status: ${response.status}`);
+    }
+
+    if (response.status === 204) {
+      return {} as T;
     }
 
     return response.json() as Promise<T>;
@@ -101,10 +107,18 @@ export class ApiClient {
       releaseChannel: string;
     }
   ) {
-    return this.request(`${this.appScope()}/branch/${encodeURIComponent(branchName)}/updateChannelBranchMapping`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+    return this.request(
+      `${this.appScope()}/branch/${encodeURIComponent(branchName)}/updateChannelBranchMapping`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+  public async getApps() {
+    return this.request<{ id: string; name: string }[]>(`/api/apps`, {
+      method: 'GET',
     });
   }
   public async getChannels() {
@@ -152,9 +166,12 @@ export class ApiClient {
         commitHash: string;
         message?: string;
       }[]
-    >(`${this.appScope()}/branch/${encodeURIComponent(branch)}/runtimeVersion/${encodeURIComponent(runtimeVersion)}/updates`, {
-      method: 'GET',
-    });
+    >(
+      `${this.appScope()}/branch/${encodeURIComponent(branch)}/runtimeVersion/${encodeURIComponent(runtimeVersion)}/updates`,
+      {
+        method: 'GET',
+      }
+    );
   }
   public async getUpdateDetails(branch: string, runtimeVersion: string, updateId: string) {
     return this.request<{

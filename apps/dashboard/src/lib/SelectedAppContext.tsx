@@ -34,13 +34,13 @@ export function SelectedAppProvider({ children }: { children: ReactNode }) {
   // query unauthenticated either spams console errors or — with a stale
   // refreshToken — drives the api refresh→logout fallback before the
   // user has a chance to type their password.
-  const settingsQuery = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.getSettings(),
+  const appsQuery = useQuery({
+    queryKey: ['apps'],
+    queryFn: () => api.getApps(),
     enabled: isAuthenticated(),
   });
 
-  const apps = useMemo(() => settingsQuery.data?.APPS ?? [], [settingsQuery.data]);
+  const apps = useMemo(() => appsQuery.data ?? [], [appsQuery.data]);
   const [selectedAppId, setSelectedAppIdState] = useState<string | null>(null);
 
   const setSelectedAppId = useCallback(
@@ -54,7 +54,7 @@ export function SelectedAppProvider({ children }: { children: ReactNode }) {
       queryClient.invalidateQueries({
         predicate: q => {
           const key = q.queryKey[0];
-          return key !== 'settings';
+          return key !== 'settings' && key !== 'apps';
         },
       });
     },
@@ -94,11 +94,11 @@ export function SelectedAppProvider({ children }: { children: ReactNode }) {
       apps,
       selectedAppId,
       setSelectedAppId,
-      isLoading: settingsQuery.isLoading,
-      error: settingsQuery.error,
+      isLoading: appsQuery.isLoading,
+      error: appsQuery.error,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [apps, selectedAppId, settingsQuery.isLoading, settingsQuery.error]
+    [apps, selectedAppId, appsQuery.isLoading, appsQuery.error]
   );
 
   return <SelectedAppContext.Provider value={value}>{children}</SelectedAppContext.Provider>;

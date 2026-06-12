@@ -22,7 +22,7 @@ func (v *validatingBucket) GetBranches(appId string) ([]string, error) {
 	return v.Inner.GetBranches(appId)
 }
 
-func (v *validatingBucket) GetRuntimeVersions(appId, branch string) ([]RuntimeVersionWithStats, error) {
+func (v *validatingBucket) GetRuntimeVersions(appId, branch string) ([]types.RuntimeVersionWithStats, error) {
 	if err := validateSegment("appId", appId); err != nil {
 		return nil, err
 	}
