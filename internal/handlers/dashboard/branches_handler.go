@@ -11,7 +11,6 @@ import (
 	"expo-open-ota/internal/store"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gorilla/mux"
 )
@@ -113,9 +112,8 @@ func (h *BranchHandler) GetBranchesHandler(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusOK)
 	w.Write(marshaledResponse)
 
-	ttl := 10 * time.Second
-	ttlMs := int(ttl.Milliseconds())
-	cache.Set(cacheKey, string(marshaledResponse), &ttlMs)
+	ttl := 3600
+	cache.Set(cacheKey, string(marshaledResponse), &ttl)
 }
 
 func (h *BranchHandler) GetRuntimeVersionsHandler(w http.ResponseWriter, r *http.Request) {
@@ -144,9 +142,8 @@ func (h *BranchHandler) GetRuntimeVersionsHandler(w http.ResponseWriter, r *http
 	w.WriteHeader(http.StatusOK)
 	w.Write(marshaledResponse)
 
-	ttl := 10 * time.Second
-	ttlMs := int(ttl.Milliseconds())
-	cache.Set(cacheKey, string(marshaledResponse), &ttlMs)
+	ttl := 3600
+	cache.Set(cacheKey, string(marshaledResponse), &ttl)
 }
 
 func (h *BranchHandler) UpdateChannelBranchMappingHandler(w http.ResponseWriter, r *http.Request) {

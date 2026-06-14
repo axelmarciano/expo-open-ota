@@ -1,5 +1,81 @@
 import { getRefreshToken, getToken, logout, setTokens } from '@/lib/auth.ts';
 
+export type APIProblemPayload = {
+  title: string;
+  status: number;
+  detail: string;
+};
+
+export class ApiProblemError extends Error {
+  public title: string;
+  public status: number;
+  public detail: string;
+
+  constructor(payload: APIProblemPayload) {
+    super(payload.detail);
+    this.name = 'ApiProblemError';
+    this.title = payload.title;
+    this.status = payload.status;
+    this.detail = payload.detail;
+  }
+}
+
+export type KeysMode = 'local' | 'aws-secrets-manager' | 'environment' | 'database';
+
+export type KeysConfig = {
+  mode: KeysMode;
+  publicPath?: string;
+  privatePath?: string;
+  publicSecretId?: string;
+  privateSecretId?: string;
+  publicB64?: string;
+  privateB64?: string;
+  sealedPublicKey?: string;
+  sealedPrivateKey?: string;
+};
+
+export type AppDescriptor = {
+  id: string;
+  name?: string;
+};
+
+export type AppDetails = AppDescriptor & {
+  keys: KeysConfig;
+  createdAt?: number;
+};
+
+export type CreateAppPayload = {
+  name: string;
+  keysConfig: KeysConfig;
+};
+
+export type BranchRecord = {
+  branchName: string;
+  branchId: string;
+  releaseChannel?: string | null;
+  createdAt: string | null;
+};
+
+export type ChannelRecord = {
+  releaseChannelId: string;
+  releaseChannelName: string;
+  branchName?: string | null;
+  branchId?: string | null;
+  createdAt: string | null;
+};
+
+export type ApiKeyRecord = {
+  id: string;
+  name: string;
+  hint: string;
+  createdAt: string;
+  lastUsedAt?: string | null;
+};
+
+export type CreateApiKeyResponse = {
+  apiKey: string;
+};
+
 // All per-app routes (branches, channels, runtime versions, updates,
 // updateChannelBranchMapping) are scoped under /api/apps/{appId} on the
 // server. The dashboard keeps the currently-selected app id on the ApiClient
@@ -57,6 +133,15 @@ export class ApiClient {
     }
 
     if (!response.ok) {
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/problem+json')) {
+        try {
+          const problemPayload = (await response.json()) as APIProblemPayload;
+          throw new ApiProblemError(problemPayload);
+        } catch (parseError) {
+          if (parseError instanceof ApiProblemError) throw parseError;
+        }
+      }
       throw new Error(`HTTP error! Status: ${response.status}`);
     }
 
@@ -101,6 +186,117 @@ export class ApiClient {
       body: form.toString(),
     });
   }
+
+  public async createApp(payload: CreateAppPayload) {
+    return this.request<{ appId: string }>(`/api/apps`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async getApps() {
+    return this.request<AppDescriptor[]>(`/api/apps`, {
+      method: 'GET',
+    });
+  }
+
+  public async getApp(appId: string) {
+    return this.request<AppDetails>(`/api/apps/${encodeURIComponent(appId)}`, {
+      method: 'GET',
+    });
+  }
+
+  public async deleteApp() {
+    return this.request<void>(`${this.appScope()}`, {
+      method: 'DELETE',
+    });
+  }
+
+  public async updateApp(payload: { name?: string }) {
+    return this.request<void>(`${this.appScope()}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async getApiKeys() {
+    return this.request<ApiKeyRecord[]>(`${this.appScope()}/apiKeys`, {
+      method: 'GET',
+    });
+  }
+
+  public async createApiKey(name: string) {
+    return this.request<CreateApiKeyResponse>(`${this.appScope()}/apiKeys`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  public async revokeApiKey(apiKeyId: string) {
+    return this.request<void>(`${this.appScope()}/apiKeys/${encodeURIComponent(apiKeyId)}/revoke`, {
+      method: 'DELETE',
+    });
+  }
+
+  public async downloadAppCertificate(appId: string): Promise<string> {
+    const url = `${this.baseUrl}/api/apps/${encodeURIComponent(appId)}/certificate`;
+    const headers = new Headers();
+    this.populateHeaders(headers);
+    const response = await fetch(url, { method: 'GET', headers });
+    const refreshToken = getRefreshToken();
+    if (response.status === 401 && refreshToken) {
+      await this.refreshTokens(refreshToken);
+      return this.downloadAppCertificate(appId);
+    }
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`);
+    }
+    return response.text();
+  }
+
+  public async getChannels() {
+    return this.request<ChannelRecord[]>(`${this.appScope()}/channels`, {
+      method: 'GET',
+    });
+  }
+
+  public async createChannel(payload: { branchName?: string; channelName: string }) {
+    return this.request<{ channelId: string }>(`${this.appScope()}/channels`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async deleteChannel(channelName: string) {
+    return this.request<void>(`${this.appScope()}/channels/${encodeURIComponent(channelName)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  public async getBranches() {
+    return this.request<BranchRecord[]>(`${this.appScope()}/branches`, {
+      method: 'GET',
+    });
+  }
+
+  public async createBranch(branchName: string) {
+    return this.request<{ branchId: string }>(`${this.appScope()}/branches`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branchName }),
+    });
+  }
+
+  public async deleteBranch(branchName: string) {
+    return this.request<void>(`${this.appScope()}/branches/${encodeURIComponent(branchName)}`, {
+      method: 'DELETE',
+    });
+  }
+
   public async updateChannelBranchMapping(
     branchName: string,
     payload: {
@@ -116,34 +312,7 @@ export class ApiClient {
       }
     );
   }
-  public async getApps() {
-    return this.request<{ id: string; name: string }[]>(`/api/apps`, {
-      method: 'GET',
-    });
-  }
-  public async getChannels() {
-    return this.request<
-      {
-        releaseChannelId: string;
-        releaseChannelName: string;
-        branchName?: string | null;
-        branchId?: string | null;
-      }[]
-    >(`${this.appScope()}/channels`, {
-      method: 'GET',
-    });
-  }
-  public async getBranches() {
-    return this.request<
-      {
-        branchName: string;
-        branchId: string;
-        releaseChannel?: string | null;
-      }[]
-    >(`${this.appScope()}/branches`, {
-      method: 'GET',
-    });
-  }
+
   public async getRuntimeVersions(branch: string) {
     return this.request<
       {
@@ -193,6 +362,7 @@ export class ApiClient {
   public async getSettings() {
     return this.request<{
       BASE_URL: string;
+      CONTROL_PLANE_ENABLED: boolean;
       CACHE_MODE: string;
       REDIS_HOST: string;
       REDIS_PORT: string;

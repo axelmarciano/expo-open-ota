@@ -78,7 +78,7 @@ type ControlPlaneMasterKeyConfig struct {
 type AppConfig struct {
 	Id          string        `json:"id"`
 	Name        string        `json:"name,omitempty"`
-	AccessToken string        `json:"accessToken"`
+	AccessToken string        `json:"accessToken,omitempty"`
 	Keys        KeysConfig    `json:"keys"`
 	CreatedAt   time.Duration `json:"createTime,omitempty"`
 }
@@ -134,7 +134,7 @@ func LoadApps() error {
 	return nil
 }
 
-// readApps returns the parsed (but not yet validated) list of apps plus a
+// ReadApps returns the parsed (but not yet validated) list of apps plus a
 // human-readable source tag used for error messages. EXPO_APPS_JSON wins when
 // set. The flat-env fallback reads legacy v1 variable names verbatim to
 // preserve upgrade-in-place.

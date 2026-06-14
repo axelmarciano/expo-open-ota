@@ -115,7 +115,9 @@ func NewRouter(container *AppContainer) *mux.Router {
 	// empty lists — the client sees 200 with [] instead of a proper "no such
 	// app" signal.
 	appAuthSubrouter := authSubrouter.PathPrefix("/apps/{APP_ID}").Subrouter()
+	appAuthSubrouter.StrictSlash(true)
 	appAuthSubrouter.Use(middleware.AppResolverMiddleware(container.AppRepo))
+	appAuthSubrouter.HandleFunc("/", container.AppHandler.GetAppHandler).Methods(http.MethodGet)
 	appAuthSubrouter.HandleFunc("/branches", container.BranchHandler.CreateBranchHandler).Methods(http.MethodPost)
 	appAuthSubrouter.HandleFunc("/branches/{BRANCH}", container.BranchHandler.DeleteBranchHandler).Methods(http.MethodDelete)
 	appAuthSubrouter.HandleFunc("/branches", container.BranchHandler.GetBranchesHandler).Methods(http.MethodGet)

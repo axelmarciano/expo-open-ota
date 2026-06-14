@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"expo-open-ota/config"
 	"expo-open-ota/internal/handlers"
+	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/services"
 	"net/http"
 )
@@ -20,6 +21,7 @@ func NewSettingsHandler(appService *services.AppService) *SettingsHandler {
 
 type SettingsEnv struct {
 	BASE_URL                               string `json:"BASE_URL"`
+	CONTROL_PLANE_ENABLED                  bool   `json:"CONTROL_PLANE_ENABLED"`
 	CACHE_MODE                             string `json:"CACHE_MODE"`
 	REDIS_HOST                             string `json:"REDIS_HOST"`
 	REDIS_PORT                             string `json:"REDIS_PORT"`
@@ -42,13 +44,6 @@ type SettingsEnv struct {
 	Apps []config.AppDescriptor `json:"APPS"`
 }
 
-func maskSecret(value string) string {
-	if len(value) < 5 {
-		return "***"
-	}
-	return "***" + value[:5]
-}
-
 func (h *SettingsHandler) GetSettingsHandler(w http.ResponseWriter, r *http.Request) {
 	apps, err := h.appService.GetApps(r.Context())
 	if err != nil {
@@ -57,6 +52,7 @@ func (h *SettingsHandler) GetSettingsHandler(w http.ResponseWriter, r *http.Requ
 	}
 	marshaledResponse, _ := json.Marshal(SettingsEnv{
 		BASE_URL:                               config.GetEnv("BASE_URL"),
+		CONTROL_PLANE_ENABLED:                  config.IsDBMode(),
 		CACHE_MODE:                             config.GetEnv("CACHE_MODE"),
 		REDIS_HOST:                             config.GetEnv("REDIS_HOST"),
 		REDIS_PORT:                             config.GetEnv("REDIS_PORT"),
@@ -65,10 +61,10 @@ func (h *SettingsHandler) GetSettingsHandler(w http.ResponseWriter, r *http.Requ
 		LOCAL_BUCKET_BASE_PATH:                 config.GetEnv("LOCAL_BUCKET_BASE_PATH"),
 		AWS_REGION:                             config.GetEnv("AWS_REGION"),
 		AWS_BASE_ENDPOINT:                      config.GetEnv("AWS_BASE_ENDPOINT"),
-		AWS_ACCESS_KEY_ID:                      maskSecret(config.GetEnv("AWS_ACCESS_KEY_ID")),
+		AWS_ACCESS_KEY_ID:                      helpers.MaskSecret(config.GetEnv("AWS_ACCESS_KEY_ID")),
 		CLOUDFRONT_DOMAIN:                      config.GetEnv("CLOUDFRONT_DOMAIN"),
-		CLOUDFRONT_KEY_PAIR_ID:                 maskSecret(config.GetEnv("CLOUDFRONT_KEY_PAIR_ID")),
-		CLOUDFRONT_PRIVATE_KEY_B64:             maskSecret(config.GetEnv("CLOUDFRONT_PRIVATE_KEY_B64")),
+		CLOUDFRONT_KEY_PAIR_ID:                 helpers.MaskSecret(config.GetEnv("CLOUDFRONT_KEY_PAIR_ID")),
+		CLOUDFRONT_PRIVATE_KEY_B64:             helpers.MaskSecret(config.GetEnv("CLOUDFRONT_PRIVATE_KEY_B64")),
 		AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID: config.GetEnv("AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID"),
 		PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH:      config.GetEnv("PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH"),
 		PROMETHEUS_ENABLED:                     config.GetEnv("PROMETHEUS_ENABLED"),

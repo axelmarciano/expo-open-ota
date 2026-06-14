@@ -9,7 +9,6 @@ import (
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
 	"net/http"
-	"time"
 
 	"github.com/gorilla/mux"
 )
@@ -76,9 +75,8 @@ func (h *ApiKeyHandler) GetApiKeysHandler(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 	w.Write(marshaledResponse)
 
-	ttl := 60 * time.Second
-	ttlMs := int(ttl.Milliseconds())
-	cache.Set(cacheKey, string(marshaledResponse), &ttlMs)
+	ttl := 60
+	cache.Set(cacheKey, string(marshaledResponse), &ttl)
 }
 
 func (h *ApiKeyHandler) RevokeApiKeyHandler(w http.ResponseWriter, r *http.Request) {

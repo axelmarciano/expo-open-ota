@@ -39,7 +39,13 @@ export function Combobox(props: ComboboxProps) {
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-max p-0">
-        <Command>
+        <Command
+          filter={(itemValue, search) => {
+            const matchedOption = options.find(opt => opt.value === itemValue);
+            const textToSearch = matchedOption ? matchedOption.label : itemValue;
+            return textToSearch.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
+          }}
+        >
           <CommandInput placeholder="Search..." />
           <CommandList>
             <CommandEmpty>No option found.</CommandEmpty>
@@ -48,8 +54,8 @@ export function Combobox(props: ComboboxProps) {
                 <CommandItem
                   key={opt.value}
                   value={opt.value}
-                  onSelect={currentValue => {
-                    onChange(currentValue === value ? '' : currentValue);
+                  onSelect={() => {
+                    onChange(opt.value === value ? '' : opt.value);
                     setOpen(false);
                   }}>
                   <Check

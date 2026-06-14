@@ -28,7 +28,7 @@ func main() {
 	log.Println("Server is running on port " + config.GetPort())
 	corsOptions := handlers.CORS(
 		handlers.AllowedHeaders([]string{"Authorization", "Content-Type"}),
-		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
+		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}),
 		handlers.AllowedOrigins([]string{"*"}),
 		handlers.AllowCredentials(),
 	)

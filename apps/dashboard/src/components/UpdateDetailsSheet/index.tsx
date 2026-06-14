@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton.tsx';
 import { ApiError } from '@/components/APIError';
 import { Badge } from '@/components/ui/badge.tsx';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
+import { formatTimestamp } from '@/lib/utils';
 
 interface Update {
   updateUUID: string;
@@ -116,14 +117,9 @@ const UpdateDetails = ({
         <div className="grid grid-cols-4 items-center gap-4">
           <Label>Created At</Label>
           <Badge variant="outline" className="col-span-3">
-            {new Date(updateDetails.createdAt).toLocaleDateString('en-GB', {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-              hour: 'numeric',
-              minute: 'numeric',
-              second: 'numeric',
-            })}
+            {formatTimestamp(updateDetails.createdAt, true) || (
+              <span className="text-muted-foreground italic">Legacy Record</span>
+            )}
           </Badge>
         </div>
         <div className="grid grid-cols-4 items-center gap-4">

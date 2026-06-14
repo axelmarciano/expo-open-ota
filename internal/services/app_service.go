@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"expo-open-ota/config"
 	"expo-open-ota/internal/crypto"
+	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/keyStore"
 	"expo-open-ota/internal/store"
 	"fmt"
@@ -85,8 +86,7 @@ func (s *AppService) CreateApp(ctx context.Context, displayName string, keysConf
 		params.AwsSecretIDPrivate = &keysConfig.PrivateSecretId
 
 	case config.KeysModeEnvironment:
-		// Don't need to store anything in the DB
-
+		// Replaced by database keystore mode
 	default:
 		return "", fmt.Errorf("invalid keys mode %q", keysConfig.Mode)
 	}
@@ -108,6 +108,23 @@ func (s *AppService) DeleteApp(ctx context.Context, appId string) error {
 
 func (s *AppService) GetApps(ctx context.Context) ([]config.AppDescriptor, error) {
 	return s.appRepo.GetApps(ctx)
+}
+
+func (s *AppService) GetAppByID(ctx context.Context, appId string) (config.AppConfig, error) {
+	app, err := s.appRepo.GetAppByID(ctx, appId)
+	if err != nil {
+		return config.AppConfig{}, err
+	}
+	app.AccessToken = ""
+	app.Keys.SealedPrivateKey = ""
+	app.Keys.SealedPublicKey = ""
+	app.Keys.PrivateB64 = ""
+	app.Keys.PublicB64 = ""
+	if app.Keys.Mode == config.KeysModeLocal {
+		app.Keys.PrivatePath = helpers.MaskKeyPath(app.Keys.PrivatePath)
+		app.Keys.PublicPath = helpers.MaskKeyPath(app.Keys.PublicPath)
+	}
+	return app, nil
 }
 
 func (s *AppService) UpdateApp(ctx context.Context, appId string, newName string) error {

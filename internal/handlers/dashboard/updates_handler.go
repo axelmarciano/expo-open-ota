@@ -8,7 +8,6 @@ import (
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/types"
 	"net/http"
-	"time"
 
 	"github.com/gorilla/mux"
 )
@@ -69,9 +68,8 @@ func (h *UpdateHandler) GetUpdateDetailsHandler(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusOK)
 	w.Write(marshaledResponse)
 
-	ttl := 120 * time.Second
-	ttlMs := int(ttl.Milliseconds())
-	cache.Set(cacheKey, string(marshaledResponse), &ttlMs)
+	ttl := 604800 // 7 days
+	cache.Set(cacheKey, string(marshaledResponse), &ttl)
 }
 
 func (h *UpdateHandler) GetUpdatesHandler(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +103,6 @@ func (h *UpdateHandler) GetUpdatesHandler(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 	w.Write(marshaledResponse)
 
-	ttl := 10 * time.Second
-	ttlMs := int(ttl.Milliseconds())
-	cache.Set(cacheKey, string(marshaledResponse), &ttlMs)
+	ttl := 3600
+	cache.Set(cacheKey, string(marshaledResponse), &ttl)
 }

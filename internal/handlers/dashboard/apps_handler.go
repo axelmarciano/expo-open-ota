@@ -11,7 +11,6 @@ import (
 	"expo-open-ota/internal/store"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/gorilla/mux"
 )
@@ -57,8 +56,42 @@ func (h *AppHandler) CreateAppHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(marshaledResponse)
 
 	cache := cache2.GetCache()
-	cacheKey := dashboard.ComputeGetAppsCacheKey()
-	cache.Delete(cacheKey)
+	appsCacheKey := dashboard.ComputeGetAppsCacheKey()
+	cache.Delete(appsCacheKey)
+}
+
+func (h *AppHandler) GetAppHandler(w http.ResponseWriter, r *http.Request) {
+	appId := mux.Vars(r)["APP_ID"]
+	if appId == "" {
+		handlers.RenderError(w, http.StatusBadRequest, "APP_ID is required")
+		return
+	}
+	cache := cache2.GetCache()
+	cacheKey := dashboard.ComputeGetAppCacheKey(appId)
+	if cacheValue := cache.Get(cacheKey); cacheValue != "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(cacheValue))
+		return
+	}
+
+	app, err := h.appService.GetAppByID(r.Context(), appId)
+	if err != nil {
+		if notFoundErr := (*store.ErrResourceNotFound)(nil); errors.As(err, &notFoundErr) {
+			handlers.RenderError(w, http.StatusNotFound, notFoundErr.Error())
+			return
+		}
+		handlers.RenderError(w, http.StatusInternalServerError, "An internal error occurred while fetching the app.")
+		return
+	}
+
+	marshaledResponse, _ := json.Marshal(app)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(marshaledResponse)
+
+	ttl := 3600
+	cache.Set(cacheKey, string(marshaledResponse), &ttl)
 }
 
 func (h *AppHandler) DeleteAppHandler(w http.ResponseWriter, r *http.Request) {
@@ -79,8 +112,10 @@ func (h *AppHandler) DeleteAppHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 
 	cache := cache2.GetCache()
-	cacheKey := dashboard.ComputeGetAppsCacheKey()
-	cache.Delete(cacheKey)
+	appsCacheKey := dashboard.ComputeGetAppsCacheKey()
+	appCacheKey := dashboard.ComputeGetAppCacheKey(appId)
+	cache.Delete(appCacheKey)
+	cache.Delete(appsCacheKey)
 }
 
 func (h *AppHandler) GetAppsHandler(w http.ResponseWriter, r *http.Request) {
@@ -103,9 +138,8 @@ func (h *AppHandler) GetAppsHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write(marshaledResponse)
 
-	ttl := 10 * time.Second
-	ttlMs := int(ttl.Milliseconds())
-	cache.Set(cacheKey, string(marshaledResponse), &ttlMs)
+	ttl := 3600
+	cache.Set(cacheKey, string(marshaledResponse), &ttl)
 }
 
 func (h *AppHandler) UpdateAppHandler(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +176,9 @@ func (h *AppHandler) UpdateAppHandler(w http.ResponseWriter, r *http.Request) {
 
 	cache := cache2.GetCache()
 	appsCacheKey := dashboard.ComputeGetAppsCacheKey()
+	appCacheKey := dashboard.ComputeGetAppCacheKey(appId)
 	cache.Delete(appsCacheKey)
+	cache.Delete(appCacheKey)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -165,10 +201,6 @@ func (h *AppHandler) DownloadAppCertificateHandler(w http.ResponseWriter, r *htt
 		handlers.RenderError(w, http.StatusInternalServerError, "An internal error occurred while downloading the app certificate.")
 		return
 	}
-
-	cache := cache2.GetCache()
-	appsCacheKey := dashboard.ComputeGetAppsCacheKey()
-	cache.Delete(appsCacheKey)
 
 	w.Header().Set("Content-Type", "application/x-pem-file")
 	w.Header().Set("Content-Disposition", `attachment; filename="certificate.pem"`)

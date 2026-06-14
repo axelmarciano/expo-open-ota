@@ -10,7 +10,6 @@ import (
 	"expo-open-ota/internal/store"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gorilla/mux"
 )
@@ -114,7 +113,6 @@ func (h *ChannelHandler) GetChannelsHandler(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusOK)
 	w.Write(marshaledResponse)
 
-	ttl := 10 * time.Second
-	ttlMs := int(ttl.Milliseconds())
-	cache.Set(cacheKey, string(marshaledResponse), &ttlMs)
+	ttl := 3600
+	cache.Set(cacheKey, string(marshaledResponse), &ttl)
 }

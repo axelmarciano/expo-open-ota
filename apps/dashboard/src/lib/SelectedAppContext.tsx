@@ -16,6 +16,7 @@ type SelectedAppContextValue = {
   setSelectedAppId: (appId: string) => void;
   isLoading: boolean;
   error: Error | null;
+  refreshApps: () => Promise<void>;
 };
 
 const SelectedAppContext = createContext<SelectedAppContextValue | undefined>(undefined);
@@ -28,6 +29,10 @@ const SelectedAppContext = createContext<SelectedAppContextValue | undefined>(un
 // every react-query cache entry so tables re-fetch against the new app.
 export function SelectedAppProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
+
+  const refreshApps = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ['apps'] });
+  }, [queryClient]);
 
   // Gated on auth: /api/settings requires a token, and the provider is
   // mounted above the router so it renders even on /login. Firing the
@@ -94,11 +99,12 @@ export function SelectedAppProvider({ children }: { children: ReactNode }) {
       apps,
       selectedAppId,
       setSelectedAppId,
+      refreshApps,
       isLoading: appsQuery.isLoading,
       error: appsQuery.error,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [apps, selectedAppId, appsQuery.isLoading, appsQuery.error]
+    [apps, selectedAppId, setSelectedAppId, refreshApps, appsQuery.isLoading, appsQuery.error]
   );
 
   return <SelectedAppContext.Provider value={value}>{children}</SelectedAppContext.Provider>;

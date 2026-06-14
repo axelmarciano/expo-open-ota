@@ -13,6 +13,10 @@ func IsDashboardEnabled() bool {
 // Dashboard cache keys must include the appId so entries from one app aren't
 // served to another within the TTL (multi-tenant cache bleeding).
 
+func ComputeGetAppCacheKey(appId string) string {
+	return fmt.Sprintf("dashboard:%s:app:%s:request:getApp", version.Version, appId)
+}
+
 func ComputeGetAppsCacheKey() string {
 	return fmt.Sprintf("dashboard:%s:request:getApps", version.Version)
 }

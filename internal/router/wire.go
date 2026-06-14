@@ -6,6 +6,7 @@ import (
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/database"
 	"expo-open-ota/internal/database/postgres"
+	"expo-open-ota/internal/database/postgres/migrations"
 	"expo-open-ota/internal/handlers"
 	dashhandlers "expo-open-ota/internal/handlers/dashboard"
 	"expo-open-ota/internal/services"
@@ -56,7 +57,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 			log.Fatalf("Database initialization failed: %v", err)
 		}
 		cleanup = func() { dbEngine.Close() }
-
+		migrations.SetEngine(dbEngine)
 		postgres.RunDBMigrations(dbUrl)
 
 		authRepo = store.NewPostgresAuthStore(dbEngine)
