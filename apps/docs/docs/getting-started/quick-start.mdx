@@ -41,6 +41,7 @@ docker run --rm -it \
   -e EXPO_APP_ID=your-project-id \
   -e JWT_SECRET=$(openssl rand -base64 32) \
   -e STORAGE_MODE=local \
+  -e LOCAL_BUCKET_BASE_PATH=/updates \
   -e KEYS_STORAGE_TYPE=local \
   -e PUBLIC_LOCAL_EXPO_KEY_PATH=/keys/public-key.pem \
   -e PRIVATE_LOCAL_EXPO_KEY_PATH=/keys/private-key.pem \
