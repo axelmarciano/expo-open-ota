@@ -142,9 +142,10 @@ jobs:
 
       - name: Compute release metadata
         run: |
-          IMAGE_TAG="${GITHUB_REF#refs/tags/}"
-          echo "CHART_VERSION=${IMAGE_TAG#v}" >> "$GITHUB_ENV"
-          echo "OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+IMAGE_TAG="${GITHUB_REF#refs/tags/}"
+OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+echo "CHART_VERSION=${IMAGE_TAG#v}" >> "$GITHUB_ENV"
+echo "OWNER=$OWNER" >> "$GITHUB_ENV"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
