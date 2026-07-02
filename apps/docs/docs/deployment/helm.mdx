@@ -12,13 +12,9 @@ If you are not familiar with Helm or Kubernetes, we recommend you to deploy the 
 
 ## Installation
 
-The chart is published as an OCI artifact to the GitHub Container Registry alongside the Docker image, so there is no need to clone the repository:
+The chart is published as an OCI artifact to the GitHub Container Registry alongside the Docker image, so there is no need to clone the repository.
 
-```bash
-helm install expo-open-ota oci://ghcr.io/axelmarciano/charts/expo-open-ota -n NAMESPACE
-```
-
-To pin a specific version (chart versions follow the application releases, without the `v` prefix):
+Chart versions follow the [application releases](https://github.com/axelmarciano/expo-open-ota/releases), without the `v` prefix (release `v1.2.3` → chart version `1.2.3`). Always pass an explicit `--version`:
 
 ```bash
 helm install expo-open-ota oci://ghcr.io/axelmarciano/charts/expo-open-ota --version 1.2.3 -n NAMESPACE
@@ -54,13 +50,13 @@ The environment variables used by the application depend on the following key se
 To override values, create a custom `my-values.yaml` file and run:
 
 ```bash
-helm install expo-open-ota oci://ghcr.io/axelmarciano/charts/expo-open-ota -n NAMESPACE -f my-values.yaml
+helm install expo-open-ota oci://ghcr.io/axelmarciano/charts/expo-open-ota --version 1.2.3 -n NAMESPACE -f my-values.yaml
 ```
 
 To upgrade an existing release:
 
 ```bash
-helm upgrade expo-open-ota oci://ghcr.io/axelmarciano/charts/expo-open-ota -n NAMESPACE -f my-values.yaml
+helm upgrade expo-open-ota oci://ghcr.io/axelmarciano/charts/expo-open-ota --version 1.2.3 -n NAMESPACE -f my-values.yaml
 ```
 
 For additional configuration details, refer to the [Environment Variables](/docs/reference/environment) documentation.
