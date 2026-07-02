@@ -203,6 +203,25 @@ func TestRuntimeVersions(t *testing.T) {
 	assert.Equal(t, "[{\"runtimeVersion\":\"1\",\"lastUpdatedAt\":\"1970-01-20T09:02:50Z\",\"createdAt\":\"1970-01-20T09:02:50Z\",\"numberOfUpdates\":1}]", strings.TrimSpace(string(respRec.Body.Bytes())))
 }
 
+func TestRuntimeVersionsOnlyCountsValidUpdates(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	router := infrastructure.NewRouter()
+	respRec := httptest.NewRecorder()
+	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
+		func(req *http.Request) (*http.Response, error) {
+			return MockExpoBranchesMappingResponse([]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}, {"id": "branch-2", "name": "branch-2"}}, []map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}})
+		})
+	req, _ := http.NewRequest("GET", "/api/branch/branch-4/runtimeVersions", nil)
+	req.Header.Set("Authorization", "Bearer "+login().Token)
+	router.ServeHTTP(respRec, req)
+	assert.Equal(t, http.StatusOK, respRec.Code)
+	var response []bucket.RuntimeVersionWithStats
+	err := json.Unmarshal(respRec.Body.Bytes(), &response)
+	assert.Nil(t, err)
+	assert.Equal(t, "[{\"runtimeVersion\":\"1\",\"lastUpdatedAt\":\"1970-01-20T09:02:50Z\",\"createdAt\":\"1970-01-20T09:02:50Z\",\"numberOfUpdates\":1}]", strings.TrimSpace(string(respRec.Body.Bytes())))
+}
+
 func TestUpdatesWithoutAuth(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()

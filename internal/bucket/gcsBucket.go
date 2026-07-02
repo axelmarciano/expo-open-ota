@@ -114,6 +114,10 @@ func (b *GCSBucket) GetRuntimeVersions(branch string) ([]RuntimeVersionWithStats
                 continue
             }
             upd := strings.TrimSuffix(strings.TrimPrefix(uattrs.Prefix, rvPrefix), "/")
+            _, err = bh.Object(uattrs.Prefix + ".check").Attrs(ctx)
+            if err != nil {
+                continue
+            }
             ts, err := strconv.ParseInt(upd, 10, 64)
             if err == nil {
                 updateTimestamps = append(updateTimestamps, ts)
