@@ -7,15 +7,24 @@ Deploy **Expo Open OTA** using Helm, a package manager for Kubernetes.
 A ready-to-use Helm chart is available to deploy **Expo Open OTA** on your Kubernetes cluster.
 
 ## Prerequisites
-A running Kubernetes cluster and Helm installed on your local machine are required to deploy the application.
+A running Kubernetes cluster and Helm (>= 3.8) installed on your local machine are required to deploy the application.
 If you are not familiar with Helm or Kubernetes, we recommend you to deploy the server with [custom docker deployment](/docs/deployment/custom) or [railway](/docs/deployment/railway).
 
-Clone the repository and navigate to the `helm` directory.
+## Installation
+
+The chart is published as an OCI artifact to the GitHub Container Registry alongside the Docker image, so there is no need to clone the repository:
 
 ```bash
-git clone https://github.com/axelmarciano/expo-open-ota
-cd expo-open-ota/helm
+helm install expo-open-ota oci://ghcr.io/axelmarciano/charts/expo-open-ota -n NAMESPACE
 ```
+
+To pin a specific version (chart versions follow the application releases, without the `v` prefix):
+
+```bash
+helm install expo-open-ota oci://ghcr.io/axelmarciano/charts/expo-open-ota --version 1.2.3 -n NAMESPACE
+```
+
+This also works with GitOps tools such as ArgoCD or Flux by referencing `oci://ghcr.io/axelmarciano/charts` as an OCI Helm repository.
 
 ## Configuration
 
@@ -42,22 +51,16 @@ The environment variables used by the application depend on the following key se
 
 ### Deployment
 
-To install the Helm chart with default values:
-
-```bash
-helm install expo-open-ota -n NAMESPACE ./chart
-```
-
 To override values, create a custom `my-values.yaml` file and run:
 
 ```bash
-helm install expo-open-ota ./chart -n NAMESPACE -f my-values.yaml
+helm install expo-open-ota oci://ghcr.io/axelmarciano/charts/expo-open-ota -n NAMESPACE -f my-values.yaml
 ```
 
 To upgrade an existing release:
 
 ```bash
-helm upgrade expo-open-ota -n NAMESPACE ./chart -f my-values.yaml
+helm upgrade expo-open-ota oci://ghcr.io/axelmarciano/charts/expo-open-ota -n NAMESPACE -f my-values.yaml
 ```
 
 For additional configuration details, refer to the [Environment Variables](/docs/reference/environment) documentation.

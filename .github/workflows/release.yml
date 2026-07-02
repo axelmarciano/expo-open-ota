@@ -74,8 +74,30 @@ jobs:
       - name: Package Helm chart
         run: |
           IMAGE_TAG="${GITHUB_REF#refs/tags/}"
-          helm package ./helm -d ./charts
-          mv ./charts/expo-open-ota-*.tgz ./charts/expo-open-ota-helm-charts-${IMAGE_TAG}.tgz
+          CHART_VERSION="${IMAGE_TAG#v}"
+          helm package ./helm -d ./charts --version "$CHART_VERSION" --app-version "$IMAGE_TAG"
+
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Push Helm chart to GHCR
+        run: |
+          IMAGE_TAG="${GITHUB_REF#refs/tags/}"
+          CHART_VERSION="${IMAGE_TAG#v}"
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          helm push "./charts/expo-open-ota-${CHART_VERSION}.tgz" "oci://ghcr.io/${OWNER}/charts"
+
+      - name: Rename chart archive for release assets
+        run: |
+          IMAGE_TAG="${GITHUB_REF#refs/tags/}"
+          CHART_VERSION="${IMAGE_TAG#v}"
+          mv "./charts/expo-open-ota-${CHART_VERSION}.tgz" "./charts/expo-open-ota-helm-charts-${IMAGE_TAG}.tgz"
+
+      - name: Upload chart artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart
+          path: ./charts/*.tgz
 
   npm:
     runs-on: ubuntu-latest
@@ -112,6 +134,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Download chart artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: helm-chart
+          path: ./charts
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -120,6 +148,6 @@ jobs:
           body: |
             ## Changes
             - Docker image: `ghcr.io/${{ github.repository_owner }}/expo-open-ota:${{ github.ref_name }}`
-            - Helm chart version updated
+            - Helm chart: `oci://ghcr.io/${{ github.repository_owner }}/charts/expo-open-ota` (version `${{ github.ref_name }}` without the `v` prefix)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
