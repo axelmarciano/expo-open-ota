@@ -45,13 +45,13 @@ By default, EOAS uses `npx` to spawn Expo CLI commands (`expo export`, `expo con
 
 1. `--packageRunner` CLI flag
 2. `EOAS_PACKAGE_RUNNER` environment variable
-3. `packageManager` field in the nearest `package.json` (e.g. `"packageManager": "bun@1.3.6"` → `bunx`)
+3. `packageManager` field in the nearest `package.json` (e.g. `"packageManager": "bun@1.3.6"` → `bunx`, `"pnpm@9.0.0"` → `pnpm exec`)
 4. Falls back to `npx`
 
 | `packageManager` value | Resolved runner |
 | --- | --- |
 | `bun@x.x.x` | `bunx` |
-| `pnpm@x.x.x` | `pnpx` |
+| `pnpm@x.x.x` | `pnpm exec` |
 | `yarn@x.x.x` | `npx` |
 | `npm@x.x.x` | `npx` |
 

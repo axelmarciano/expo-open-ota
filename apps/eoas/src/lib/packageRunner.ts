@@ -3,19 +3,21 @@ import path from 'path';
 
 const DEFAULT_PACKAGE_RUNNER = 'npx';
 
-const VALID_RUNNER_RE = /^[a-zA-Z0-9._-]+$/;
+const VALID_RUNNER_RE = /^[a-zA-Z0-9._-]+( [a-zA-Z0-9._-]+)*$/;
 
 function assertValidRunner(value: string, source: string): void {
   if (!VALID_RUNNER_RE.test(value)) {
     throw new Error(
-      `Invalid package runner "${value}" (from ${source}). Expected a simple binary name like npx, bunx or pnpx.`
+      `Invalid package runner "${value}" (from ${source}). Expected a binary name with optional subcommands like npx, bunx or "pnpm exec".`
     );
   }
 }
 
 const PACKAGE_MANAGER_RUNNERS: Record<string, string> = {
   bun: 'bunx',
-  pnpm: 'pnpx',
+  // pnpm removed the `pnpx` binary in v7. `pnpm exec` runs the project-local
+  // Expo CLI with the same local-first semantics as npx and bunx.
+  pnpm: 'pnpm exec',
   yarn: 'npx',
   npm: 'npx',
 };
@@ -29,7 +31,8 @@ const PACKAGE_MANAGER_RUNNERS: Record<string, string> = {
  * 3. Inferred from packageManager field in package.json
  * 4. Falls back to 'npx'
  *
- * Supported values: npx, bunx, pnpx, or any other package runner binary.
+ * Supported values: npx, bunx, "pnpm exec", or any other package runner
+ * binary, optionally followed by subcommand words.
  */
 export function resolvePackageRunner(explicit?: string, projectDir?: string): string {
   if (explicit) {
@@ -74,4 +77,13 @@ function detectRunnerFromPackageJson(startDir: string): string | undefined {
   }
 
   return undefined;
+}
+
+/**
+ * Splits a resolved package runner into a spawnable command and its leading
+ * arguments (e.g. "pnpm exec" -> ['pnpm', ['exec']]).
+ */
+export function splitPackageRunner(runner: string): [string, string[]] {
+  const [command, ...args] = runner.split(' ');
+  return [command, args];
 }
