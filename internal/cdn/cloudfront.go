@@ -7,14 +7,22 @@ import (
 	"expo-open-ota/config"
 	"expo-open-ota/internal/keyStore"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/feature/cloudfront/sign"
+	"strings"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/feature/cloudfront/sign"
 )
 
 type CloudfrontCDN struct{}
 
 func getCloudfrontDomain() string {
-	return config.GetEnv("CLOUDFRONT_DOMAIN")
+	domain := config.GetEnv("CLOUDFRONT_DOMAIN")
+	// The AWS SDK URL signer requires a scheme; tolerate the bare domain
+	// shown in the documentation examples.
+	if domain != "" && !strings.HasPrefix(domain, "http://") && !strings.HasPrefix(domain, "https://") {
+		domain = "https://" + domain
+	}
+	return domain
 }
 
 func getCloudfrontKeyPairId() string {
