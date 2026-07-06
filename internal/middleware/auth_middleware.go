@@ -4,7 +4,6 @@ import (
 	"expo-open-ota/internal/auth"
 	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/services"
-	"fmt"
 	"net/http"
 )
 
@@ -12,11 +11,13 @@ func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		useExpoAuth := r.Header.Get("Use-Expo-Auth")
 		if useExpoAuth == "true" {
+			if services.GetExpoAccessToken() == "" {
+				http.Error(w, "Expo authentication is not enabled on this server", http.StatusUnauthorized)
+				return
+			}
 			expoAuth := helpers.GetExpoAuth(r)
-			fmt.Println(expoAuth)
 			_, err := services.ValidateExpoAuth(expoAuth)
 			if err != nil {
-				fmt.Println("lel", err)
 				http.Error(w, "Invalid Expo auth", http.StatusUnauthorized)
 				return
 			}
