@@ -18,9 +18,11 @@ COPY updates ./updates
 RUN GOOS=linux GOARCH=${TARGETARCH} go build -o main ./cmd/api
 
 FROM alpine:latest
-RUN apk add --no-cache bash
+RUN apk add --no-cache bash && \
+    addgroup -S ota && adduser -S ota -G ota
 WORKDIR /app
 COPY --from=builder /app/main /app/main
 COPY --from=dashboard-builder /app/apps/dashboard/dist /app/apps/dashboard/dist
+USER ota
 EXPOSE 3000
 CMD ["/app/main"]
