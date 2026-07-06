@@ -44,6 +44,12 @@ export default class Publish extends Command {
           'Channel was initially used to provide RELEASE_CHANNEL in the environment when resolving the runtime version. It is no longer needed, you can use RELEASE_CHANNEL={channel} eoas publish --branch={branch} instead',
       },
     }),
+    serverUrl: Flags.string({
+      description:
+        'URL of the self-hosted update server to publish the update to (defaults to the URL defined in the Expo config)',
+      required: false,
+      hidden: true,
+    }),
     disableRepositoryCheck: Flags.boolean({
       description: 'Disable repository check (Useful for CI/CD)',
       default: false,
@@ -84,6 +90,7 @@ export default class Publish extends Command {
     branch: string;
     nonInteractive: boolean;
     disableRepositoryCheck: boolean;
+    serverUrl?: string;
     outputDir: string;
     packageRunner: string;
     providedDeprecatedChannel?: string;
@@ -94,6 +101,7 @@ export default class Publish extends Command {
       disableRepositoryCheck: flags.disableRepositoryCheck,
       platform: flags.platform,
       branch: flags.branch,
+      serverUrl: flags.serverUrl,
       nonInteractive: flags.nonInteractive,
       outputDir: flags.outputDir,
       packageRunner: resolvePackageRunner(flags.packageRunner, process.cwd()),
@@ -116,6 +124,7 @@ export default class Publish extends Command {
       branch,
       outputDir,
       packageRunner,
+      serverUrl: customServerUrl,
       providedDeprecatedChannel,
       disableRepositoryCheck,
       message,
@@ -142,7 +151,7 @@ export default class Publish extends Command {
       },
       packageRunner,
     });
-    const serverUrl = await resolveServerUrl(config).catch(e => {
+    const serverUrl = await resolveServerUrl({ config, customServerUrl }).catch(e => {
       Log.error(e.message);
       process.exit(1);
     });
@@ -229,13 +238,17 @@ export default class Publish extends Command {
     try {
       const specifiedPlatform = platform === RequestedPlatform.All ? [] : ['--platform', platform];
       const sourcemapArgs = dumpSourcemap ? ['--dump-sourcemap'] : [];
-      const { stdout } = await spawnAsync(packageRunner, ['expo', 'export', '--output-dir', outputDir, ...sourcemapArgs, ...specifiedPlatform], {
-        cwd: projectDir,
-        env: {
-          ...process.env,
-          EXPO_NO_DOTENV: '1',
-        },
-      });
+      const { stdout } = await spawnAsync(
+        packageRunner,
+        ['expo', 'export', '--output-dir', outputDir, ...sourcemapArgs, ...specifiedPlatform],
+        {
+          cwd: projectDir,
+          env: {
+            ...process.env,
+            EXPO_NO_DOTENV: '1',
+          },
+        }
+      );
       exportSpinner.succeed('🚀 Project exported successfully');
       Log.withInfo(stdout);
     } catch (e) {
