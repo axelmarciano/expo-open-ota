@@ -164,6 +164,9 @@ func (b *LocalBucket) GetRuntimeVersions(branch string) ([]RuntimeVersionWithSta
 			if !update.IsDir() {
 				continue
 			}
+			if _, err := os.Stat(filepath.Join(updatesPath, update.Name(), ".check")); err != nil {
+				continue
+			}
 			timestamp, err := strconv.ParseInt(update.Name(), 10, 64)
 			if err != nil {
 				continue

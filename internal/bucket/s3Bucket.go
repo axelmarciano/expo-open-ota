@@ -128,6 +128,13 @@ func (b *S3Bucket) GetRuntimeVersions(branch string) ([]RuntimeVersionWithStats,
 		var updateTimestamps []int64
 		for _, commonPrefix := range updateResp.CommonPrefixes {
 			updateID := strings.TrimSuffix((*commonPrefix.Prefix)[len(updatesPath):], "/")
+			_, err := s3Client.HeadObject(context.TODO(), &s3.HeadObjectInput{
+				Bucket: aws.String(b.BucketName),
+				Key:    aws.String(*commonPrefix.Prefix + ".check"),
+			})
+			if err != nil {
+				continue
+			}
 			timestamp, err := strconv.ParseInt(updateID, 10, 64)
 			if err != nil {
 				continue
