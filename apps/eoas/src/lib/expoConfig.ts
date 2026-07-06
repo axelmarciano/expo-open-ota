@@ -9,7 +9,7 @@ import path from 'path';
 
 import Log from './log';
 import { isExpoInstalled } from './package';
-import { resolvePackageRunner } from './packageRunner';
+import { resolvePackageRunner, splitPackageRunner } from './packageRunner';
 
 export enum RequestedPlatform {
   Android = 'android',
@@ -53,10 +53,11 @@ async function getExpoConfigInternalAsync(
     let exp: ExpoConfig;
     if (isExpoInstalled(projectDir)) {
       const runner = resolvePackageRunner(opts.packageRunner, projectDir);
+      const [runnerCommand, runnerArgs] = splitPackageRunner(runner);
       try {
         const { stdout } = await spawnAsync(
-          runner,
-          ['expo', 'config', '--json', ...(opts.isPublicConfig ? ['--type', 'public'] : [])],
+          runnerCommand,
+          [...runnerArgs, 'expo', 'config', '--json', ...(opts.isPublicConfig ? ['--type', 'public'] : [])],
 
           {
             cwd: projectDir,

@@ -18,7 +18,7 @@ import { fetchWithRetries } from '../lib/fetch';
 import Log from '../lib/log';
 import { ora } from '../lib/ora';
 import { isExpoInstalled } from '../lib/package';
-import { resolvePackageRunner } from '../lib/packageRunner';
+import { resolvePackageRunner, splitPackageRunner } from '../lib/packageRunner';
 import { confirmAsync } from '../lib/prompts';
 import { ensureRepoIsCleanAsync } from '../lib/repo';
 import { resolveRuntimeVersionAsync } from '../lib/runtimeVersion';
@@ -64,7 +64,7 @@ export default class Publish extends Command {
     }),
     packageRunner: Flags.string({
       description:
-        'Package runner to use for spawning Expo CLI commands (e.g. npx, bunx, pnpx). Can also be set via EOAS_PACKAGE_RUNNER env var. Defaults to npx.',
+        'Package runner to use for spawning Expo CLI commands (e.g. npx, bunx, "pnpm exec"). Can also be set via EOAS_PACKAGE_RUNNER env var. Defaults to npx.',
       required: false,
     }),
     message: Flags.string({
@@ -229,7 +229,8 @@ export default class Publish extends Command {
     try {
       const specifiedPlatform = platform === RequestedPlatform.All ? [] : ['--platform', platform];
       const sourcemapArgs = dumpSourcemap ? ['--dump-sourcemap'] : [];
-      const { stdout } = await spawnAsync(packageRunner, ['expo', 'export', '--output-dir', outputDir, ...sourcemapArgs, ...specifiedPlatform], {
+      const [runnerCommand, runnerArgs] = splitPackageRunner(packageRunner);
+      const { stdout } = await spawnAsync(runnerCommand, [...runnerArgs, 'expo', 'export', '--output-dir', outputDir, ...sourcemapArgs, ...specifiedPlatform], {
         cwd: projectDir,
         env: {
           ...process.env,
