@@ -29,10 +29,12 @@ func (c *CloudfrontCDN) isCDNAvailable() bool {
 }
 
 func getSigner(key string) (crypto.Signer, error) {
-	reader := bytes.NewReader([]byte(key))
-	privateKey, err := sign.LoadPEMPrivKeyPKCS8AsSigner(reader)
+	privateKey, err := sign.LoadPEMPrivKeyPKCS8AsSigner(bytes.NewReader([]byte(key)))
 	if err != nil {
-		privateKey, err = sign.LoadPEMPrivKey(reader)
+		// A fresh reader is required: the failed PKCS#8 attempt above has
+		// already consumed the previous one, so reusing it would make this
+		// fallback always fail with "no valid PEM data provided".
+		privateKey, err = sign.LoadPEMPrivKey(bytes.NewReader([]byte(key)))
 		if err != nil {
 			return nil, fmt.Errorf("error parsing private key: %w", err)
 		}
