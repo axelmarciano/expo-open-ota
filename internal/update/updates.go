@@ -199,24 +199,37 @@ func GetLatestUpdateBundlePathForRuntimeVersion(branch string, runtimeVersion st
 		}
 		return &update, nil
 	}
-	updates, err := GetAllUpdatesForRuntimeVersion(branch, runtimeVersion, platform)
+	// List the runtime's updates (the bucket derives CreatedAt from the updateId, so
+	// we can sort newest-first WITHOUT reading any per-update metadata) and scan once,
+	// reading update-metadata.json + .check only until the first update that matches
+	// the platform AND is valid. That update is the latest (newest-first order), so
+	// the result is identical to filtering+validating every update — but a cold cache
+	// miss now does O(1) bucket reads in the common case (newest update matches)
+	// instead of O(N) (N=82 for an active runtime). The previous code read metadata
+	// for every update (filterPlatformUpdates) AND .check for every update, so a
+	// foreground herd at the 1800s lastUpdate TTL expiry stampeded the origin.
+	resolvedBucket := bucket.GetBucket()
+	updates, err := resolvedBucket.GetUpdates(branch, runtimeVersion)
 	if err != nil {
 		return nil, err
 	}
-	filteredUpdates := make([]types.Update, 0)
-	for _, update := range updates {
-		if IsUpdateValid(update) {
-			filteredUpdates = append(filteredUpdates, update)
+	updates = sortUpdates(updates)
+	for i := range updates {
+		storedMetadata, metaErr := RetrieveUpdateStoredMetadata(updates[i])
+		if metaErr != nil || storedMetadata == nil || storedMetadata.Platform != platform {
+			continue
 		}
-	}
-	if len(filteredUpdates) > 0 {
-		cacheValue, err := json.Marshal(filteredUpdates[0])
-		if err != nil {
-			return &filteredUpdates[0], nil
+		if !IsUpdateValid(updates[i]) {
+			continue
+		}
+		latest := updates[i]
+		cacheValue, marshalErr := json.Marshal(latest)
+		if marshalErr != nil {
+			return &latest, nil
 		}
 		ttl := 1800
-		err = cache.Set(cacheKey, string(cacheValue), &ttl)
-		return &filteredUpdates[0], nil
+		_ = cache.Set(cacheKey, string(cacheValue), &ttl)
+		return &latest, nil
 	}
 	return nil, nil
 }
