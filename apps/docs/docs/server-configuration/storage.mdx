@@ -29,6 +29,20 @@ import TabItem from '@theme/TabItem';
     STORAGE_MODE=local
     LOCAL_BUCKET_BASE_PATH=/path/to/your/assets
     ```
+
+    :::info Volume ownership
+
+    The Docker image runs as a non-root user (uid `100`, gid `101`). The default
+    `LOCAL_BUCKET_BASE_PATH` (`/app/updates` inside the container) is already
+    writable, but if you mount a volume over it — or point
+    `LOCAL_BUCKET_BASE_PATH` at a bind mount — the mounted directory must be
+    writable by that user:
+
+    - **Docker bind mounts (Linux):** `chown 100:101 ./updates` on the host
+      before mounting.
+    - **Kubernetes:** set `fsGroup: 101` in the pod's `securityContext`.
+
+    :::
   </TabItem>
   <TabItem value="s3" label="Amazon S3">
     To enable Amazon S3 as your storage solution, you need to set the following environment variables:
