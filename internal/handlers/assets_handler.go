@@ -12,22 +12,31 @@ import (
 
 func AssetsHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
-	channelName := r.Header.Get("expo-channel-name")
 	preventCDNRedirection := r.Header.Get("prevent-cdn-redirection") == "true"
-	branchMap, err := services.FetchExpoChannelMapping(channelName)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error fetching channel mapping: %v", requestID, err)
-		http.Error(w, "Error fetching channel mapping", http.StatusInternalServerError)
-		return
-	}
-	if branchMap == nil {
-		log.Printf("[RequestID: %s] No branch mapping found for channel: %s", requestID, channelName)
-		http.Error(w, "No branch mapping found", http.StatusNotFound)
-		return
+
+	// Asset URLs embed their branch directly as a query param (set by the
+	// manifest that referenced them) - the expo-updates client never sends
+	// expo-channel-name on asset requests, only on /manifest ones. Fall back
+	// to the channel-mapping lookup for callers that still rely on the header.
+	branch := r.URL.Query().Get("branch")
+	if branch == "" {
+		channelName := r.Header.Get("expo-channel-name")
+		branchMap, err := services.FetchExpoChannelMapping(channelName)
+		if err != nil {
+			log.Printf("[RequestID: %s] Error fetching channel mapping: %v", requestID, err)
+			http.Error(w, "Error fetching channel mapping", http.StatusInternalServerError)
+			return
+		}
+		if branchMap == nil {
+			log.Printf("[RequestID: %s] No branch mapping found for channel: %s", requestID, channelName)
+			http.Error(w, "No branch mapping found", http.StatusNotFound)
+			return
+		}
+		branch = branchMap.BranchName
 	}
 
 	req := assets.AssetsRequest{
-		Branch:         branchMap.BranchName,
+		Branch:         branch,
 		AssetName:      r.URL.Query().Get("asset"),
 		RuntimeVersion: r.URL.Query().Get("runtimeVersion"),
 		Platform:       r.URL.Query().Get("platform"),
