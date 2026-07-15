@@ -57,7 +57,8 @@ Expo Open OTA is **not officially supported or affiliated with [Expo](https://ex
 
 ## License
 
-MIT — see [LICENSE](./LICENSE.md).
+Core is MIT and will stay MIT; advanced org features may be offered under a commercial license in the future
+see [LICENSE](./LICENSE.md).
 
 ## Contact
 
