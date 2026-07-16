@@ -1,4 +1,4 @@
-package migration
+package bucketmigration
 
 import (
 	"expo-open-ota/internal/bucket"

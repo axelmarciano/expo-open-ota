@@ -2,7 +2,7 @@ package _0260422_v2_scope_data_under_appid
 
 import (
 	"expo-open-ota/internal/bucket"
-	"expo-open-ota/internal/migration"
+	"expo-open-ota/internal/bucketmigration"
 	"fmt"
 	"log"
 	"os"
@@ -29,7 +29,7 @@ import (
 // *LocalBucket / *S3Bucket / *GCSBucket) because the validating
 // decorator rejects root-level listing — it expects scoped appId args.
 func init() {
-	migration.Register(migration.BaseMigration{
+	bucketmigration.Register(bucketmigration.BaseMigration{
 		Id:       "20260422_v2_scope_data_under_appid",
 		Time:     time.Date(2026, 4, 22, 0, 0, 0, 0, time.UTC),
 		UpFunc:   up,

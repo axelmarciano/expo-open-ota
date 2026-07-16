@@ -2,7 +2,7 @@ package test
 
 import (
 	"expo-open-ota/internal/bucket"
-	"expo-open-ota/internal/migration"
+	"expo-open-ota/internal/bucketmigration"
 	"expo-open-ota/internal/types"
 	"io"
 	"testing"
@@ -64,7 +64,7 @@ func (b *dummyMigrationsBucket) RemoveMigrationFromHistory(migrationId string) e
 }
 
 func TestShouldNotRunAppliedMigrations(t *testing.T) {
-	migrationA := migration.BaseMigration{
+	migrationA := bucketmigration.BaseMigration{
 		Id:   "20250415_fake_migrationA",
 		Time: time.Date(2025, 4, 15, 0, 0, 0, 0, time.UTC),
 		UpFunc: func(b bucket.Bucket) error {
@@ -76,13 +76,13 @@ func TestShouldNotRunAppliedMigrations(t *testing.T) {
 			return nil
 		},
 	}
-	migration.ClearRegisteredMigrations()
+	bucketmigration.ClearRegisteredMigrations()
 	b := &dummyMigrationsBucket{
 		migrationsHistory: []string{"20250415_fake_migrationA"},
 		actionsRecorded:   []string{},
 	}
-	migration.Register(migrationA)
-	err := migration.RunMigrations(b)
+	bucketmigration.Register(migrationA)
+	err := bucketmigration.RunMigrations(b)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -103,8 +103,8 @@ func TestShouldRunMultipleMigrationsAsc(t *testing.T) {
 		migrationsHistory: []string{},
 		actionsRecorded:   []string{},
 	}
-	migration.ClearRegisteredMigrations()
-	migrationA := migration.BaseMigration{
+	bucketmigration.ClearRegisteredMigrations()
+	migrationA := bucketmigration.BaseMigration{
 		Id:   "20250415_fake_migrationA",
 		Time: time.Date(2025, 4, 15, 0, 0, 0, 0, time.UTC),
 		UpFunc: func(b bucket.Bucket) error {
@@ -116,7 +116,7 @@ func TestShouldRunMultipleMigrationsAsc(t *testing.T) {
 			return nil
 		},
 	}
-	migrationB := migration.BaseMigration{
+	migrationB := bucketmigration.BaseMigration{
 		Id:   "20250416_fake_migrationB",
 		Time: time.Date(2025, 4, 16, 0, 0, 0, 0, time.UTC),
 		UpFunc: func(b bucket.Bucket) error {
@@ -128,10 +128,10 @@ func TestShouldRunMultipleMigrationsAsc(t *testing.T) {
 			return nil
 		},
 	}
-	migration.Register(migrationB)
-	migration.Register(migrationA)
+	bucketmigration.Register(migrationB)
+	bucketmigration.Register(migrationA)
 
-	err := migration.RunMigrations(b)
+	err := bucketmigration.RunMigrations(b)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -149,7 +149,7 @@ func TestShouldRunMultipleMigrationsAsc(t *testing.T) {
 		t.Fatalf("Expected actions 'DeleteUpdateFolder', 'GetBranches', 'GetFile', and 'GetRuntimeVersions', got '%s'", b.actionsRecorded)
 	}
 
-	err = migration.RollbackLastMigration(b)
+	err = bucketmigration.RollbackLastMigration(b)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -165,7 +165,7 @@ func TestShouldRunMultipleMigrationsAsc(t *testing.T) {
 	if b.actionsRecorded[0] != "DeleteUpdateFolder" || b.actionsRecorded[1] != "GetFile" || b.actionsRecorded[2] != "GetRuntimeVersions" {
 		t.Fatalf("Expected action 'GetRuntimeVersions', got '%s'", b.actionsRecorded[2])
 	}
-	err = migration.RollbackLastMigration(b)
+	err = bucketmigration.RollbackLastMigration(b)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}

@@ -3,15 +3,15 @@ package main
 import (
 	"context"
 	"expo-open-ota/config"
+	"expo-open-ota/internal/bucketmigration"
 	"expo-open-ota/internal/metrics"
-	"expo-open-ota/internal/migration"
 	infrastructure "expo-open-ota/internal/router"
 	"log"
 	"net/http"
 
 	"github.com/gorilla/handlers"
 
-	_ "expo-open-ota/internal/migrations"
+	_ "expo-open-ota/internal/bucketmigrations"
 )
 
 func init() {
@@ -20,7 +20,7 @@ func init() {
 }
 
 func main() {
-	migration.RunMigrationsWithLock()
+	bucketmigration.RunMigrationsWithLock()
 
 	container, cleanup := infrastructure.InitDependencies(context.Background())
 	defer cleanup()

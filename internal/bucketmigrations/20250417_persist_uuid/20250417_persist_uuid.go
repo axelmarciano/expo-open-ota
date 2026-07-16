@@ -2,7 +2,7 @@ package _0250417_persist_uuid
 
 import (
 	"expo-open-ota/internal/bucket"
-	"expo-open-ota/internal/migration"
+	"expo-open-ota/internal/bucketmigration"
 	"time"
 )
 
@@ -23,7 +23,7 @@ import (
 // Kept as a registered no-op to preserve the migration ledger entry so
 // existing ledgers stay valid after upgrade.
 func init() {
-	migration.Register(migration.BaseMigration{
+	bucketmigration.Register(bucketmigration.BaseMigration{
 		Id:       "20250417_persist_uuid",
 		Time:     time.Date(2025, 4, 17, 0, 0, 0, 0, time.UTC),
 		UpFunc:   func(b bucket.Bucket) error { return nil },

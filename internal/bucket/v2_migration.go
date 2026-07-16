@@ -18,7 +18,7 @@ import (
 // v2_migration.go — one-shot data re-path from the v1 bucket layout
 // ({prefix}/{branch}/{rv}/{updateId}/…) to the v2 layout
 // ({prefix}/{appId}/{branch}/{rv}/{updateId}/…). Driven by the migration
-// 20260422_v2_scope_data_under_appid registered in internal/migrations/.
+// 20260422_v2_scope_data_under_appid registered in internal/bucketmigrations/.
 //
 // Each backend exposes a MoveRootEntriesUnder(appId) method that is
 // idempotent under interruption: entries already moved are detected
