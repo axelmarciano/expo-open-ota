@@ -73,8 +73,11 @@ With the control plane enabled, apps are created and edited from the
 **dashboard** (enable it with `USE_DASHBOARD=true`). Creating an app lets you set:
 
 - a display **name** (shown in the app selector; routing still goes by id),
-- the app's Expo **access token**,
 - the **key storage mode** for its signing keys.
+
+Note that there is no Expo access token to set: a control-plane app authenticates
+publishes with its own API keys, not with your Expo account. See
+[Control Plane](/docs/getting-started/control-plane).
 
 Each app gets its own id (a UUID) — that's the value clients send in the
 `expo-app-id` header.

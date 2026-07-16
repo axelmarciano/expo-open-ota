@@ -132,4 +132,4 @@ keys stay global and are configured via env vars below.
 #### **Migration**
 | Name | Required | Description | Example | Reference |
 | --- | --- | --- | --- | --- |
-| `SKIP_V1_TO_V2_BUCKET_MIGRATION` | ❌ | Set to `true` to opt out of the automatic one-shot bucket re-path that moves v1 data under `{appId}/` on first v2 boot. Useful when you want to re-path the data manually. Only meaningful on the single-app flat-env path. | `true` | [Ref](/docs/advanced/migration-v1-to-v2) |
+| `SKIP_LEGACY_APP_ID_FALLBACK` | ❌ | Set to `true` to stop resolving manifest/asset requests that carry no `expo-app-id` header to `EXPO_APP_ID`. Those requests then fail with `400 No app id provided`. Leave unset while any client built against v1 is still in the wild — it cannot send the header without a store release. Set it once every build ships the header, to surface stragglers and before hosting a second app. | `true` | [Ref](/docs/advanced/migration-v1-to-v2) |

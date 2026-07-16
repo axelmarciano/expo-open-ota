@@ -31,6 +31,20 @@ type AppContainer struct {
 	RepublishHandler     *handlers.RepublishHandler
 }
 
+// logLegacyAppIdFallback states, once at boot, which app receives manifest and
+// asset requests that carry no expo-app-id header. Whether v1 clients still get
+// updates hinges on this and is otherwise invisible until someone notices an
+// install has silently stopped updating, so it is worth a line in the log.
+func logLegacyAppIdFallback() {
+	if appId := config.LegacyFallbackAppId(); appId != "" {
+		log.Printf("🔁 [LEGACY] app id fallback ACTIVE for %s — v1 clients sending no expo-app-id header resolve to this app. Set SKIP_LEGACY_APP_ID_FALLBACK=true once every client ships the header.", appId)
+		return
+	}
+	if config.GetEnv("EXPO_APP_ID") != "" {
+		log.Println("🔒 [LEGACY] app id fallback DISABLED by SKIP_LEGACY_APP_ID_FALLBACK — manifest/asset requests without an expo-app-id header are rejected. Any v1 client that has not been rebuilt stops receiving updates.")
+	}
+}
+
 func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	var authRepo services.CliAuthRepository
 	var appRepo services.AppRepository
@@ -77,6 +91,8 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		channelRepo = store.NewBucketChannelStore(resolvedBucket)
 		updateRepo = store.NewBucketUpdateStore(resolvedBucket)
 	}
+
+	logLegacyAppIdFallback()
 
 	dashboardAuthService := services.NewDashboardAuthService()
 	cliAuthService := services.NewCliAuthService(authRepo)

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strconv"
 	"time"
 )
 
@@ -16,13 +15,12 @@ import (
 // {prefix}/{appId}/{branch}/…. Without this migration, a v1 deploy that
 // upgrades in place loses visibility of every previously published update.
 //
-// Guards:
-//   - Only runs on the single-app flat-env path (EXPO_APP_ID set). A
-//     control-plane deploy (DB mode) sets no EXPO_APP_ID, so this no-ops
-//     there — fresh v2 installs have no v1 root-level data to re-path.
-//   - Operator can opt out with SKIP_V1_TO_V2_BUCKET_MIGRATION=true if
-//     they have already re-pathed the data themselves or want to
-//     schedule the move separately.
+// Only runs on the single-app flat-env path (EXPO_APP_ID set). A
+// control-plane deploy (DB mode) sets no EXPO_APP_ID, so this no-ops
+// there — fresh v2 installs have no v1 root-level data to re-path.
+//
+// There is no opt-out: upgrading to v2 means accepting the re-path. The
+// move is idempotent, so a run interrupted anywhere converges on retry.
 //
 // The move is driven by the validated Bucket's underlying concrete
 // backend (via bucket.UnwrapBucket + type assertion on
@@ -38,10 +36,6 @@ func init() {
 }
 
 func up(b bucket.Bucket) error {
-	if skip, _ := strconv.ParseBool(os.Getenv("SKIP_V1_TO_V2_BUCKET_MIGRATION")); skip {
-		log.Println("⏩ SKIP_V1_TO_V2_BUCKET_MIGRATION is set — skipping bucket re-path.")
-		return nil
-	}
 	appId := os.Getenv("EXPO_APP_ID")
 	if appId == "" {
 		return nil

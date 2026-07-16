@@ -4,24 +4,28 @@ sidebar_position: 3
 
 # Migrating from v1 to v2
 
-v2 of **Expo Open OTA** introduces multi-app support on a single server. The server-side env var names are unchanged on the single-app path, **but v2 is still a breaking upgrade**:
+v2 of **Expo Open OTA** introduces multi-app support on a single server. On the single-app path the server-side env var names are unchanged, and **your already-installed clients keep receiving updates without a rebuild**.
 
-1. The **bucket/storage layout changed** from `{prefix}/{branch}/{runtimeVersion}/{updateId}/…` to `{prefix}/{appId}/{branch}/{runtimeVersion}/{updateId}/…`. A v2 server pointed at a v1 bucket **will not see any previously published updates** — your apps effectively lose OTA coverage until data is re-pathed.
-2. Every Expo client must be updated to send the new `expo-app-id` HTTP header. Since this header is baked into the native bundle, it requires a **native rebuild and app store re-submission**.
+Two things change:
 
-:::danger Not a zero-downtime in-place upgrade
-Bucket data must be moved AND clients must be rebuilt. Skipping either step results in broken OTA for existing users. Plan this upgrade alongside a regular app release cycle, not as a hotfix.
+1. The **bucket/storage layout changed** from `{prefix}/{branch}/{runtimeVersion}/{updateId}/…` to `{prefix}/{appId}/{branch}/{runtimeVersion}/{updateId}/…`. The v2 server re-paths your data automatically on first boot — see [Automatic bucket re-path](#single-app-deployments) below.
+2. v2 identifies an app by the **`expo-app-id` HTTP header** instead of by the deploy's env var. Clients built against v1 do not send it, so on a single-app deploy the server falls back to `EXPO_APP_ID` — the only app such a deploy has.
+
+:::tip Your v1 clients keep working — no rebuild needed
+`requestHeaders` are baked into `Expo.plist` / `AndroidManifest.xml` at build time, so an already-installed v1 binary can never start sending `expo-app-id` without a store release. Requiring it would mean an OTA server that needs a store round-trip to keep delivering OTA updates.
+
+So when the header is absent, v2 resolves the request to `EXPO_APP_ID`. There is nothing to disambiguate: a single-app deploy has exactly one app. Adding the header to `app.config.ts` and rebuilding is **optional**, and only becomes necessary the day you host a second app on the same server.
 :::
 
-:::danger Native rebuild is mandatory
-Even if your server-side `.env` is unchanged, **the Expo client will get `400 No app id provided` from v2 until you add `'expo-app-id'` to `updates.requestHeaders` in `app.config.ts` AND ship a new native build** (iOS `.ipa` / Android `.apk`/`.aab`). A JS-only OTA update is not enough — `requestHeaders` are baked into `Expo.plist` / `AndroidManifest.xml` at build time.
+:::warning The bucket re-path is not zero-downtime
+Client-side you are fine, but the storage move is not free: on S3/GCS you must stop publishes while it runs, and there is no opt-out. See [Take writers offline](#single-app-deployments) below.
 :::
 
 ## What changed on the wire
 
 | Concern | v1 | v2 |
 | --- | --- | --- |
-| Server identifies the app by | `EXPO_APP_ID` env var (one per deploy) | `expo-app-id` HTTP header sent by the client |
+| Server identifies the app by | `EXPO_APP_ID` env var (one per deploy) | `expo-app-id` HTTP header sent by the client, falling back to `EXPO_APP_ID` when the header is absent (v1 clients) |
 | Config shape | Flat env vars | Flat env vars (single-app, unchanged) **OR** the control plane (`DB_URL`, multi-app) |
 | Manifest/asset URL | `/manifest`, `/assets`, `/rollback/{branch}`, … | Same for manifest/assets (`expo-app-id` comes in a header). Publish/rollback/republish/upload routes are now scoped under `/{APP_ID}/…` — handled transparently by the `eoas` CLI. |
 | Dashboard API | `/api/branches`, `/api/channels`, `/api/branch/{branch}/…` | `/api/apps/{APP_ID}/branches`, `/api/apps/{APP_ID}/channels`, `/api/apps/{APP_ID}/branch/{branch}/…` |
@@ -35,9 +39,9 @@ Even if your server-side `.env` is unchanged, **the Expo client will get `400 No
     :::tip Automatic bucket re-path
     On first boot, the v2 server runs the `20260422_v2_scope_data_under_appid` migration which **automatically moves your v1 bucket data into the new `{appId}/…` layout**. It only touches directories that match the v1 branch shape (`{branch}/{runtimeVersion}/{updateId}/.check`), leaves `.migrationhistory` at the bucket root, and records its success in the migration ledger so it runs exactly once. An interrupted run picks up where it left off on the next boot.
 
-    If you'd rather re-path the data yourself (e.g. you have a huge bucket and want to do it offline with `aws s3 mv`), set `SKIP_V1_TO_V2_BUCKET_MIGRATION=true` (also accepts `1`, `yes`) before first boot — the migration records itself as applied but skips the work. See [Manual bucket re-path](#manual-bucket-re-path) below for the commands.
+    There is **no opt-out**: upgrading to v2 means accepting the re-path. If the migration fails, the server does not boot — fix the cause (usually bucket credentials or permissions) and boot again. The move is idempotent, so a run interrupted anywhere converges on retry.
 
-    The automatic migration is **only** run when `EXPO_APP_ID` is set (single-app stateless path). Control-plane (DB mode) deploys don't set `EXPO_APP_ID`, so the re-path is skipped there — a fresh v2 control-plane install has no v1 root-level data to move.
+    The migration is **only** run when `EXPO_APP_ID` is set (single-app stateless path). Control-plane (DB mode) deploys don't set `EXPO_APP_ID`, so the re-path no-ops there — a fresh v2 control-plane install has no v1 root-level data to move.
     :::
 
     :::warning Take writers offline during the automatic S3/GCS re-path
@@ -45,11 +49,22 @@ Even if your server-side `.env` is unchanged, **the Expo client will get `400 No
     :::
 
     :::note App-id / v1-branch name collision
-    If your target `EXPO_APP_ID` happens to match the name of an existing v1 branch (e.g. `EXPO_APP_ID=staging` and you had a branch called `staging`), the migration refuses to run and boot fails with `app id collides with a v1 branch of the same name`. Rename the branch on disk, re-path that branch manually, or set `SKIP_V1_TO_V2_BUCKET_MIGRATION=true` and do the whole move by hand per [Manual bucket re-path](#manual-bucket-re-path).
+    If your target `EXPO_APP_ID` matches the name of an existing v1 branch, the migration refuses to run and boot fails with `app id collides with a v1 branch of the same name` — moving the branch under an id equal to its own name would nest the data under itself. Rename that branch in the bucket, then boot again to retry.
+
+    `EXPO_APP_ID` is an Expo project id and therefore a UUID, so in practice this only fires if you were running v1 with a hand-written id.
     :::
 
-2. **Upgrade the `eoas` CLI** (`npm i -D eoas@latest`). The CLI now writes `expo-app-id` into your `app.config.ts` automatically when you run `npx eoas init`.
-3. **Add `expo-app-id` to every client app's `app.config.ts`:**
+2. **Upgrade the `eoas` CLI** (`npm i -D eoas@latest`). This one is required: publish, rollback and republish now go through `/{APP_ID}/…` routes, and a v1 CLI gets a `404` against a v2 server. Unlike the client binary, the CLI upgrades with an `npm install` — no store round-trip, no user tail.
+
+3. **Check that your v1 clients are covered**, before you go any further:
+
+    ```bash title="cd ./my-expo-project"
+    npx eoas doctor --channel=production
+    ```
+
+    It sends two manifest requests to your server — one shaped like a v1 client (no `expo-app-id`) and one like a v2 client — and reports whether each is served. If the v1 probe passes, your installed fleet keeps updating and **you are done migrating**. Steps 4 to 6 are optional.
+
+4. **(Optional) Add `expo-app-id` to every client app's `app.config.ts`:**
 
     ```ts title="app.config.ts"
     export default ({ config }) => ({
@@ -66,7 +81,7 @@ Even if your server-side `.env` is unchanged, **the Expo client will get `400 No
     });
     ```
 
-4. **Regenerate native code and rebuild each platform:**
+5. **(Optional) Regenerate native code and rebuild each platform:**
 
     ```bash title="cd ./my-expo-project"
     npx expo prebuild --clean        # rewrites ios/ and android/ from app.config.ts
@@ -87,12 +102,14 @@ Even if your server-side `.env` is unchanged, **the Expo client will get `400 No
 
     Same check on Android: `android/app/src/main/AndroidManifest.xml` must carry a matching `meta-data` entry for `expo.modules.updates.EXPO_UPDATES_REQUEST_HEADERS`.
 
-5. **Ship the new native build** through the App Store / Play Store / internal distribution. OTA updates alone will **not** roll out this header change — clients with the v1 binary keep sending no `expo-app-id` and will see `400 No app id provided` against the v2 server.
+6. **(Optional) Ship the new native build** through the App Store / Play Store / internal distribution, on your normal release cadence. There is no rush and no deadline: clients on the v1 binary keep being served through the `EXPO_APP_ID` fallback for as long as you leave it on.
 
-6. Once the new binary is in your users' hands, regular OTA updates resume as usual via `npx eoas publish --branch=<branch>`.
+Regular OTA updates resume as usual via `npx eoas publish --branch=<branch>` as soon as step 1 completes.
 
-:::tip Rolling upgrade
-If you can't rebuild every client at once, keep a v1 server instance alive for the legacy fleet and point the v2 server at a new URL for the rebuilt clients. Once adoption of the new binary is high enough, retire v1.
+:::tip Tightening once the fleet has turned over
+Once `expo-app-id` ships in every build your users run, you can require it: set `SKIP_LEGACY_APP_ID_FALLBACK=true` and header-less requests go back to `400 No app id provided`. This is worth doing before hosting a second app on the deploy, and it is how you surface stragglers still running a v1 binary.
+
+Check the boot log to see which state you are in — the server prints the app the fallback resolves to, or that it is disabled.
 :::
 
 ### Migrating to multi-app (control plane)
@@ -141,7 +158,9 @@ reference (including the UUID app-id requirement for the automatic migration).
 
 ## Manual bucket re-path
 
-Use these commands if you set `SKIP_V1_TO_V2_BUCKET_MIGRATION=true` and want to move v1 data into the `{appId}/` layout yourself. Replace `<APP_ID>` with the exact value of your `EXPO_APP_ID`, and **take the v1 server offline before starting** to prevent concurrent writes into the old paths.
+The automatic migration handles this for you and cannot be turned off. These commands are for **recovery** — a re-path that died partway through and left objects at the old root, or data the structural detection did not classify as v1. Run them against a stopped server, then boot: the migration re-runs, finds nothing left at the root, and records itself as applied.
+
+Replace `<APP_ID>` with the exact value of your `EXPO_APP_ID`, and **take the server offline before starting** to prevent concurrent writes into the old paths.
 
 ```bash title="Local filesystem"
 cd "$LOCAL_BUCKET_BASE_PATH"
@@ -169,7 +188,11 @@ After the move, your layout should be `{prefix}<APP_ID>/{branch}/{runtimeVersion
 
 ### Client gets `400 No app id provided`
 
-- The `expo-app-id` header isn't in the client's native bundle. Check `ios/<app>/Supporting/Expo.plist` and `android/app/src/main/AndroidManifest.xml` — if the header isn't there, you set `requestHeaders` in `app.config.ts` but haven't run `npx expo prebuild --clean` and rebuilt the native binary.
+The client sent no `expo-app-id` **and** the server had no legacy app to fall back to. Run `npx eoas doctor` to see which of the two it is, then:
+
+- **On a single-app deploy**: either `SKIP_LEGACY_APP_ID_FALLBACK` is set (turn it off, or rebuild the client with the header), or `EXPO_APP_ID` is unset — but then the server would not have booted at all, so check your env.
+- **On the control plane** (`DB_URL` set): there is no fallback by design, since a control-plane deploy has several apps and a header-less request cannot be attributed to one. The client must send the header. Check `ios/<app>/Supporting/Expo.plist` and `android/app/src/main/AndroidManifest.xml` — if the header isn't there, you set `requestHeaders` in `app.config.ts` but haven't run `npx expo prebuild --clean` and rebuilt the native binary.
+- **On a control plane migrated from a v1 deploy**: keep `EXPO_APP_ID` set in the env. It names the app your legacy clients belong to, and the infra → DB migration preserves it as the app's id.
 
 ### Client gets `400 Error validating expo auth`
 

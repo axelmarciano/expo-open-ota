@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"expo-open-ota/config"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/types"
 	"log"
@@ -19,10 +20,22 @@ func NewExpoProtocolHandler(ps *services.ExpoProtocolService) *ExpoProtocolHandl
 	return &ExpoProtocolHandler{protocolService: ps}
 }
 
+// resolveAppID returns the app a manifest or asset request targets. The
+// expo-app-id header wins when present. When it is absent the caller is a v1
+// client that cannot send it, so we fall back to the deploy's legacy app —
+// see config.LegacyFallbackAppId, which returns "" when there is none and
+// leaves the request to be rejected.
+func resolveAppID(r *http.Request) string {
+	if appId := r.Header.Get("expo-app-id"); appId != "" {
+		return appId
+	}
+	return config.LegacyFallbackAppId()
+}
+
 func (h *ExpoProtocolHandler) HandleManifest(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 
-	appId := r.Header.Get("expo-app-id")
+	appId := resolveAppID(r)
 	if appId == "" {
 		log.Printf("[RequestID: %s] No app id provided", requestID)
 		http.Error(w, "No app id provided", http.StatusBadRequest)

@@ -23,6 +23,7 @@ func resetAppsEnv(t *testing.T) {
 	t.Helper()
 	vars := []string{
 		"EXPO_APP_ID",
+		"SKIP_LEGACY_APP_ID_FALLBACK",
 		"EXPO_ACCESS_TOKEN",
 		"KEYS_STORAGE_TYPE",
 		"PUBLIC_LOCAL_EXPO_KEY_PATH",
@@ -527,4 +528,66 @@ func TestResetAppsForTest_ClearsRegistry(t *testing.T) {
 	assert.Empty(t, ListAppIds())
 	_, err := GetAppConfig("x")
 	assert.Error(t, err)
+}
+
+// -----------------------------------------------------------------------------
+// LegacyFallbackAppId — which app a manifest/asset request with no expo-app-id
+// header belongs to. Drives whether v1 clients keep receiving updates after the
+// v2 upgrade, so each branch is pinned explicitly.
+// -----------------------------------------------------------------------------
+
+func TestLegacyFallbackAppId_ReturnsExpoAppId(t *testing.T) {
+	resetAppsEnv(t)
+	os.Setenv("EXPO_APP_ID", "d8471dfc-c3e9-4e14-afd9-21dc34cc498a")
+
+	assert.Equal(t, "d8471dfc-c3e9-4e14-afd9-21dc34cc498a", LegacyFallbackAppId())
+}
+
+func TestLegacyFallbackAppId_EmptyWithoutExpoAppId(t *testing.T) {
+	// The control-plane shape: apps come from the dashboard, EXPO_APP_ID is
+	// unset, no v1 client can exist. Nothing to fall back to, so the header
+	// stays mandatory and the handler rejects the request.
+	resetAppsEnv(t)
+
+	assert.Empty(t, LegacyFallbackAppId())
+}
+
+func TestLegacyFallbackAppId_SkipFlagDisablesFallback(t *testing.T) {
+	// strconv.ParseBool accepts 1/t/T/TRUE/true/True — every truthy spelling
+	// must disable the fallback, so an operator who opted out gets the opt-out
+	// no matter how they spelled it.
+	for _, v := range []string{"true", "1", "True", "TRUE", "t"} {
+		t.Run("skip="+v, func(t *testing.T) {
+			resetAppsEnv(t)
+			os.Setenv("EXPO_APP_ID", "d8471dfc-c3e9-4e14-afd9-21dc34cc498a")
+			os.Setenv("SKIP_LEGACY_APP_ID_FALLBACK", v)
+
+			assert.Empty(t, LegacyFallbackAppId())
+		})
+	}
+}
+
+func TestLegacyFallbackAppId_FalseyOrUnparseableSkipKeepsFallback(t *testing.T) {
+	// Anything that parses false — or does not parse at all — must leave the
+	// fallback on. Failing open matters here: guessing that "yes" means true
+	// would silently kill the update channel of every v1 client on the deploy.
+	for _, v := range []string{"false", "0", "", "yes", "nope"} {
+		t.Run("skip="+v, func(t *testing.T) {
+			resetAppsEnv(t)
+			os.Setenv("EXPO_APP_ID", "d8471dfc-c3e9-4e14-afd9-21dc34cc498a")
+			os.Setenv("SKIP_LEGACY_APP_ID_FALLBACK", v)
+
+			assert.Equal(t, "d8471dfc-c3e9-4e14-afd9-21dc34cc498a", LegacyFallbackAppId())
+		})
+	}
+}
+
+func TestLegacyFallbackAppId_TrimsWhitespace(t *testing.T) {
+	// ReadAppsFromFlatEnv trims EXPO_APP_ID before registering the app, so a
+	// padded value must resolve to the same id here or the fallback would look
+	// up an app that is not in the registry.
+	resetAppsEnv(t)
+	os.Setenv("EXPO_APP_ID", "  d8471dfc-c3e9-4e14-afd9-21dc34cc498a\n")
+
+	assert.Equal(t, "d8471dfc-c3e9-4e14-afd9-21dc34cc498a", LegacyFallbackAppId())
 }

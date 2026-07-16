@@ -1,0 +1,130 @@
+---
+sidebar_position: 4
+---
+
+# Control Plane
+
+The **Control Plane** is Expo Open OTA's database-backed mode. It does one thing the
+stateless mode cannot: it cuts the last cord to Expo's servers.
+
+In stateless mode your OTA server is self-hosted, but it still phones home. It asks
+Expo's API who your channels map to. It hands Expo your access token to authenticate
+every publish. Your updates live on your infrastructure — your *control* doesn't.
+
+Turn on the control plane and that stops. Every question the server used to ask Expo,
+it now answers from its own Postgres.
+
+:::info Still on a single app?
+The stateless setup on the [Prerequisites page](/docs/getting-started/prerequisites)
+is simpler and stays fully supported. Come back here when you want to drop the Expo
+dependency, host several apps, or manage them without redeploying.
+:::
+
+## What actually changes
+
+|  | Stateless | Control Plane |
+| --- | --- | --- |
+| **Publish auth** | Your `EXPO_ACCESS_TOKEN`, validated against Expo's API on every publish | Your own API keys, hashed in Postgres. No network call. |
+| **Channel → branch** | Fetched from Expo's API | A table you own |
+| **Signing certificates** | You generate and manage them by hand | Generated for you, sealed at rest, downloadable as `certificate.pem` |
+| **Apps per server** | Exactly one, from env vars | As many as you want |
+| **Adding an app** | Edit env, redeploy | The dashboard, at runtime |
+| **Expo account needed to serve updates** | Yes | **No** |
+
+That last row is the point. A control-plane app has no Expo access token — not
+"optionally", not "unused". The `apps` table has no column to put one in.
+
+## Why you'd want it
+
+### Your credentials, not a borrowed one
+
+Stateless mode authenticates publishes with a single Expo access token. One secret,
+shared by everyone and everything that publishes, that also unlocks the rest of your
+Expo account. Leak it in CI and you've leaked far more than your OTA server.
+
+The control plane issues **API keys scoped to one app**. Each one has a name, so you
+know what it's for. Each shows a hint (`eoo_*******a1b2`), so you can find it without
+revealing it. Each records when it was **last used**, so you can spot the one nobody
+needs anymore — and revoke it on its own, without rotating anything else.
+
+Keys are stored as SHA-256 hashes. The server can verify yours; it can't tell you
+what it is.
+
+### Certificates you don't have to think about
+
+Code signing is the part of self-hosted OTA that people quietly skip because setting
+it up is tedious. Create an app in the control plane and the server generates its RSA
+key pair for you, seals the private half at rest, and hands you the code-signing
+certificate as a `certificate.pem` download. Drop it in your project and you're
+signing.
+
+### Real multi-tenancy
+
+One server, many apps, each with its own id, its own keys, its own API keys, its own
+branches and channels. Clients pick their app with the `expo-app-id` header. Adding
+the tenth app costs exactly what adding the second did: a form in the dashboard.
+
+### Nothing to redeploy
+
+Apps, keys, and channels live in the database, so they change at runtime. No env var
+edit, no rollout, no restart to onboard an app or rotate a key.
+
+## What it costs you
+
+Honesty first — this mode is not free of trade-offs:
+
+- **You run a Postgres.** That's a real database to provision, back up, and monitor.
+  Stateless mode has no such dependency, and that simplicity is worth something.
+- **You hold a master key.** The per-app signing keys are encrypted at rest with a
+  key you provide. Lose it and those signing keys are unrecoverable. It belongs in
+  your platform's secret store, backed up independently of the database.
+
+If you host one app and you're happy with Expo's API in the loop, stateless mode is
+the right call. The control plane is for when it isn't.
+
+## How key material is protected
+
+Signing keys stored in the database are sealed with **AES-256-GCM** under your master
+key, so Postgres never holds a private key in plaintext — a database dump on its own
+yields nothing usable.
+
+Each sealed blob is also **bound to the app it belongs to** and to which half of the
+pair it is. A key that ends up in the wrong row — a staging dump restored over prod, a
+botched migration — fails to open, loudly, at the point of the mistake. It cannot
+silently sign one app's updates with another app's key.
+
+## Turning it on
+
+Two environment variables and a restart:
+
+```bash
+DB_URL=postgresql://user:pass@db:5432/expo_ota
+DB_KEYS_MASTER_KEY_B64=$(openssl rand -base64 32)
+```
+
+`DB_URL` is the switch: its presence puts the server in control-plane mode, and schema
+migrations run automatically on boot. The master key seals the signing keys.
+
+Then set `USE_DASHBOARD=true` and create your first app.
+
+Already running a stateless server? Keep your existing env vars in place for the first
+boot — the server migrates your app, branches, channels, and update history into the
+database for you, reusing your existing signing keys so installed clients keep
+updating.
+
+:::info Full configuration
+This page is the overview. For the master key details, the per-app key storage modes,
+the client-side `expo-app-id` header, and the step-by-step migration from a stateless
+deploy, see [Multi-app (Control Plane)](/docs/advanced/multi-app).
+:::
+
+## What about EAS?
+
+Nothing here replaces **EAS Build**. Building, signing, and submitting native binaries
+is what EAS is genuinely great at, and this project has no ambition to compete with
+it.
+
+What the control plane removes is Expo's involvement in **serving your updates**. Your
+OTA pipeline — auth, channels, certificates, update history — stops depending on an
+account, a token, and an API you don't control. You keep using EAS for what it's worth
+paying for, and stop paying for what you can own.

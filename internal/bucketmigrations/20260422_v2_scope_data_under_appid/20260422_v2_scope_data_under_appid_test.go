@@ -15,8 +15,8 @@ import (
 // unreachableBucket fails the test if any Bucket method gets called.
 // Wrapping it in a validatingBucket (via bucket.GetBucket) would also
 // fail because UnwrapBucket expects a concrete *LocalBucket/*S3Bucket/
-// *GCSBucket, but the migration's up() bails out before unwrapping
-// whenever a skip guard trips — which is exactly what we want to prove.
+// *GCSBucket, but the migration's up() bails out before unwrapping when
+// EXPO_APP_ID is unset — which is exactly what we want to prove.
 type unreachableBucket struct{ t *testing.T }
 
 func (u unreachableBucket) GetBranches(string) ([]string, error) {
@@ -69,7 +69,7 @@ func (u unreachableBucket) RemoveMigrationFromHistory(string) error {
 // process.
 func resetEnv(t *testing.T) {
 	t.Helper()
-	vars := []string{"SKIP_V1_TO_V2_BUCKET_MIGRATION", "EXPO_APP_ID"}
+	vars := []string{"EXPO_APP_ID"}
 	prev := map[string]string{}
 	for _, v := range vars {
 		prev[v] = os.Getenv(v)
@@ -86,45 +86,6 @@ func resetEnv(t *testing.T) {
 	})
 }
 
-func TestUp_SkipFlagRespected(t *testing.T) {
-	// strconv.ParseBool accepts 1/t/T/TRUE/true/True and 0/f/F/FALSE/
-	// false/False. Every "truthy" spelling must skip.
-	for _, v := range []string{"true", "1", "True", "TRUE", "t"} {
-		t.Run("skip="+v, func(t *testing.T) {
-			resetEnv(t)
-			os.Setenv("SKIP_V1_TO_V2_BUCKET_MIGRATION", v)
-			os.Setenv("EXPO_APP_ID", "app-1")
-			// A truthy skip must return nil without touching the bucket.
-			assert.NoError(t, up(unreachableBucket{t: t}))
-		})
-	}
-}
-
-func TestUp_SkipFlag_FalseyValuesDoNotSkip(t *testing.T) {
-	// Values that parse as false (or don't parse at all) must NOT skip.
-	// This is a regression guard: v1 of this code used == "true", so
-	// "false" string skipped by accident because the comparison was
-	// literal. With strconv.ParseBool the only way to skip is a truthy
-	// value, so each of these must let up() reach the bucket and re-path.
-	for _, v := range []string{"false", "0", "", "yesplease"} {
-		t.Run("skip="+v, func(t *testing.T) {
-			resetEnv(t)
-			os.Setenv("SKIP_V1_TO_V2_BUCKET_MIGRATION", v)
-			os.Setenv("EXPO_APP_ID", "app-1")
-
-			base := t.TempDir()
-			require.NoError(t, os.MkdirAll(filepath.Join(base, "branch-a", "1", "12345"), 0o755))
-			require.NoError(t, os.WriteFile(filepath.Join(base, "branch-a", "1", "12345", ".check"), []byte("x"), 0o644))
-
-			require.NoError(t, up(&bucket.LocalBucket{BasePath: base}))
-
-			// A non-skipping run re-paths the v1 branch under app-1/.
-			_, err := os.Stat(filepath.Join(base, "app-1", "branch-a", "1", "12345", ".check"))
-			assert.NoError(t, err)
-		})
-	}
-}
-
 func TestUp_SkipsWhenEXPOAppIdUnset(t *testing.T) {
 	// Without EXPO_APP_ID there is no v1 install to migrate from —
 	// typically a fresh v2 deploy. Must no-op cleanly.
@@ -133,9 +94,9 @@ func TestUp_SkipsWhenEXPOAppIdUnset(t *testing.T) {
 }
 
 func TestUp_RunsOnSingleAppFlatEnv(t *testing.T) {
-	// Positive path: single-app flat env + SKIP not set → up() must
-	// reach the bucket. Use a real LocalBucket on a v1 fixture to prove
-	// end-to-end that the migration actually runs (not just returns nil).
+	// Positive path: single-app flat env → up() must reach the bucket.
+	// Use a real LocalBucket on a v1 fixture to prove end-to-end that the
+	// migration actually runs (not just returns nil).
 	resetEnv(t)
 	os.Setenv("EXPO_APP_ID", "app-1")
 

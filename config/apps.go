@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -136,6 +137,28 @@ func ReadAppsFromFlatEnv() ([]AppConfig, string, error) {
 		return []AppConfig{parseFlatEnvApp(appId)}, "flat env (EXPO_APP_ID)", nil
 	}
 	return nil, "", fmt.Errorf("no app config found: set EXPO_APP_ID + EXPO_ACCESS_TOKEN + key vars (multi-app deployments are managed by the control plane / DB mode)")
+}
+
+// LegacyFallbackAppId names the app that manifest and asset requests arriving
+// without an expo-app-id header belong to, or "" when no such app exists.
+//
+// v1 clients predate the header. It is baked into Expo.plist /
+// AndroidManifest.xml at build time, so an already-installed v1 binary can
+// never start sending it without a store release — and an OTA server that
+// requires a store release to keep serving OTA updates has defeated its own
+// purpose. EXPO_APP_ID is the Expo project id v1 already identified the deploy
+// by, and the infra→DB migration carries it over verbatim as the apps row key,
+// so it names the legacy app whether the deploy stayed stateless or grew into a
+// control plane. A control plane created fresh leaves it unset and gets "" back,
+// which keeps the header mandatory exactly where no legacy client can exist.
+//
+// Adding more apps later does not make this ambiguous: their clients are v2 and
+// send the header, so a header-less request still belongs to the legacy app.
+func LegacyFallbackAppId() string {
+	if skip, _ := strconv.ParseBool(GetEnv("SKIP_LEGACY_APP_ID_FALLBACK")); skip {
+		return ""
+	}
+	return strings.TrimSpace(GetEnv("EXPO_APP_ID"))
 }
 
 // parseFlatEnvApp reads the v1 single-app env vars and returns an AppConfig.

@@ -140,47 +140,92 @@ func TestNotValidPlatformForManifest(t *testing.T) {
 	assert.Equal(t, "Invalid platform\n", w.Body.String(), "Expected 'IInvalid platform' message")
 }
 
-// TestManifestMissingAppIdHeader covers the "no header at all" branch —
-// a v1 client that never learned about expo-app-id must fail cleanly
-// with a 400, not crash or resolve to some default app.
-func TestManifestMissingAppIdHeader(t *testing.T) {
-	teardown := setup(t)
-	defer teardown()
-
-	q := "http://localhost:3000/manifest"
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", q, nil)
+// legacyClientManifestRequest builds a manifest request shaped exactly like
+// the one a v1 binary sends: every header it knew about, and no expo-app-id —
+// that header is baked into Expo.plist / AndroidManifest.xml at build time, so
+// an already-installed v1 client cannot start sending it without a store
+// release. The runtime version resolves to no update, which is the shortest
+// path to a signed 200.
+func legacyClientManifestRequest() *http.Request {
+	r := httptest.NewRequest("GET", "http://localhost:3000/manifest", nil)
 	r.Header.Add("expo-platform", "ios")
-	r.Header.Add("expo-runtime-version", "1")
+	r.Header.Add("expo-runtime-version", "nop")
 	r.Header.Add("expo-protocol-version", "1")
 	r.Header.Add("expo-expect-signature", "true")
 	r.Header.Add("expo-channel-name", "staging")
-	// No expo-app-id.
-
-	testContainer().ExpoProtocolHandler.HandleManifest(w, r)
-	assert.Equal(t, 400, w.Code, "Missing expo-app-id must fail with 400")
+	return r
 }
 
-// TestManifestEmptyAppIdHeader — the header is present but empty. Must
-// be treated the same as missing (400) rather than resolving to the
-// empty-string app and falling through to an Expo call.
-func TestManifestEmptyAppIdHeader(t *testing.T) {
+// assertServedLegacyApp asserts the response was served, and served as
+// test-app-id. The signature check is what makes this meaningful: it only
+// validates against test-app-id's key pair, so a 200 signed with it proves the
+// request resolved to the legacy app rather than to some empty or default one.
+func assertServedLegacyApp(t *testing.T, w *httptest.ResponseRecorder) {
+	t.Helper()
+	assert.Equal(t, 200, w.Code, "A v1 client with no expo-app-id must still be served")
+	parts, err := ParseMultipartMixedResponse(w.Header().Get("Content-Type"), w.Body.Bytes())
+	if err != nil {
+		t.Fatalf("Error parsing response: %v", err)
+	}
+	assert.Equal(t, 1, len(parts), "Expected 1 part in the response")
+	signature := parts[0].Headers["Expo-Signature"]
+	assert.NotEmpty(t, signature, "Expected a signature in the response")
+	assert.True(t, ValidateSignatureHeader("test-app-id", signature, parts[0].Body),
+		"Response must be signed by the legacy app's keys, proving the fallback resolved to it")
+}
+
+// TestManifestMissingAppIdHeaderFallsBackToLegacyApp covers the "no header at
+// all" branch. A v1 client cannot send expo-app-id, and rejecting it would kill
+// its update channel until a store release lands — for an OTA server, the one
+// breaking change that defeats the point. EXPO_APP_ID names the only app such a
+// deploy has, so the request is not ambiguous and gets served.
+func TestManifestMissingAppIdHeaderFallsBackToLegacyApp(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
 
-	q := "http://localhost:3000/manifest"
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", q, nil)
-	r.Header.Add("expo-platform", "ios")
-	r.Header.Add("expo-runtime-version", "1")
-	r.Header.Add("expo-protocol-version", "1")
-	r.Header.Add("expo-expect-signature", "true")
-	r.Header.Add("expo-channel-name", "staging")
+	mockWorkingExpoResponse("staging")
+	testContainer().ExpoProtocolHandler.HandleManifest(w, legacyClientManifestRequest())
+
+	assertServedLegacyApp(t, w)
+}
+
+// TestManifestEmptyAppIdHeaderFallsBackToLegacyApp — the header is present but
+// empty. Must take the same path as missing rather than resolving to the
+// empty-string app.
+func TestManifestEmptyAppIdHeaderFallsBackToLegacyApp(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+
+	r := legacyClientManifestRequest()
 	r.Header.Add("expo-app-id", "")
 
+	w := httptest.NewRecorder()
+	mockWorkingExpoResponse("staging")
 	testContainer().ExpoProtocolHandler.HandleManifest(w, r)
-	assert.Equal(t, 400, w.Code, "Empty expo-app-id must fail with 400")
+
+	assertServedLegacyApp(t, w)
 }
+
+// TestManifestMissingAppIdHeaderRejectedWhenFallbackSkipped — the opt-out an
+// operator sets once every client ships the header. Header-less requests fail
+// again, which is what surfaces the stragglers still running a v1 binary.
+func TestManifestMissingAppIdHeaderRejectedWhenFallbackSkipped(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	t.Setenv("SKIP_LEGACY_APP_ID_FALLBACK", "true")
+
+	w := httptest.NewRecorder()
+	testContainer().ExpoProtocolHandler.HandleManifest(w, legacyClientManifestRequest())
+
+	assert.Equal(t, 400, w.Code, "Missing expo-app-id must 400 once the fallback is opted out of")
+}
+// The control-plane shape — no EXPO_APP_ID, so no legacy app to fall back to —
+// is not reachable from here: a stateless container refuses to boot without
+// EXPO_APP_ID (wire.go log.Fatals on it), and a DB-mode container needs a
+// database. config.TestLegacyFallbackAppId covers that env resolution instead,
+// and the rejection it feeds into is the same appId == "" branch the
+// fallback-skipped test above already exercises.
 
 // TestManifestMalformedAppIdHeader checks the handler rejects values
 // that look like path traversal or whitespace-padded ids. Even though

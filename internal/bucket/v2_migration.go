@@ -32,10 +32,13 @@ import (
 // ErrAppIdCollidesWithV1Branch is returned when a v1 bucket contains a
 // branch whose name happens to equal the target appId. Auto-migrating
 // would nest v1 data under itself and corrupt the layout, so the
-// migration refuses and the operator must resolve it manually (rename
-// the branch, re-path the data, or set SKIP_V1_TO_V2_BUCKET_MIGRATION
-// and migrate by hand).
-var ErrAppIdCollidesWithV1Branch = fmt.Errorf("app id collides with a v1 branch of the same name; resolve manually and rerun with SKIP_V1_TO_V2_BUCKET_MIGRATION=true")
+// migration refuses and the operator renames the branch before retrying.
+//
+// EXPO_APP_ID is an Expo project id and therefore a UUID, so a branch
+// colliding with it is close to unreachable in practice — the guard is
+// here because the corruption it prevents is silent and unrecoverable,
+// not because it is expected to fire.
+var ErrAppIdCollidesWithV1Branch = fmt.Errorf("app id collides with a v1 branch of the same name; rename that branch in the bucket, then reboot to retry the migration")
 
 // MoveRootEntriesUnder walks the LocalBucket root and moves every
 // immediate child directory that LOOKS LIKE a v1 branch into

@@ -13,7 +13,7 @@ import (
 func (h *ExpoProtocolHandler) HandleAssets(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 
-	appId := r.Header.Get("expo-app-id")
+	appId := resolveAppID(r)
 	if appId == "" {
 		log.Printf("[RequestID: %s] No app id provided", requestID)
 		http.Error(w, "No app id provided", http.StatusBadRequest)

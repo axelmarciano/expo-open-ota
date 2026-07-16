@@ -149,9 +149,17 @@ export function getExpoConfigUpdateUrl(config: ExpoConfig): string | undefined {
   return config.updates?.url;
 }
 
-export function requireExpoAppId(config: ExpoConfig): string {
-  const appId = (config.updates as { requestHeaders?: Record<string, string> } | undefined)
+// getExpoAppId reads the app id without treating its absence as fatal. A config
+// with no 'expo-app-id' is the shape every v1 project has, so a caller that
+// diagnoses or migrates such a project needs to see the absence rather than be
+// exited on. Commands that cannot proceed without an id use requireExpoAppId.
+export function getExpoAppId(config: ExpoConfig): string | undefined {
+  return (config.updates as { requestHeaders?: Record<string, string> } | undefined)
     ?.requestHeaders?.['expo-app-id'];
+}
+
+export function requireExpoAppId(config: ExpoConfig): string {
+  const appId = getExpoAppId(config);
   if (!appId) {
     Log.error("Your Expo config is missing the 'expo-app-id' entry in updates.requestHeaders.");
     Log.error(

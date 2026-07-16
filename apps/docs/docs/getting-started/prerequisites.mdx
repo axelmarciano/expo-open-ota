@@ -58,7 +58,9 @@ This token is set as the `EXPO_ACCESS_TOKEN` environment variable on the server.
 4. The project ID is displayed on the top of the page.
 
 :::info
-This ID is set as the `EXPO_APP_ID` environment variable on the server, and the client must send it as the `expo-app-id` HTTP header on every manifest and asset request (configured in `app.config.ts` → `updates.requestHeaders`; changing this value requires a **native rebuild** — see the [Migration guide](/docs/advanced/migration-v1-to-v2) for the full procedure).
+This ID is set as the `EXPO_APP_ID` environment variable on the server. Clients identify themselves with it via the `expo-app-id` HTTP header on every manifest and asset request, configured in `app.config.ts` → `updates.requestHeaders` and written for you by `npx eoas init`.
+
+On a single-app deploy the header is optional: a request without it resolves to `EXPO_APP_ID`, which is what keeps clients built before v2 updating. It becomes required once you host several apps on one server ([Multi-app](/docs/advanced/multi-app)), or if you set `SKIP_LEGACY_APP_ID_FALLBACK`. Note that the header lives in the native build, so changing its value needs a **native rebuild** — see the [Migration guide](/docs/advanced/migration-v1-to-v2).
 :::
 
 ## Server configuration
