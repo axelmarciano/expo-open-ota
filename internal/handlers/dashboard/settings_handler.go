@@ -37,10 +37,10 @@ type SettingsEnv struct {
 	AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID string `json:"AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID"`
 	PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH      string `json:"PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH"`
 	PROMETHEUS_ENABLED                     string `json:"PROMETHEUS_ENABLED"`
-	// Apps lists the apps configured via EXPO_APPS_JSON or the flat env var
-	// fallback. Each entry carries just the id and optional display name —
-	// tokens and keys are never surfaced here because this endpoint is read
-	// by the dashboard UI.
+	// Apps lists the configured apps — the single flat-env app in stateless
+	// mode, or every app in the database in control-plane mode. Each entry
+	// carries just the id and optional display name — tokens and keys are
+	// never surfaced here because this endpoint is read by the dashboard UI.
 	Apps []config.AppDescriptor `json:"APPS"`
 }
 

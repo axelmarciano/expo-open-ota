@@ -2,7 +2,6 @@ package config
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -64,17 +63,12 @@ type KeysConfig struct {
 	SealedPrivateKey string `json:"sealedPrivateKey,omitempty"`
 }
 
-type ControlPlaneMasterKeyConfig struct {
-	Mode            KeysMode `json:"mode"`
-	PrivatePath     string   `json:"privatePath,omitempty"`
-	PrivateSecretId string   `json:"privateSecretId,omitempty"`
-	PrivateB64      string   `json:"privateB64,omitempty"`
-}
-
-// AppConfig is one entry of the EXPO_APPS_JSON config. Each app has its own
-// identity (id, accessToken) and signing key pair. Name is optional and used
-// purely as a display label in the dashboard — it does not participate in
-// request routing, which always goes by Id.
+// AppConfig is the resolved configuration for one app. In stateless mode it
+// is built from the flat env vars; in control-plane mode it is hydrated from
+// a database row. Each app has its own identity (id, accessToken) and signing
+// key pair. Name is optional and used purely as a display label in the
+// dashboard — it does not participate in request routing, which always goes
+// by Id.
 type AppConfig struct {
 	Id          string        `json:"id"`
 	Name        string        `json:"name,omitempty"`
@@ -96,19 +90,16 @@ var (
 	appsById   map[string]*AppConfig
 )
 
-// LoadApps resolves the multi-app config from env, validates it, and caches
-// the result in memory. Two sources are supported, in priority order:
+// LoadApps resolves the single-app stateless config from the flat env vars
+// (EXPO_APP_ID, EXPO_ACCESS_TOKEN, KEYS_STORAGE_TYPE and its mode-specific
+// siblings), validates it, and caches the result in memory. This mirrors the
+// v1 env layout unchanged, so a v1 install upgrades to v2 with zero config
+// changes. Multi-app deployments are served by the control plane (DB mode),
+// which loads apps from the database and never calls this.
 //
-//  1. EXPO_APPS_JSON — a JSON array of AppConfig entries, used for multi-app
-//     deployments. This is the "multi-app" path.
-//  2. Flat env vars (EXPO_APP_ID, EXPO_ACCESS_TOKEN, KEYS_STORAGE_TYPE and its
-//     mode-specific siblings) — parsed into a single-element array. This is
-//     the "simple 1-app" path and mirrors the v1 env layout unchanged, so a
-//     v1 install upgrades to v2 with zero config changes.
-//
-// Must be called once from LoadConfig before any handler resolves an app.
-// Returns a non-nil error on any structural or semantic issue; callers are
-// expected to log.Fatal on error.
+// Must be called once from wire.go (stateless branch) before any handler
+// resolves an app. Returns a non-nil error on any structural or semantic
+// issue; callers are expected to log.Fatal on error.
 func LoadApps() error {
 	apps, source, err := ReadApps()
 	if err != nil {
@@ -134,22 +125,16 @@ func LoadApps() error {
 	return nil
 }
 
-// ReadApps returns the parsed (but not yet validated) list of apps plus a
-// human-readable source tag used for error messages. EXPO_APPS_JSON wins when
-// set. The flat-env fallback reads legacy v1 variable names verbatim to
-// preserve upgrade-in-place.
+// ReadApps returns the parsed (but not yet validated) single-app config plus
+// a human-readable source tag used for error messages. It reads the legacy v1
+// variable names verbatim to preserve upgrade-in-place. Returned as a slice so
+// callers (LoadApps, the infra→DB migration) share one iteration shape whether
+// the config carries one app (stateless) or many (control plane).
 func ReadApps() ([]AppConfig, string, error) {
-	if inline := strings.TrimSpace(os.Getenv("EXPO_APPS_JSON")); inline != "" {
-		var apps []AppConfig
-		if err := json.Unmarshal([]byte(inline), &apps); err != nil {
-			return nil, "EXPO_APPS_JSON", fmt.Errorf("EXPO_APPS_JSON: invalid JSON: %w", err)
-		}
-		return apps, "EXPO_APPS_JSON", nil
-	}
 	if appId := strings.TrimSpace(os.Getenv("EXPO_APP_ID")); appId != "" {
 		return []AppConfig{loadFromFlatEnv(appId)}, "flat env (EXPO_APP_ID)", nil
 	}
-	return nil, "", fmt.Errorf("no apps config found: set EXPO_APPS_JSON for multi-app, or EXPO_APP_ID + EXPO_ACCESS_TOKEN + key vars for the single-app case")
+	return nil, "", fmt.Errorf("no app config found: set EXPO_APP_ID + EXPO_ACCESS_TOKEN + key vars (multi-app deployments are managed by the control plane / DB mode)")
 }
 
 // loadFromFlatEnv reads the v1 single-app env vars and returns an AppConfig.
@@ -361,5 +346,22 @@ func GetAppConfig(appId string) (*AppConfig, error) {
 func ResetAppsForTest() {
 	appsByIdMu.Lock()
 	appsById = nil
+	appsByIdMu.Unlock()
+}
+
+// SetAppsForTest replaces the in-memory registry with the given apps. Test-
+// only: lets tests exercise the multi-app resolution paths (dashboard tenant
+// isolation, per-app routing) directly, without going through the flat-env
+// loader, which is single-app. Production multi-app lives in the control
+// plane (DB mode); this shortcut just seeds the same registry the bucket
+// store reads.
+func SetAppsForTest(apps []AppConfig) {
+	index := make(map[string]*AppConfig, len(apps))
+	for i := range apps {
+		app := &apps[i]
+		index[app.Id] = app
+	}
+	appsByIdMu.Lock()
+	appsById = index
 	appsByIdMu.Unlock()
 }

@@ -9,6 +9,7 @@ import (
 	"expo-open-ota/internal/providers"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
+	"expo-open-ota/internal/validation"
 	"net/http"
 	"strconv"
 
@@ -42,6 +43,11 @@ func (h *BranchHandler) CreateBranchHandler(w http.ResponseWriter, r *http.Reque
 	}
 	branchId, err := h.branchService.CreateBranch(r.Context(), appId, requestBody.BranchName)
 	if err != nil {
+		var valErr *validation.Error
+		if errors.As(err, &valErr) {
+			handlers.RenderError(w, http.StatusBadRequest, valErr.Error())
+			return
+		}
 		if alreadyExistsErr := (*store.ErrResourceAlreadyExists)(nil); errors.As(err, &alreadyExistsErr) {
 			handlers.RenderError(w, http.StatusConflict, alreadyExistsErr.Error())
 			return
@@ -71,6 +77,11 @@ func (h *BranchHandler) DeleteBranchHandler(w http.ResponseWriter, r *http.Reque
 	}
 	err := h.branchService.DeleteBranch(r.Context(), branchName, appId)
 	if err != nil {
+		var valErr *validation.Error
+		if errors.As(err, &valErr) {
+			handlers.RenderError(w, http.StatusBadRequest, valErr.Error())
+			return
+		}
 		if notFoundErr := (*store.ErrResourceNotFound)(nil); errors.As(err, &notFoundErr) {
 			handlers.RenderError(w, http.StatusNotFound, notFoundErr.Error())
 			return
@@ -134,7 +145,12 @@ func (h *BranchHandler) GetRuntimeVersionsHandler(w http.ResponseWriter, r *http
 	}
 	runtimeVersions, err := h.branchService.GetRuntimeVersionsWithUpdateStats(r.Context(), appId, branchName)
 	if err != nil {
-		handlers.RenderError(w, http.StatusBadRequest, "An internal error occurred while fetching runtime versions.")
+		var valErr *validation.Error
+		if errors.As(err, &valErr) {
+			handlers.RenderError(w, http.StatusBadRequest, valErr.Error())
+			return
+		}
+		handlers.RenderError(w, http.StatusInternalServerError, "An internal error occurred while fetching runtime versions.")
 		return
 	}
 	marshaledResponse, _ := json.Marshal(runtimeVersions)
@@ -169,6 +185,11 @@ func (h *BranchHandler) UpdateChannelBranchMappingHandler(w http.ResponseWriter,
 	}
 	err = h.branchService.UpdateChannelBranchMapping(r.Context(), appId, releaseChannel, branchId)
 	if err != nil {
+		var valErr *validation.Error
+		if errors.As(err, &valErr) {
+			handlers.RenderError(w, http.StatusBadRequest, valErr.Error())
+			return
+		}
 		if notFoundErr := (*store.ErrResourceNotFound)(nil); errors.As(err, &notFoundErr) {
 			handlers.RenderError(w, http.StatusNotFound, notFoundErr.Error())
 			return

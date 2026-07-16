@@ -22,7 +22,6 @@ const stubPEMB64 = "LS0tLS1CRUdJTiBURVNUIEtFWS0tLS0tCnRlc3RkYXRhCi0tLS0tRU5EIFRF
 func resetAppsEnv(t *testing.T) {
 	t.Helper()
 	vars := []string{
-		"EXPO_APPS_JSON",
 		"EXPO_APP_ID",
 		"EXPO_ACCESS_TOKEN",
 		"KEYS_STORAGE_TYPE",
@@ -293,92 +292,8 @@ func TestValidateKeys_RejectsMissingOrUnknownMode(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// LoadApps — JSON source. Covers happy path, parse failures, and the full
-// validation surface when the loader drives it via env.
-// -----------------------------------------------------------------------------
-
-func TestLoadApps_FromJSON_Happy(t *testing.T) {
-	resetAppsEnv(t)
-	os.Setenv("EXPO_APPS_JSON", fmt.Sprintf(`[
-      {"id":"a","accessToken":"ta","keys":{"mode":"local","publicPath":"/a-pub","privatePath":"/a-priv"}},
-      {"id":"b","accessToken":"tb","keys":{"mode":"aws-secrets-manager","publicSecretId":"/b-pub","privateSecretId":"/b-priv"}},
-      {"id":"c","accessToken":"tc","keys":{"mode":"environment","publicB64":%q,"privateB64":%q}}
-    ]`, stubPEMB64, stubPEMB64))
-
-	require.NoError(t, LoadApps())
-
-	ids := ListAppIds()
-	assert.ElementsMatch(t, []string{"a", "b", "c"}, ids)
-
-	a, err := GetAppConfig("a")
-	require.NoError(t, err)
-	assert.Equal(t, KeysModeLocal, a.Keys.Mode)
-	assert.Equal(t, "ta", a.AccessToken)
-
-	c, err := GetAppConfig("c")
-	require.NoError(t, err)
-	assert.Equal(t, KeysModeEnvironment, c.Keys.Mode)
-	assert.Equal(t, stubPEMB64, c.Keys.PublicB64)
-}
-
-func TestLoadApps_FromJSON_RejectsMalformed(t *testing.T) {
-	resetAppsEnv(t)
-	os.Setenv("EXPO_APPS_JSON", `not-json`)
-	err := LoadApps()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "EXPO_APPS_JSON")
-	assert.Contains(t, err.Error(), "invalid JSON")
-}
-
-func TestLoadApps_FromJSON_RejectsEmptyArray(t *testing.T) {
-	resetAppsEnv(t)
-	os.Setenv("EXPO_APPS_JSON", `[]`)
-	err := LoadApps()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one app")
-}
-
-func TestLoadApps_FromJSON_RejectsDuplicateIds(t *testing.T) {
-	resetAppsEnv(t)
-	os.Setenv("EXPO_APPS_JSON", `[
-      {"id":"dup","accessToken":"ta","keys":{"mode":"local","publicPath":"/p","privatePath":"/q"}},
-      {"id":"dup","accessToken":"tb","keys":{"mode":"local","publicPath":"/x","privatePath":"/y"}}
-    ]`)
-	err := LoadApps()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "duplicate app id")
-	assert.Contains(t, err.Error(), `"dup"`)
-}
-
-func TestLoadApps_FromJSON_SurfacesFieldPathInError(t *testing.T) {
-	resetAppsEnv(t)
-	// Second entry has the problem; the error must point at apps[1] so the
-	// user doesn't have to bisect their config.
-	os.Setenv("EXPO_APPS_JSON", `[
-      {"id":"ok","accessToken":"t","keys":{"mode":"local","publicPath":"/p","privatePath":"/q"}},
-      {"id":"broken","accessToken":"t","keys":{"mode":"local"}}
-    ]`)
-	err := LoadApps()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "apps[1].keys")
-	assert.Contains(t, err.Error(), "EXPO_APPS_JSON")
-}
-
-func TestLoadApps_FromJSON_WhitespaceOnlyIsTreatedAsUnset(t *testing.T) {
-	resetAppsEnv(t)
-	os.Setenv("EXPO_APPS_JSON", "   \n  ")
-	// Whitespace EXPO_APPS_JSON must fall through — otherwise a
-	// well-meaning user setting the var to "" (which can produce
-	// whitespace on some platforms) gets a JSON parse error instead of
-	// the friendly "no config" message.
-	err := LoadApps()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no apps config found")
-}
-
-// -----------------------------------------------------------------------------
-// LoadApps — flat env fallback. One-app path, v1-compat. Each mode, and
-// failure modes.
+// LoadApps — flat env. The only stateless config source: one app, v1-compat.
+// Each key mode, and failure modes.
 // -----------------------------------------------------------------------------
 
 func TestLoadApps_FromFlatEnv_LocalMode(t *testing.T) {
@@ -467,34 +382,19 @@ func TestLoadApps_FromFlatEnv_RejectsMissingToken(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// LoadApps — priority and "nothing set" error path.
+// LoadApps — "nothing set" error path.
 // -----------------------------------------------------------------------------
-
-func TestLoadApps_JSONWinsOverFlatEnv(t *testing.T) {
-	resetAppsEnv(t)
-	os.Setenv("EXPO_APPS_JSON", `[{"id":"from-json","accessToken":"t","keys":{"mode":"local","publicPath":"/p","privatePath":"/q"}}]`)
-	os.Setenv("EXPO_APP_ID", "from-flat")
-	os.Setenv("EXPO_ACCESS_TOKEN", "t")
-	os.Setenv("PUBLIC_LOCAL_EXPO_KEY_PATH", "/p")
-	os.Setenv("PRIVATE_LOCAL_EXPO_KEY_PATH", "/q")
-
-	require.NoError(t, LoadApps())
-	// The flat env's "from-flat" must not leak into the app registry —
-	// sources never merge.
-	assert.Equal(t, []string{"from-json"}, ListAppIds())
-	_, err := GetAppConfig("from-flat")
-	assert.Error(t, err)
-}
 
 func TestLoadApps_NoSourceSetReturnsActionableError(t *testing.T) {
 	resetAppsEnv(t)
 	err := LoadApps()
 	require.Error(t, err)
-	// The error message is part of the UX — it must name both paths so a
-	// user who forgot to set anything isn't left guessing.
+	// The error message is part of the UX — it must name the flat-env entry
+	// point and point multi-app users at the control plane so a user who
+	// forgot to set anything isn't left guessing.
 	msg := err.Error()
-	assert.Contains(t, msg, "EXPO_APPS_JSON")
 	assert.Contains(t, msg, "EXPO_APP_ID")
+	assert.Contains(t, msg, "control plane")
 }
 
 // -----------------------------------------------------------------------------
@@ -503,8 +403,9 @@ func TestLoadApps_NoSourceSetReturnsActionableError(t *testing.T) {
 
 func TestGetAppConfig_UnknownIdReturnsError(t *testing.T) {
 	resetAppsEnv(t)
-	os.Setenv("EXPO_APPS_JSON", `[{"id":"known","accessToken":"t","keys":{"mode":"local","publicPath":"/p","privatePath":"/q"}}]`)
-	require.NoError(t, LoadApps())
+	SetAppsForTest([]AppConfig{
+		{Id: "known", AccessToken: "t", Keys: KeysConfig{Mode: KeysModeLocal, PublicPath: "/p", PrivatePath: "/q"}},
+	})
 
 	_, err := GetAppConfig("unknown")
 	require.Error(t, err)
@@ -517,13 +418,15 @@ func TestListAppIds_EmptyWhenNoConfigLoaded(t *testing.T) {
 }
 
 func TestListAppIds_ReturnsAllLoaded(t *testing.T) {
+	// The registry is single-app in production stateless mode, but it backs
+	// the multi-app control-plane store too — seed several apps directly to
+	// prove the lookup surface holds more than one.
 	resetAppsEnv(t)
-	os.Setenv("EXPO_APPS_JSON", `[
-      {"id":"a","accessToken":"t","keys":{"mode":"local","publicPath":"/p","privatePath":"/q"}},
-      {"id":"b","accessToken":"t","keys":{"mode":"local","publicPath":"/p","privatePath":"/q"}},
-      {"id":"c","accessToken":"t","keys":{"mode":"local","publicPath":"/p","privatePath":"/q"}}
-    ]`)
-	require.NoError(t, LoadApps())
+	SetAppsForTest([]AppConfig{
+		{Id: "a", AccessToken: "t", Keys: KeysConfig{Mode: KeysModeLocal, PublicPath: "/p", PrivatePath: "/q"}},
+		{Id: "b", AccessToken: "t", Keys: KeysConfig{Mode: KeysModeLocal, PublicPath: "/p", PrivatePath: "/q"}},
+		{Id: "c", AccessToken: "t", Keys: KeysConfig{Mode: KeysModeLocal, PublicPath: "/p", PrivatePath: "/q"}},
+	})
 	assert.ElementsMatch(t, []string{"a", "b", "c"}, ListAppIds())
 }
 
@@ -536,15 +439,15 @@ func TestLookupIsConcurrencySafe(t *testing.T) {
 	resetAppsEnv(t)
 	// Build a decent-sized config so the map iteration in ListAppIds has
 	// something to do under contention.
-	var entries []string
+	var apps []AppConfig
 	for i := 0; i < 50; i++ {
-		entries = append(entries, fmt.Sprintf(
-			`{"id":"app-%d","accessToken":"t","keys":{"mode":"local","publicPath":"/p","privatePath":"/q"}}`,
-			i,
-		))
+		apps = append(apps, AppConfig{
+			Id:          fmt.Sprintf("app-%d", i),
+			AccessToken: "t",
+			Keys:        KeysConfig{Mode: KeysModeLocal, PublicPath: "/p", PrivatePath: "/q"},
+		})
 	}
-	os.Setenv("EXPO_APPS_JSON", "["+strings.Join(entries, ",")+"]")
-	require.NoError(t, LoadApps())
+	SetAppsForTest(apps)
 
 	const readers = 16
 	const iters = 500
@@ -574,13 +477,12 @@ func TestLookupIsConcurrencySafe(t *testing.T) {
 // accepted, presence must round-trip, and ListApps must surface it.
 // -----------------------------------------------------------------------------
 
-func TestLoadApps_OptionalNameField(t *testing.T) {
+func TestGetAppConfig_PreservesOptionalName(t *testing.T) {
 	resetAppsEnv(t)
-	os.Setenv("EXPO_APPS_JSON", `[
-      {"id":"no-name","accessToken":"t","keys":{"mode":"local","publicPath":"/p","privatePath":"/q"}},
-      {"id":"with-name","name":"Production","accessToken":"t","keys":{"mode":"local","publicPath":"/p","privatePath":"/q"}}
-    ]`)
-	require.NoError(t, LoadApps())
+	SetAppsForTest([]AppConfig{
+		{Id: "no-name", AccessToken: "t", Keys: KeysConfig{Mode: KeysModeLocal, PublicPath: "/p", PrivatePath: "/q"}},
+		{Id: "with-name", Name: "Production", AccessToken: "t", Keys: KeysConfig{Mode: KeysModeLocal, PublicPath: "/p", PrivatePath: "/q"}},
+	})
 
 	noName, err := GetAppConfig("no-name")
 	require.NoError(t, err)
@@ -593,11 +495,10 @@ func TestLoadApps_OptionalNameField(t *testing.T) {
 
 func TestListApps_ReturnsDescriptorsWithName(t *testing.T) {
 	resetAppsEnv(t)
-	os.Setenv("EXPO_APPS_JSON", `[
-      {"id":"a","name":"App A","accessToken":"t","keys":{"mode":"local","publicPath":"/p","privatePath":"/q"}},
-      {"id":"b","accessToken":"t","keys":{"mode":"local","publicPath":"/p","privatePath":"/q"}}
-    ]`)
-	require.NoError(t, LoadApps())
+	SetAppsForTest([]AppConfig{
+		{Id: "a", Name: "App A", AccessToken: "t", Keys: KeysConfig{Mode: KeysModeLocal, PublicPath: "/p", PrivatePath: "/q"}},
+		{Id: "b", AccessToken: "t", Keys: KeysConfig{Mode: KeysModeLocal, PublicPath: "/p", PrivatePath: "/q"}},
+	})
 
 	// Descriptors are returned in unspecified order; reshape into a map so
 	// the assertion is stable.
@@ -617,8 +518,9 @@ func TestListApps_EmptyWhenNoConfigLoaded(t *testing.T) {
 
 func TestResetAppsForTest_ClearsRegistry(t *testing.T) {
 	resetAppsEnv(t)
-	os.Setenv("EXPO_APPS_JSON", `[{"id":"x","accessToken":"t","keys":{"mode":"local","publicPath":"/p","privatePath":"/q"}}]`)
-	require.NoError(t, LoadApps())
+	SetAppsForTest([]AppConfig{
+		{Id: "x", AccessToken: "t", Keys: KeysConfig{Mode: KeysModeLocal, PublicPath: "/p", PrivatePath: "/q"}},
+	})
 	assert.NotEmpty(t, ListAppIds())
 
 	ResetAppsForTest()

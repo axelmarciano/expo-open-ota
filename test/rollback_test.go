@@ -2,7 +2,6 @@ package test
 
 import (
 	"encoding/json"
-	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/update"
 	"fmt"
@@ -42,9 +41,9 @@ func TestToRollbackWithBadBearer(t *testing.T) {
 		t.Fatalf("Error finding project root: %v", err)
 	}
 	w, _, _, r := createRollbackRequest(projectRoot, "DO_NOT_USE", "1", "Authorization", "Bearer expo_bad_token", "ios", "hash")
-	handlers.RollbackHandler(w, r)
+	testContainer().RollbackHandler.HandleRollback(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error validating expo auth\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Error validating auth\n", w.Body.String(), "Expected error message")
 }
 
 func TestGoodRollback(t *testing.T) {
@@ -56,7 +55,7 @@ func TestGoodRollback(t *testing.T) {
 		t.Fatalf("Error finding project root: %v", err)
 	}
 	w, _, _, r := createRollbackRequest(projectRoot, "DO_NOT_USE", "1", "Authorization", "Bearer expo_test_token", "ios", "hash")
-	handlers.RollbackHandler(w, r)
+	testContainer().RollbackHandler.HandleRollback(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	type Response struct {
 		Branch         string `json:"branch"`
@@ -91,7 +90,7 @@ func TestGoodRollbackWithoutCommitHash(t *testing.T) {
 		t.Fatalf("Error finding project root: %v", err)
 	}
 	w, _, _, r := createRollbackRequest(projectRoot, "DO_NOT_USE", "1", "Authorization", "Bearer expo_test_token", "ios", "")
-	handlers.RollbackHandler(w, r)
+	testContainer().RollbackHandler.HandleRollback(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	type Response struct {
 		Branch         string `json:"branch"`
@@ -199,7 +198,7 @@ func TestRollbackDoesNotPoisonLatestUpdateCache(t *testing.T) {
 
 	// Fire the rollback while readers are hammering.
 	w, _, _, r := createRollbackRequest(projectRoot, branchName, runtimeVersion, "Authorization", "Bearer expo_test_token", platform, "hash")
-	handlers.RollbackHandler(w, r)
+	testContainer().RollbackHandler.HandleRollback(w, r)
 	require.Equal(t, http.StatusOK, w.Code, "rollback handler failed: %s", w.Body.String())
 
 	close(stop)

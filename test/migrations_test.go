@@ -34,7 +34,7 @@ func (b *dummyMigrationsBucket) GetBranches(_ string) ([]string, error) {
 	b.actionsRecorded = append(b.actionsRecorded, "GetBranches")
 	return nil, nil
 }
-func (b *dummyMigrationsBucket) GetRuntimeVersions(_, _ string) ([]bucket.RuntimeVersionWithStats, error) {
+func (b *dummyMigrationsBucket) GetRuntimeVersions(_, _ string) ([]types.RuntimeVersionWithStats, error) {
 	b.actionsRecorded = append(b.actionsRecorded, "GetRuntimeVersions")
 	return nil, nil
 }

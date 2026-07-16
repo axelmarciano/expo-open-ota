@@ -3,7 +3,6 @@ package test
 import (
 	"bytes"
 	"encoding/json"
-	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/update"
 	"io"
 	"net/http/httptest"
@@ -46,7 +45,7 @@ func TestRequestUploadUrlWithEncodedPlusInRuntimeVersion(t *testing.T) {
 	require.NoError(t, err)
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
 
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	assert.NotEmpty(t, w.Header().Get("expo-update-id"), "Expected non-empty update ID")
 
@@ -78,7 +77,7 @@ func TestRollbackWithEncodedPlusInRuntimeVersion(t *testing.T) {
 	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": "DO_NOT_USE"})
 	r.Header.Set("Authorization", "Bearer expo_test_token")
 
-	handlers.RollbackHandler(w, r)
+	testContainer().RollbackHandler.HandleRollback(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 
 	type Response struct {
@@ -118,7 +117,7 @@ func TestManifestWithEncodedPlusInRuntimeVersion(t *testing.T) {
 	r.Header.Add("expo-channel-name", "staging")
 	r.Header.Add("expo-app-id", "test-app-id")
 
-	handlers.ManifestHandler(w, r)
+	testContainer().ExpoProtocolHandler.HandleManifest(w, r)
 
 	// No updates exist for this runtimeVersion, so we expect a 200 with a "no update available" directive
 	assert.Equal(t, 200, w.Code, "Expected status code 200")

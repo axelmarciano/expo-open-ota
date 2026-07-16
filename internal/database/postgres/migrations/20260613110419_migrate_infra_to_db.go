@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"expo-open-ota/config"
 	"expo-open-ota/internal/bucket"
-	"expo-open-ota/internal/database"
 	"expo-open-ota/internal/database/postgres/pgdb"
 	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/store"
@@ -19,12 +18,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pressly/goose/v3"
 )
-
-var dbEngine *database.Engine
-
-func SetEngine(e *database.Engine) {
-	dbEngine = e
-}
 
 func init() {
 	goose.AddMigrationContext(UpMigrateEnvJSON, DownMigrateEnvJSON)

@@ -2,148 +2,116 @@
 sidebar_position: 2
 ---
 
-# Multi-app
+# Multi-app (Control Plane)
 
-A single **Expo Open OTA** server can host updates for several Expo projects at once. You enable this by setting a single structured `EXPO_APPS_JSON` environment variable on the server; clients continue to hit the same server but each request is scoped to one app via the `expo-app-id` header.
+A single **Expo Open OTA** server can host updates for several Expo projects at
+once. Multi-app is served by the **Control Plane** — the server's database-backed
+mode. Apps live in Postgres and are created and managed from the dashboard;
+clients keep hitting the same server, each request scoped to one app via the
+`expo-app-id` header.
 
-:::info When to use multi-app
-If you host only one Expo project, stick with the flat env vars documented on the [Prerequisites page](/docs/getting-started/prerequisites) — it's simpler and matches the v1 layout. Switch to `EXPO_APPS_JSON` the moment you need 2+ apps on the same server.
+:::info When to use the control plane
+If you host a single Expo project, stick with the flat env vars documented on the
+[Prerequisites page](/docs/getting-started/prerequisites) — that "stateless" mode
+is simpler and matches the v1 layout. Switch to the control plane the moment you
+need 2+ apps on the same server, or want to add/rotate apps without redeploying.
 :::
 
-## Resolution order
+## The two modes
 
-At boot the server looks for app configuration in this order:
+The server picks its mode at boot from a single signal — whether a database is
+configured:
 
-1. **`EXPO_APPS_JSON`** — if set, parse it and register every entry. Flat env vars are ignored in this case.
-2. **`EXPO_APP_ID`** — if set (and `EXPO_APPS_JSON` is not), build a single-app config from the flat env vars.
-3. **Neither** — the server fails to start with a clear error pointing at both paths.
-
-The two sources are never merged. `EXPO_APPS_JSON` strictly wins, which means adding a second app is a one-env-var edit, not a "delete these old ones and set these new ones" migration.
-
-## JSON shape
-
-Each entry has an `id`, an `accessToken`, and a `keys` block with a `mode` discriminator that selects the other fields. An optional `name` is used as a display label (the dashboard shows it in the app selector instead of the raw `id`).
-
-```json
-[
-  {
-    "id": "a45ed151-0387-4419-a97c-d008d8f214c7",
-    "name": "Production",
-    "accessToken": "expo_xxx",
-    "keys": {
-      "mode": "local",
-      "publicPath": "/keys/app1-public.pem",
-      "privatePath": "/keys/app1-private.pem"
-    }
-  },
-  {
-    "id": "b56fe262-1498-5520-ba08-e119e9325d8",
-    "name": "Staging",
-    "accessToken": "expo_yyy",
-    "keys": {
-      "mode": "aws-secrets-manager",
-      "publicSecretId": "/eoota/app2/public",
-      "privateSecretId": "/eoota/app2/private"
-    }
-  },
-  {
-    "id": "c67fe373-25a9-6631-cb19-f22afa436e9",
-    "accessToken": "expo_zzz",
-    "keys": {
-      "mode": "environment",
-      "publicB64": "LS0tLS1CRUdJTi...",
-      "privateB64": "LS0tLS1CRUdJTi..."
-    }
-  }
-]
-```
-
-:::note
-`name` is optional and display-only. Request routing always goes by `id` — matched against the `expo-app-id` header the client sends — so renaming an app after deployment has no client-side impact.
-:::
-
-## Key storage modes
-
-The `keys.mode` field selects how the server resolves an app's Expo signing keys. Setting fields from a different mode than the one declared is rejected at boot.
-
-| `mode` | Required fields | When to use |
+| | Stateless mode | Control Plane (DB mode) |
 | --- | --- | --- |
-| `local` | `publicPath`, `privatePath` | Keys on the filesystem — mounted Kubernetes Secret, dev machine, bare metal. |
-| `aws-secrets-manager` | `publicSecretId`, `privateSecretId` | Keys live in AWS Secrets Manager; the server fetches them on demand with its IAM role. |
-| `environment` | `publicB64`, `privateB64` | Base64-encoded PEM content inlined directly in the JSON — handy when you can't mount a file. |
+| Trigger | `DB_URL` **unset** | `DB_URL` **set** |
+| Apps | Exactly one, from flat env vars (`EXPO_APP_ID`, `EXPO_ACCESS_TOKEN`, key vars) | Many, stored in Postgres |
+| Management | Redeploy with new env | Dashboard (add/edit/remove at runtime) |
+| Signing keys | File / AWS SM / inline b64 | Same, **plus** `database` (sealed at rest) |
 
-## Pasting it into your platform
+There is no env-var list of apps — the multi-app config lives in the database.
 
-### Railway / Heroku
+## Enabling the control plane
 
-Paste the JSON into a single `EXPO_APPS_JSON` environment variable. Railway handles multi-line values in the UI, so the JSON can stay formatted; it's stored verbatim. Heroku is the same but via `heroku config:set EXPO_APPS_JSON="$(cat apps.json)"`.
+Set two things and restart:
 
-### Render
+1. **`DB_URL`** — a Postgres connection string, e.g.
+   `postgresql://user:pass@host:5432/expo_ota`. Its presence switches the server
+   into control-plane mode; schema migrations run automatically on boot.
+2. **A control-plane master key** — exactly one of:
+   - `CONTROL_PLANE_MASTER_KEY_B64` — the key inline (local / dev).
+   - `AWSSM_CONTROL_PLANE_MASTER_KEY_B64_SECRET_ID` — the AWS Secrets Manager
+     secret id holding it (production).
 
-Paste the JSON into a single `EXPO_APPS_JSON` environment variable. Render's env var UI accepts multi-line values and stores them verbatim.
-
-### Kubernetes / Helm
-
-Define `apps` as a structured list in `values.yaml` and render it into a `Secret`:
-
-```yaml title="helm/templates/apps-secret.yaml"
-{{- if .Values.apps }}
-apiVersion: v1
-kind: Secret
-metadata:
-  name: {{ include "expo-open-ota.fullname" . }}-apps
-type: Opaque
-stringData:
-  apps.json: |
-    {{- toJson .Values.apps | nindent 4 }}
-{{- end }}
-```
-
-Then mount the Secret and read it into the env var via your entrypoint, or inline it directly in the Deployment:
-
-```yaml
-env:
-  - name: EXPO_APPS_JSON
-    valueFrom:
-      secretKeyRef:
-        name: {{ include "expo-open-ota.fullname" . }}-apps
-        key: apps.json
-```
-
-### Fly.io
+   Setting both, or neither, fails fast at boot.
 
 ```bash
-fly secrets set EXPO_APPS_JSON="$(cat apps.json)"
+DB_URL=postgresql://user:pass@db:5432/expo_ota
+CONTROL_PLANE_MASTER_KEY_B64=C1wZdX78be0W+EfSKef/8YhgbPzjeCz0uLMXJskc0h0=
 ```
 
-### Docker / bare metal
+### The master key
 
-Regular env var, `--env-file`, or `docker-compose.yml` `environment:` block.
+The master key is a 32-byte symmetric key, provided as a 44-character base64
+string. It seals and unseals the per-app signing keys that the `database` key
+mode stores in Postgres, so key material is never persisted in plaintext.
+Generate one with:
 
-## Validation rules enforced at boot
-
-The server refuses to start (and prints the offending entry path) if:
-
-- `EXPO_APPS_JSON` is not valid JSON.
-- The array is empty.
-- An entry's `id` is empty, contains `/`, `\`, or whitespace.
-- An entry's `accessToken` is empty.
-- `keys.mode` is missing or is anything other than `local`, `aws-secrets-manager`, or `environment`.
-- Fields from a different mode than the declared one are set (e.g. `mode=local` with a `publicSecretId`).
-- The required fields for the declared mode are missing.
-- Two entries share the same `id`.
-
-Errors look like:
-
-```
-EXPO_APPS_JSON: apps[2].keys: mode=local requires publicPath and privatePath
+```bash
+openssl rand -base64 32
 ```
 
-Always prefixed by the source (`EXPO_APPS_JSON:`) and the path inside the array (`apps[N]`) so you don't have to bisect your config.
+:::caution
+Losing the master key makes every `database`-mode signing key unrecoverable, and
+rotating it re-seals all of them. Store it in your platform's secret store and
+back it up independently of the database.
+:::
+
+## Managing apps
+
+With the control plane enabled, apps are created and edited from the
+**dashboard** (enable it with `USE_DASHBOARD=true`). Creating an app lets you set:
+
+- a display **name** (shown in the app selector; routing still goes by id),
+- the app's Expo **access token**,
+- the **key storage mode** for its signing keys.
+
+Each app gets its own id (a UUID) — that's the value clients send in the
+`expo-app-id` header.
+
+### Key storage modes
+
+| `mode` | Where keys live | When to use |
+| --- | --- | --- |
+| `local` | Filesystem paths | Keys mounted on the pod / host. |
+| `aws-secrets-manager` | AWS Secrets Manager | Fetched on demand with the server's IAM role. |
+| `environment` | Base64 PEM you paste in | No file mount available. |
+| `database` | Postgres, **sealed** with the master key | Fully self-contained — the default for control-plane apps. |
+
+## Migrating a single-app deploy into the control plane
+
+If you already run a stateless single-app server and want to grow to multi-app,
+point it at a database:
+
+1. Provision Postgres and set `DB_URL` + a master key.
+2. Keep your existing flat env vars (`EXPO_APP_ID`, `EXPO_ACCESS_TOKEN`, key vars)
+   in place for the first boot.
+3. On startup the server runs a one-time **infra → DB migration** that seeds your
+   existing app (and its branches, channels and update history) into the
+   database.
+4. From then on, manage that app — and any new ones — from the dashboard. The
+   flat env vars are no longer read once the app is in the database.
+
+:::note UUID app id required
+The migration requires `EXPO_APP_ID` to be a UUID, because control-plane app ids
+are UUIDs. A stateless deploy using a non-UUID id must create the app fresh in
+the dashboard instead.
+:::
 
 ## Client-side header
 
-Every manifest and asset request must carry an `expo-app-id` HTTP header matching one of the configured `id`s. This is set in the Expo client's `app.config.ts`:
+Every manifest and asset request must carry an `expo-app-id` HTTP header matching
+one of your app ids. It's set in the Expo client's `app.config.ts`:
 
 ```ts title="app.config.ts"
 export default ({ config }) => ({
@@ -160,25 +128,20 @@ export default ({ config }) => ({
 ```
 
 :::caution Native rebuild required
-`updates.requestHeaders` are baked into the **native** bundle at build time (written into `Expo.plist` on iOS and `AndroidManifest.xml` on Android). Changing this value — adding, renaming, or removing a header — requires `npx expo prebuild --clean` + a native rebuild to take effect. Shipping a JS-only OTA update will **not** propagate a header change. See the [Migration guide](/docs/migration-v1-to-v2) for the full procedure.
+`updates.requestHeaders` are baked into the **native** bundle at build time
+(written into `Expo.plist` on iOS and `AndroidManifest.xml` on Android). Changing
+this value — adding, renaming, or removing a header — requires
+`npx expo prebuild --clean` + a native rebuild to take effect. Shipping a JS-only
+OTA update will **not** propagate a header change. See the
+[Migration guide](/docs/migration-v1-to-v2) for the full procedure.
 :::
 
 The `eoas` CLI writes this header automatically when you run `npx eoas init`.
 
-## Security
-
-:::caution
-`EXPO_APPS_JSON` contains access tokens and — in `environment` mode — the private signing keys in plaintext. Treat the env var like any other secret:
-
-- Store it in your platform's secret store (Kubernetes `Secret`, AWS SM, Fly secrets, Railway shared variables).
-- Avoid echoing it in CI logs.
-- Never commit it to git.
-
-If you need a non-secret file alternative, switch the `keys.mode` to `local` or `aws-secrets-manager` so the JSON only holds pointers, not key material.
-:::
-
 ## Dashboard
 
-The dashboard shows an **app selector** in the sidebar when more than one app is configured. Switching apps re-fetches all app-scoped views (branches, channels, updates) under the newly selected `id` without a page reload. With a single app the selector is hidden.
-
-If you set the optional `name` field, the selector displays it — for example, `Production (a45ed151-…)` — instead of the raw UUID.
+The dashboard shows an **app selector** in the sidebar when more than one app is
+configured. Switching apps re-fetches all app-scoped views (branches, channels,
+updates) under the newly selected id without a page reload. With a single app the
+selector is hidden. If an app has a `name`, the selector displays it — for
+example, `Production (a45ed151-…)` — instead of the raw UUID.

@@ -8,6 +8,7 @@ import (
 	"expo-open-ota/internal/database/postgres/pgdb"
 	"expo-open-ota/internal/providers"
 	"expo-open-ota/internal/types"
+	"expo-open-ota/internal/validation"
 	"fmt"
 	"strconv"
 	"time"
@@ -149,6 +150,9 @@ func (s *AuthService) ValidateAuth(ctx context.Context, appId string, auth types
 }
 
 func (s *AuthService) GenerateAPIKey(ctx context.Context, appId string, name string) (string, error) {
+	if err := validation.DisplayName("name", name); err != nil {
+		return "", err
+	}
 	apiKey, err := crypto.GenerateAPIKey()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate API key: %w", err)
@@ -191,6 +195,9 @@ func (s *AuthService) GetApiKeysMetadata(ctx context.Context, appId string) ([]t
 }
 
 func (s *AuthService) RevokeApiKey(ctx context.Context, appId string, apiKeyId string) error {
+	if err := validation.NumericID("apiKeyId", apiKeyId); err != nil {
+		return err
+	}
 	apiKeyIdInt, err := strconv.ParseInt(apiKeyId, 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid API key ID: %w", err)

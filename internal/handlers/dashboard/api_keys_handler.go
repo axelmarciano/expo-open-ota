@@ -8,6 +8,7 @@ import (
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
+	"expo-open-ota/internal/validation"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -39,6 +40,11 @@ func (h *ApiKeyHandler) CreateApiKeyHandler(w http.ResponseWriter, r *http.Reque
 	}
 	apiKey, err := h.authService.GenerateAPIKey(r.Context(), appId, req.Name)
 	if err != nil {
+		var valErr *validation.Error
+		if errors.As(err, &valErr) {
+			handlers.RenderError(w, http.StatusBadRequest, valErr.Error())
+			return
+		}
 		handlers.RenderError(w, http.StatusInternalServerError, "An internal error occurred while generating the API key.")
 		return
 	}
@@ -89,6 +95,11 @@ func (h *ApiKeyHandler) RevokeApiKeyHandler(w http.ResponseWriter, r *http.Reque
 	}
 	err := h.authService.RevokeApiKey(r.Context(), appId, apiKeyId)
 	if err != nil {
+		var valErr *validation.Error
+		if errors.As(err, &valErr) {
+			handlers.RenderError(w, http.StatusBadRequest, valErr.Error())
+			return
+		}
 		if notFoundErr := (*store.ErrResourceNotFound)(nil); errors.As(err, &notFoundErr) {
 			handlers.RenderError(w, http.StatusNotFound, notFoundErr.Error())
 			return

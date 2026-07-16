@@ -8,12 +8,12 @@ The **Expo Open OTA** server requires several environment variables to be set in
 You can set these variables in a `.env` file for local development or in your deployment environment.
 
 :::info Single-app or Multi-app?
-**One server can host one or many Expo projects.** The rest of this page reflects that:
+**One server can host one or many Expo projects:**
 
-- **Single-app** — flat env vars (`EXPO_APP_ID`, `EXPO_ACCESS_TOKEN`, `KEYS_STORAGE_TYPE`, …). Unchanged from v1.
-- **Multi-app** — a single `EXPO_APPS_JSON` env var describing every app.
+- **Single-app (stateless)** — flat env vars (`EXPO_APP_ID`, `EXPO_ACCESS_TOKEN`, `KEYS_STORAGE_TYPE`, …). Unchanged from v1.
+- **Multi-app (control plane)** — set `DB_URL` (+ a master key) and manage apps from the dashboard. See [Multi-app](/docs/advanced/multi-app).
 
-When both are set, `EXPO_APPS_JSON` wins. See the [Expo Apps Configuration](#-expo-apps-configuration) section below and the [app configuration guide](/docs/getting-started/prerequisites#app-configuration).
+The server picks the mode from whether `DB_URL` is set. See the [Expo Apps Configuration](#-expo-apps-configuration) section below.
 :::
 
 ## Supported Environment Variables
@@ -48,15 +48,19 @@ path that matches how many apps you host — both use the exact same runtime.
 | `PUBLIC_EXPO_KEY_B64` | ✅ if `KEYS_STORAGE_TYPE=environment` | Base64-encoded Expo public key (PEM) | `LS0tLS1CRUdJTi...` |
 | `PRIVATE_EXPO_KEY_B64` | ✅ if `KEYS_STORAGE_TYPE=environment` | Base64-encoded Expo private key (PEM) | `LS0tLS1CRUdJTi...` |
 
-**Path B — multi-app** — set a single JSON env var that describes every app:
+**Path B — multi-app (control plane)** — point the server at a database and it
+switches to control-plane mode, where apps live in Postgres and are managed
+from the dashboard instead of env vars:
 
 | Name | Required | Description | Example |
 | --- | --- | --- | --- |
-| `EXPO_APPS_JSON` | ✅ for 2+ apps | JSON array of app configs (see [Multi-app config](/docs/getting-started/prerequisites#multi-app-config)) | `[{"id":"...","accessToken":"...","keys":{...}}]` |
+| `DB_URL` | ✅ for the control plane | Postgres connection string. Its presence enables control-plane (multi-app) mode; schema migrations run on boot. | `postgresql://user:pass@host:5432/expo_ota` |
+| `CONTROL_PLANE_MASTER_KEY_B64` | ✅ (this **or** the AWS SM var) | 44-char base64 (32-byte) master key that seals per-app signing keys at rest. Generate with `openssl rand -base64 32`. | `Base64 string` |
+| `AWSSM_CONTROL_PLANE_MASTER_KEY_B64_SECRET_ID` | ✅ (this **or** the inline var) | AWS Secrets Manager secret id holding the master key | `/eoota/control-plane-master-key` |
 
-`EXPO_APPS_JSON` always wins when set. If it is not set, the flat env vars
-above are used to build a single-app config. If neither path is configured
-the server fails to start with a clear boot error.
+When `DB_URL` is unset the server runs stateless (single-app, Path A). Setting
+both master-key variables — or neither — fails fast at boot. See the
+[Multi-app](/docs/advanced/multi-app) guide for the full control-plane setup.
 
 :::caution v2 is a breaking upgrade
 The **env var names are identical to v1** on the single-app path, but the
@@ -92,10 +96,10 @@ procedure.
 
 ### 🔐 **Expo Signing Keys**
 
-Since v2, Expo signing keys are part of each app's `keys` block in
-`EXPO_APPS_JSON` (or the per-app flat env vars on the single-app path —
-see above). CloudFront keys stay global and are configured via env vars
-below.
+Since v2, Expo signing keys are per app: they come from the flat env vars on
+the single-app path, or from each app's key configuration (managed in the
+dashboard, optionally sealed in the database) on the control plane. CloudFront
+keys stay global and are configured via env vars below.
 
 ### ☁️ **AWS & CloudFront Configuration**
 | Name | Required | Description | Example | Reference |

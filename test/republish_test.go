@@ -2,7 +2,6 @@ package test
 
 import (
 	"encoding/json"
-	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/update"
 	"fmt"
@@ -36,9 +35,9 @@ func TestToRepublishRollbackWithBadBearer(t *testing.T) {
 	defer teardown()
 	mockExpoForRequestUploadUrlTest("staging")
 	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_bad_token", "ios", "hash", "1737455526")
-	handlers.RepublishHandler(w, r)
+	testContainer().RepublishHandler.HandleRepublish(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error validating expo auth\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Error validating auth\n", w.Body.String(), "Expected error message")
 }
 
 func copyDir(src string, dst string) error {
@@ -97,7 +96,7 @@ func TestGoodRepublish(t *testing.T) {
 		panic(err)
 	}
 	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "ios", "hash", "1737455526")
-	handlers.RepublishHandler(w, r)
+	testContainer().RepublishHandler.HandleRepublish(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	type Response struct {
 		Branch         string `json:"branch"`
@@ -161,7 +160,7 @@ func TestGoodRepublishWithoutCommitHash(t *testing.T) {
 		panic(err)
 	}
 	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "ios", "", "1737455526")
-	handlers.RepublishHandler(w, r)
+	testContainer().RepublishHandler.HandleRepublish(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	type Response struct {
 		Branch         string `json:"branch"`
@@ -225,7 +224,7 @@ func TestRepublishOnBadPlatform(t *testing.T) {
 		panic(err)
 	}
 	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "android", "", "1737455526")
-	handlers.RepublishHandler(w, r)
+	testContainer().RepublishHandler.HandleRepublish(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "Update platform mismatch\n", w.Body.String(), "Expected error message")
 }
@@ -252,7 +251,7 @@ func TestRepublishInvalidUpdate(t *testing.T) {
 		panic(err)
 	}
 	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "ios", "", "1737455526")
-	handlers.RepublishHandler(w, r)
+	testContainer().RepublishHandler.HandleRepublish(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "Update is not valid\n", w.Body.String(), "Expected error message")
 }
@@ -274,7 +273,7 @@ func TestRepublishWithBadUpdate(t *testing.T) {
 		panic(err)
 	}
 	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "ios", "", "BAD_ONE")
-	handlers.RepublishHandler(w, r)
+	testContainer().RepublishHandler.HandleRepublish(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "Error getting update\n", w.Body.String(), "Expected error message")
 }
@@ -296,7 +295,7 @@ func TestToRepublishARollback(t *testing.T) {
 		panic(err)
 	}
 	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "ios", "", "1666629141")
-	handlers.RepublishHandler(w, r)
+	testContainer().RepublishHandler.HandleRepublish(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "Update type is not normal update\n", w.Body.String(), "Expected error message")
 }

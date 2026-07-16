@@ -22,7 +22,7 @@ Even if your server-side `.env` is unchanged, **the Expo client will get `400 No
 | Concern | v1 | v2 |
 | --- | --- | --- |
 | Server identifies the app by | `EXPO_APP_ID` env var (one per deploy) | `expo-app-id` HTTP header sent by the client |
-| Config shape | Flat env vars | Flat env vars (single-app, unchanged) **OR** `EXPO_APPS_JSON` (multi-app) |
+| Config shape | Flat env vars | Flat env vars (single-app, unchanged) **OR** the control plane (`DB_URL`, multi-app) |
 | Manifest/asset URL | `/manifest`, `/assets`, `/rollback/{branch}`, … | Same for manifest/assets (`expo-app-id` comes in a header). Publish/rollback/republish/upload routes are now scoped under `/{APP_ID}/…` — handled transparently by the `eoas` CLI. |
 | Dashboard API | `/api/branches`, `/api/channels`, `/api/branch/{branch}/…` | `/api/apps/{APP_ID}/branches`, `/api/apps/{APP_ID}/channels`, `/api/apps/{APP_ID}/branch/{branch}/…` |
 
@@ -37,7 +37,7 @@ Even if your server-side `.env` is unchanged, **the Expo client will get `400 No
 
     If you'd rather re-path the data yourself (e.g. you have a huge bucket and want to do it offline with `aws s3 mv`), set `SKIP_V1_TO_V2_BUCKET_MIGRATION=true` (also accepts `1`, `yes`) before first boot — the migration records itself as applied but skips the work. See [Manual bucket re-path](#manual-bucket-re-path) below for the commands.
 
-    The automatic migration is **only** run when `EXPO_APP_ID` is set (single-app flat-env path). Multi-app upgrades are ambiguous — the server cannot know which v1 branch belonged to which configured app — so they require a manual re-path per app.
+    The automatic migration is **only** run when `EXPO_APP_ID` is set (single-app stateless path). Control-plane (DB mode) deploys don't set `EXPO_APP_ID`, so the re-path is skipped there — a fresh v2 control-plane install has no v1 root-level data to move.
     :::
 
     :::warning Take writers offline during the automatic S3/GCS re-path
@@ -95,18 +95,30 @@ Even if your server-side `.env` is unchanged, **the Expo client will get `400 No
 If you can't rebuild every client at once, keep a v1 server instance alive for the legacy fleet and point the v2 server at a new URL for the rebuilt clients. Once adoption of the new binary is high enough, retire v1.
 :::
 
-### Migrating to multi-app
+### Migrating to multi-app (control plane)
 
-Once you're on v2 and want to host a second Expo project on the same server:
+Once you're on v2 and want to host a second Expo project on the same server, move
+to the **control plane** — multi-app lives in a database, not env vars:
 
-1. Compose an `EXPO_APPS_JSON` that contains your existing app as the first entry and the new app as the second. See the [Multi-app](/docs/advanced/multi-app) page for the full schema.
-2. Set `EXPO_APPS_JSON` on the server. You can leave the old flat env vars (`EXPO_APP_ID`, `EXPO_ACCESS_TOKEN`, `KEYS_STORAGE_TYPE`, …) in place — they're ignored when `EXPO_APPS_JSON` is set.
-3. In the second app's `app.config.ts`, set `'expo-app-id'` to the new app's `id` and run `npx eoas init` to wire the rest (URL, certificate, channel header). Then rebuild natively as described above.
-4. Publish updates targeting the new app: the `eoas` CLI picks up the right `expo-app-id` from the config automatically.
+1. Provision Postgres and set `DB_URL` plus a control-plane master key
+   (`CONTROL_PLANE_MASTER_KEY_B64` or `AWSSM_CONTROL_PLANE_MASTER_KEY_B64_SECRET_ID`).
+   Keep your existing flat env vars in place for the first boot.
+2. On startup, a one-time infra → DB migration seeds your existing app (and its
+   branches, channels and update history) into the database. From then on, manage
+   apps from the dashboard.
+3. Add the second app from the dashboard (name, access token, key storage), then in
+   its `app.config.ts` set `'expo-app-id'` to the new app's id and run
+   `npx eoas init` to wire the rest (URL, certificate, channel header). Rebuild
+   natively as described above.
+4. Publish updates targeting the new app: the `eoas` CLI picks up the right
+   `expo-app-id` from the config automatically.
+
+See the [Multi-app](/docs/advanced/multi-app) guide for the full control-plane
+reference (including the UUID app-id requirement for the automatic migration).
 
 ## Manual bucket re-path
 
-Use these commands if you set `SKIP_V1_TO_V2_BUCKET_MIGRATION=true` and want to move v1 data into the `{appId}/` layout yourself, or if you're migrating a multi-app install (where the automatic migration intentionally skips — the server can't guess which branch belongs to which app). Replace `<APP_ID>` with the exact value of your `EXPO_APP_ID` (single-app) or one of your `apps[].id` (multi-app), and **take the v1 server offline before starting** to prevent concurrent writes into the old paths.
+Use these commands if you set `SKIP_V1_TO_V2_BUCKET_MIGRATION=true` and want to move v1 data into the `{appId}/` layout yourself. Replace `<APP_ID>` with the exact value of your `EXPO_APP_ID`, and **take the v1 server offline before starting** to prevent concurrent writes into the old paths.
 
 ```bash title="Local filesystem"
 cd "$LOCAL_BUCKET_BASE_PATH"
@@ -139,12 +151,12 @@ After the move, your layout should be `{prefix}<APP_ID>/{branch}/{runtimeVersion
 ### Client gets `400 Error validating expo auth`
 
 - The `expo-app-id` header value doesn't match any configured app on the server. Double-check that:
-  - On single-app: `EXPO_APP_ID` on the server equals the `expo-app-id` in the client's `app.config.ts`.
-  - On multi-app: one of the `apps[].id` entries in `EXPO_APPS_JSON` equals the client's `expo-app-id`.
+  - On single-app (stateless): `EXPO_APP_ID` on the server equals the `expo-app-id` in the client's `app.config.ts`.
+  - On the control plane: an app with that id exists in the dashboard and matches the client's `expo-app-id`.
 
-### Server fails to boot with `no apps config found`
+### Server fails to boot with `no app config found`
 
-- Neither `EXPO_APPS_JSON` nor `EXPO_APP_ID` is set. Set one of them per the [Prerequisites page](/docs/getting-started/prerequisites) (single-app) or [Multi-app](/docs/advanced/multi-app) page.
+- `EXPO_APP_ID` is not set (stateless single-app), and no `DB_URL` is configured (control plane). Set one path per the [Prerequisites page](/docs/getting-started/prerequisites) (single-app) or [Multi-app](/docs/advanced/multi-app) page.
 
 ### Dashboard shows `404 page not found`
 

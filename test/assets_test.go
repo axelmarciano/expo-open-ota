@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"expo-open-ota/internal/assets"
 	"expo-open-ota/internal/cdn"
-	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/update"
 	"github.com/andybalholm/brotli"
 	"github.com/gorilla/mux"
@@ -196,6 +195,12 @@ func TestToRetrieveBundleAsset(t *testing.T) {
 	os.Setenv("PRIVATE_CLOUDFRONT_KEY_PATH", filepath.Join(projectRoot, "/test/keys/private-key-cloudfront-test.pem"))
 	os.Setenv("CLOUDFRONT_DOMAIN", "https://cdn.expoopenota.com")
 	os.Setenv("CLOUDFRONT_KEY_PAIR_ID", "test")
+	// Update resolution moved from the assets funcs into the service, so the
+	// low-level HandleAssetsWith* now require a pre-resolved Update. Resolve it
+	// the same way the service does before calling them directly.
+	resolvedUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "branch-1", "1", "android")
+	require.NoError(t, err, "Expected to resolve the latest update")
+	asset.Update = resolvedUpdate
 	response, err := assets.HandleAssetsWithFile(asset)
 	assert.Nil(t, err, "Expected no error")
 	assert.Equal(t, 200, response.StatusCode, "Expected status code 200")
@@ -228,7 +233,7 @@ func TestUnknownAppIdForAssets(t *testing.T) {
 	r.Header.Set("expo-channel-name", "staging")
 	r.Header.Set("expo-app-id", "this-id-is-not-in-apps-json")
 
-	handlers.AssetsHandler(w, r)
+	testContainer().ExpoProtocolHandler.HandleAssets(w, r)
 	assert.Equal(t, 404, w.Code, "Unknown app id must fail early with 404")
 	assert.Equal(t, "Unknown app id\n", w.Body.String())
 }
@@ -246,7 +251,7 @@ func TestToRetrieveBundleAssetWithGzipCompression(t *testing.T) {
 	r.Header.Set("expo-channel-name", "staging")
 	r.Header.Set("expo-app-id", "test-app-id")
 
-	handlers.AssetsHandler(w, r)
+	testContainer().ExpoProtocolHandler.HandleAssets(w, r)
 
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 
@@ -292,7 +297,7 @@ func TestToRetrieveBundleAssetWithBrotliCompression(t *testing.T) {
 	r.Header.Set("expo-channel-name", "staging")
 	r.Header.Set("expo-app-id", "test-app-id")
 
-	handlers.AssetsHandler(w, r)
+	testContainer().ExpoProtocolHandler.HandleAssets(w, r)
 
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 
@@ -336,7 +341,7 @@ func TestToRetrievePNGAssetWithGzipCompression(t *testing.T) {
 		"BRANCH": "staging",
 	})
 
-	handlers.AssetsHandler(w, r)
+	testContainer().ExpoProtocolHandler.HandleAssets(w, r)
 
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 
@@ -368,7 +373,7 @@ func TestAutomaticUrlRedirectionIfCDNIsSet(t *testing.T) {
 	r.Header.Set("expo-channel-name", "staging")
 	r.Header.Set("expo-app-id", "test-app-id")
 
-	handlers.AssetsHandler(w, r)
+	testContainer().ExpoProtocolHandler.HandleAssets(w, r)
 
 	assert.Equal(t, 302, w.Code, "Expected status code 302")
 }
@@ -390,7 +395,7 @@ func TestPreventCDNRedirectionHeader(t *testing.T) {
 	r.Header.Set("expo-channel-name", "staging")
 	r.Header.Set("expo-app-id", "test-app-id")
 
-	handlers.AssetsHandler(w, r)
+	testContainer().ExpoProtocolHandler.HandleAssets(w, r)
 
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 }

@@ -69,7 +69,7 @@ func (u unreachableBucket) RemoveMigrationFromHistory(string) error {
 // process.
 func resetEnv(t *testing.T) {
 	t.Helper()
-	vars := []string{"SKIP_V1_TO_V2_BUCKET_MIGRATION", "EXPO_APPS_JSON", "EXPO_APP_ID"}
+	vars := []string{"SKIP_V1_TO_V2_BUCKET_MIGRATION", "EXPO_APP_ID"}
 	prev := map[string]string{}
 	for _, v := range vars {
 		prev[v] = os.Getenv(v)
@@ -105,28 +105,24 @@ func TestUp_SkipFlag_FalseyValuesDoNotSkip(t *testing.T) {
 	// This is a regression guard: v1 of this code used == "true", so
 	// "false" string skipped by accident because the comparison was
 	// literal. With strconv.ParseBool the only way to skip is a truthy
-	// value, which is what we want.
+	// value, so each of these must let up() reach the bucket and re-path.
 	for _, v := range []string{"false", "0", "", "yesplease"} {
 		t.Run("skip="+v, func(t *testing.T) {
 			resetEnv(t)
 			os.Setenv("SKIP_V1_TO_V2_BUCKET_MIGRATION", v)
-			// Multi-app guard will now skip us instead — that's fine; the
-			// point is the SKIP flag did NOT cause the skip.
-			os.Setenv("EXPO_APPS_JSON", "[]")
-			assert.NoError(t, up(unreachableBucket{t: t}))
+			os.Setenv("EXPO_APP_ID", "app-1")
+
+			base := t.TempDir()
+			require.NoError(t, os.MkdirAll(filepath.Join(base, "branch-a", "1", "12345"), 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(base, "branch-a", "1", "12345", ".check"), []byte("x"), 0o644))
+
+			require.NoError(t, up(&bucket.LocalBucket{BasePath: base}))
+
+			// A non-skipping run re-paths the v1 branch under app-1/.
+			_, err := os.Stat(filepath.Join(base, "app-1", "branch-a", "1", "12345", ".check"))
+			assert.NoError(t, err)
 		})
 	}
-}
-
-func TestUp_SkipsWhenMultiAppConfig(t *testing.T) {
-	// Multi-app deployments must be re-pathed manually — we can't know
-	// which v1 branch belongs to which configured app. The migration
-	// must no-op rather than dump every v1 branch under an arbitrary
-	// appId.
-	resetEnv(t)
-	os.Setenv("EXPO_APPS_JSON", `[{"id":"app-1"}]`)
-	os.Setenv("EXPO_APP_ID", "should-be-ignored")
-	assert.NoError(t, up(unreachableBucket{t: t}))
 }
 
 func TestUp_SkipsWhenEXPOAppIdUnset(t *testing.T) {

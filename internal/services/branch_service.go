@@ -6,6 +6,7 @@ import (
 	"expo-open-ota/internal/database/postgres/pgdb"
 	"expo-open-ota/internal/store"
 	"expo-open-ota/internal/types"
+	"expo-open-ota/internal/validation"
 	"fmt"
 	"strconv"
 )
@@ -39,10 +40,10 @@ func NewBranchService(branchRepo BranchRepository, channelRepo ChannelRepository
 }
 
 func (s *BranchService) CreateBranch(ctx context.Context, appId string, branchName string) (int64, error) {
-	pgAppID := store.ToPgUUID(appId)
-	if branchName == "" {
-		return 0, fmt.Errorf("branch name is required")
+	if err := validation.Name("branchName", branchName); err != nil {
+		return 0, err
 	}
+	pgAppID := store.ToPgUUID(appId)
 	branchId, err := s.branchRepo.InsertBranch(ctx, pgdb.InsertBranchParams{
 		AppID: pgAppID,
 		Name:  branchName,
@@ -54,6 +55,9 @@ func (s *BranchService) CreateBranch(ctx context.Context, appId string, branchNa
 }
 
 func (s *BranchService) DeleteBranch(ctx context.Context, branchName string, appId string) error {
+	if err := validation.Name("branchName", branchName); err != nil {
+		return err
+	}
 	channels, err := s.channelRepo.GetChannelNameByBranchName(ctx, appId, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to validate branch dependencies: %w", err)
@@ -88,10 +92,23 @@ func (s *BranchService) GetBranches(ctx context.Context, appId string) ([]types.
 }
 
 func (s *BranchService) GetRuntimeVersionsWithUpdateStats(ctx context.Context, appId string, branchName string) ([]types.RuntimeVersionWithStats, error) {
+	if err := validation.Name("branchName", branchName); err != nil {
+		return nil, err
+	}
 	return s.branchRepo.GetRuntimeVersionsWithUpdateStats(ctx, appId, branchName)
 }
 
 func (s *BranchService) UpdateChannelBranchMapping(ctx context.Context, appId string, channelId string, branchId string) error {
+	// channelId carries the release-channel name coming from the dashboard.
+	if err := validation.Name("releaseChannel", channelId); err != nil {
+		return err
+	}
+	// branchId format is backend-dependent (a numeric id on the DB control
+	// plane, a provider id string on the bucket backend), so validate it as a
+	// safe segment rather than forcing numeric.
+	if err := validation.Name("branchId", branchId); err != nil {
+		return err
+	}
 	return s.branchRepo.UpdateChannelBranchMapping(ctx, appId, channelId, branchId)
 }
 

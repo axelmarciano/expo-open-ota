@@ -35,6 +35,10 @@ func (s *BucketUpdateStore) GetUpdateType(ctx context.Context, update types.Upda
 	return update2.GetUpdateType(update), nil
 }
 
+func (s *BucketUpdateStore) IsUpdateValid(ctx context.Context, update types.Update) (bool, error) {
+	return update2.IsUpdateValid(update), nil
+}
+
 func (s *BucketUpdateStore) MarkUpdateAsChecked(ctx context.Context, update types.Update) error {
 	return update2.MarkUpdateAsChecked(update)
 }

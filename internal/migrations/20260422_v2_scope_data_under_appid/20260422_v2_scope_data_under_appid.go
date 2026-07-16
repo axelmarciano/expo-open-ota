@@ -17,11 +17,9 @@ import (
 // upgrades in place loses visibility of every previously published update.
 //
 // Guards:
-//   - Only runs on the single-app flat-env path (EXPO_APP_ID set,
-//     EXPO_APPS_JSON NOT set). Multi-app upgrades are inherently
-//     ambiguous — the server cannot know which v1 branch belonged to
-//     which configured app — so they must be re-pathed manually per the
-//     migration guide.
+//   - Only runs on the single-app flat-env path (EXPO_APP_ID set). A
+//     control-plane deploy (DB mode) sets no EXPO_APP_ID, so this no-ops
+//     there — fresh v2 installs have no v1 root-level data to re-path.
 //   - Operator can opt out with SKIP_V1_TO_V2_BUCKET_MIGRATION=true if
 //     they have already re-pathed the data themselves or want to
 //     schedule the move separately.
@@ -42,13 +40,6 @@ func init() {
 func up(b bucket.Bucket) error {
 	if skip, _ := strconv.ParseBool(os.Getenv("SKIP_V1_TO_V2_BUCKET_MIGRATION")); skip {
 		log.Println("⏩ SKIP_V1_TO_V2_BUCKET_MIGRATION is set — skipping bucket re-path.")
-		return nil
-	}
-	// Multi-app deployments use EXPO_APPS_JSON; we cannot guess which v1
-	// branch belongs to which configured app, so this migration is a
-	// no-op in that case. Operators must re-path manually.
-	if os.Getenv("EXPO_APPS_JSON") != "" {
-		log.Println("⏩ Multi-app config (EXPO_APPS_JSON) detected — v1-to-v2 bucket migration is manual, skipping.")
 		return nil
 	}
 	appId := os.Getenv("EXPO_APP_ID")

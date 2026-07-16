@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"mime/multipart"
+	"net/http"
 	"strconv"
 )
 
@@ -377,9 +378,57 @@ func (s *DeploymentService) RepublishRelease(ctx context.Context, params Republi
 	return newUpdate, nil
 }
 
+// RepublishError rejects a republish request because the source update is
+// unusable — missing, a rollback, incomplete, or built for another platform.
+// It carries the HTTP status the handler should surface.
+type RepublishError struct {
+	Status  int
+	Message string
+}
+
+func (e *RepublishError) Error() string { return e.Message }
+
 func (s *DeploymentService) RepublishUpdate(ctx context.Context, previousUpdate *types.Update, platform, commitHash string) (*types.Update, error) {
+	// Validate the source update before cloning it. Done through the injected
+	// repo so it is correct on both backends: type/metadata/validity come from
+	// Postgres on the DB control plane and from the stored files on the bucket
+	// backend. (This can't live in the handler against the global update.*
+	// helpers — those only ever read the bucket, so a DB-mode rollback would
+	// slip through.)
+	existing, err := s.updateRepo.GetUpdate(ctx, previousUpdate.AppId, previousUpdate.Branch, previousUpdate.RuntimeVersion, previousUpdate.UpdateId)
+	if err != nil {
+		return nil, &RepublishError{Status: http.StatusBadRequest, Message: "Error getting update"}
+	}
+	if existing == nil {
+		return nil, &RepublishError{Status: http.StatusNotFound, Message: "No update found"}
+	}
+	updateType, err := s.updateRepo.GetUpdateType(ctx, *existing)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve update type: %w", err)
+	}
+	if updateType != types.NormalUpdate {
+		return nil, &RepublishError{Status: http.StatusBadRequest, Message: "Update type is not normal update"}
+	}
+	valid, err := s.updateRepo.IsUpdateValid(ctx, *existing)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check update validity: %w", err)
+	}
+	if !valid {
+		return nil, &RepublishError{Status: http.StatusBadRequest, Message: "Update is not valid"}
+	}
+	metadata, err := s.updateRepo.RetrieveUpdateStoredMetadata(ctx, *existing)
+	if err != nil {
+		return nil, &RepublishError{Status: http.StatusInternalServerError, Message: "Error retrieving update commit hash and platform"}
+	}
+	if metadata == nil {
+		return nil, &RepublishError{Status: http.StatusNotFound, Message: "No stored metadata found for update"}
+	}
+	if metadata.Platform != platform {
+		return nil, &RepublishError{Status: http.StatusBadRequest, Message: "Update platform mismatch"}
+	}
+
 	updateId := update2.GenerateUpdateTimestamp(platform)
-	_, err := s.bucket.CreateUpdateFrom(previousUpdate, update2.ConvertUpdateTimestampToString(updateId))
+	_, err = s.bucket.CreateUpdateFrom(previousUpdate, update2.ConvertUpdateTimestampToString(updateId))
 	if err != nil {
 		return nil, err
 	}

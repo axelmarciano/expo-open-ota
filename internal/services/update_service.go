@@ -8,6 +8,7 @@ import (
 	"expo-open-ota/internal/database/postgres/pgdb"
 	"expo-open-ota/internal/types"
 	update2 "expo-open-ota/internal/update"
+	"expo-open-ota/internal/validation"
 	"fmt"
 	"log"
 )
@@ -18,6 +19,7 @@ type UpdateRepository interface {
 	GetUpdate(ctx context.Context, appId string, branchName string, runtimeVersion string, updateId string) (*types.Update, error)
 	GetLatestUpdate(ctx context.Context, appId string, branchName string, runtimeVersion string, platform string) (*types.Update, error)
 	GetUpdateType(ctx context.Context, update types.Update) (types.UpdateType, error)
+	IsUpdateValid(ctx context.Context, update types.Update) (bool, error)
 	CreateUpdate(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string) (*types.Update, error)
 	CreateRollback(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string) (*types.Update, error)
 	GetUpdateByBranchNameAndRuntime(ctx context.Context, updateId int64, branchName string, runtimeVersion string) (pgdb.GetUpdateByBranchNameAndRuntimeRow, error)
@@ -67,10 +69,24 @@ func (s *UpdateService) GetLatestUpdate(ctx context.Context, appId string, branc
 }
 
 func (s *UpdateService) GetUpdateDetails(ctx context.Context, appId string, branchName string, runtimeVersion string, updateId string) (types.UpdateDetails, error) {
+	if err := validation.Name("branchName", branchName); err != nil {
+		return types.UpdateDetails{}, err
+	}
+	if err := validation.Name("runtimeVersion", runtimeVersion); err != nil {
+		return types.UpdateDetails{}, err
+	}
+	if err := validation.Name("updateId", updateId); err != nil {
+		return types.UpdateDetails{}, err
+	}
 	return s.updateRepo.GetUpdateDetails(ctx, appId, branchName, runtimeVersion, updateId)
 }
 
 func (s *UpdateService) GetUpdatesByRunTimeVersionAndBranchName(ctx context.Context, appId string, runtimeVersion string, branchName string) ([]types.UpdateItem, error) {
+	if err := validation.Name("branchName", branchName); err != nil {
+		return nil, err
+	}
+	if err := validation.Name("runtimeVersion", runtimeVersion); err != nil {
+		return nil, err
+	}
 	return s.updateRepo.GetUpdatesByRunTimeVersionAndBranchName(ctx, appId, runtimeVersion, branchName)
-
 }

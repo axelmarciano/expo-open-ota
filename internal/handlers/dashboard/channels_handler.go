@@ -8,6 +8,7 @@ import (
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
+	"expo-open-ota/internal/validation"
 	"net/http"
 	"strconv"
 
@@ -46,6 +47,11 @@ func (h *ChannelHandler) CreateChannelHandler(w http.ResponseWriter, r *http.Req
 	}
 	channelId, err := h.channelService.CreateChannel(r.Context(), appId, requestBody.BranchName, requestBody.ChannelName)
 	if err != nil {
+		var valErr *validation.Error
+		if errors.As(err, &valErr) {
+			handlers.RenderError(w, http.StatusBadRequest, valErr.Error())
+			return
+		}
 		if alreadyExistsErr := (*store.ErrResourceAlreadyExists)(nil); errors.As(err, &alreadyExistsErr) {
 			handlers.RenderError(w, http.StatusConflict, alreadyExistsErr.Error())
 			return
@@ -77,6 +83,11 @@ func (h *ChannelHandler) DeleteChannelHandler(w http.ResponseWriter, r *http.Req
 	}
 	err := h.channelService.DeleteChannel(r.Context(), channelName, appId)
 	if err != nil {
+		var valErr *validation.Error
+		if errors.As(err, &valErr) {
+			handlers.RenderError(w, http.StatusBadRequest, valErr.Error())
+			return
+		}
 		if notFoundErr := (*store.ErrResourceNotFound)(nil); errors.As(err, &notFoundErr) {
 			handlers.RenderError(w, http.StatusNotFound, notFoundErr.Error())
 			return

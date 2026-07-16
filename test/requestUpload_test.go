@@ -16,7 +16,6 @@ import (
 
 	"expo-open-ota/internal/bucket"
 	cache2 "expo-open-ota/internal/cache"
-	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/providers"
 	"expo-open-ota/internal/update"
 
@@ -54,7 +53,7 @@ func performUpload(t *testing.T, projectRoot, branch, runtimeVersion, sampleUpda
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	if w.Code != 200 {
 		t.Fatalf("RequestUploadUrlHandler returned status %d instead of 200", w.Code)
 	}
@@ -107,7 +106,7 @@ func performUpload(t *testing.T, projectRoot, branch, runtimeVersion, sampleUpda
 			uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
 			uploadReq.Header.Set("Authorization", "Bearer expo_test_token")
 			uploadReq = mux.SetURLVars(uploadReq, map[string]string{"APP_ID": "test-app-id"})
-			handlers.RequestUploadLocalFileHandler(ws[index], uploadReq)
+			testContainer().UploadHandler.RequestUploadLocalFileHandler(ws[index], uploadReq)
 			if ws[index].Code != 200 {
 				errs <- fmt.Errorf("File upload for %s returned status %d", req.FileName, ws[index].Code)
 			}
@@ -149,7 +148,7 @@ func markUpdateAsUploaded(t *testing.T, branch, runtimeVersion, updateId, platfo
 	r := httptest.NewRequest("POST", markURL, nil)
 	r.Header.Set("Authorization", "Bearer expo_test_token")
 	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": branch})
-	handlers.MarkUpdateAsUploadedHandler(w, r)
+	testContainer().UploadHandler.MarkUpdateAsUploadedHandler(w, r)
 	return w
 }
 
@@ -163,9 +162,9 @@ func TestRequestUploadUrlWithoutBearer(t *testing.T) {
 	}
 	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/test-app-id/branch-1/1/1674170951")
 	w, _, _, r := createUploadRequest(t, projectRoot, "DO_NOT_USE", "1", sampleUpdatePath, "Authorization", "Bearer expo_alternative_token", "ios")
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error validating expo auth\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Error validating auth\n", w.Body.String(), "Expected error message")
 }
 
 func TestRequestUploadUrlWithBadBearer(t *testing.T) {
@@ -178,9 +177,9 @@ func TestRequestUploadUrlWithBadBearer(t *testing.T) {
 	}
 	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/test-app-id/branch-1/1/1674170951")
 	w, _, _, r := createUploadRequest(t, projectRoot, "DO_NOT_USE", "1", sampleUpdatePath, "Authorization", "Bearer expo_bad_token", "ios")
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error validating expo auth\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Error validating auth\n", w.Body.String(), "Expected error message")
 }
 
 func TestRequestUploadUrlWithoutRuntimeVersion(t *testing.T) {
@@ -204,7 +203,7 @@ func TestRequestUploadUrlWithoutRuntimeVersion(t *testing.T) {
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "No runtime version provided\n", w.Body.String(), "Expected error message")
 }
@@ -228,7 +227,7 @@ func TestRequestUploadUrlWithBadRequestBody(t *testing.T) {
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "No file names provided\n", w.Body.String(), "Expected error message")
 }
@@ -252,7 +251,7 @@ func TestRequestUploadUrlWithBadFilenamesType(t *testing.T) {
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "Invalid JSON body\n", w.Body.String(), "Expected error message")
 }
@@ -278,7 +277,7 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	var responseBody struct {
 		UpdateId       int64                      `json:"updateId"`
@@ -351,7 +350,7 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 			uploadFileReq.Header.Set("Content-Type", writer.FormDataContentType())
 			uploadFileReq.Header.Set("Authorization", "Bearer expo_test_token")
 			uploadFileReq = mux.SetURLVars(uploadFileReq, map[string]string{"APP_ID": "test-app-id"})
-			handlers.RequestUploadLocalFileHandler(ws[index], uploadFileReq)
+			testContainer().UploadHandler.RequestUploadLocalFileHandler(ws[index], uploadFileReq)
 			if ws[index].Code != 200 {
 				errs <- fmt.Errorf("Upload failed with status %d", ws[index].Code)
 			}
@@ -379,7 +378,7 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 	rMark := httptest.NewRequest("POST", qMark, nil)
 	rMark.Header.Set("Authorization", "Bearer expo_test_token")
 	rMark = mux.SetURLVars(rMark, map[string]string{"APP_ID": "test-app-id", "BRANCH": "DO_NOT_USE"})
-	handlers.MarkUpdateAsUploadedHandler(wMark, rMark)
+	testContainer().UploadHandler.MarkUpdateAsUploadedHandler(wMark, rMark)
 	assert.Equal(t, 200, wMark.Code, "Expected status code 200")
 	lastUpdate, err = update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "DO_NOT_USE", "1", "android")
 	if err != nil {
@@ -410,7 +409,7 @@ func TestRequestUploadUrlWithValidExpoSession(t *testing.T) {
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	assert.NotEmpty(t, w.Header().Get("expo-update-id"), "Expected non-empty update ID")
 }
@@ -433,7 +432,7 @@ func TestShouldPreserveCacheOnUploadRequest(t *testing.T) {
 	rManifest.Header.Add("expo-expect-signature", "true")
 	rManifest.Header.Add("expo-channel-name", "staging")
 	rManifest.Header.Add("expo-app-id", "test-app-id")
-	handlers.ManifestHandler(wManifest, rManifest)
+	testContainer().ExpoProtocolHandler.HandleManifest(wManifest, rManifest)
 	assert.Equal(t, 200, wManifest.Code, "Expected status code 200")
 
 	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates"))
@@ -454,7 +453,7 @@ func TestShouldPreserveCacheOnUploadRequest(t *testing.T) {
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	assert.NotEmpty(t, w.Header().Get("expo-update-id"), "Expected non-empty update ID")
 	value = cache.Get(cacheKey)
@@ -482,9 +481,9 @@ func TestRequestUploadUrlWithInvalidExpoSession(t *testing.T) {
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error validating expo auth\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Error validating auth\n", w.Body.String(), "Expected error message")
 }
 
 func TestIdenticalUpload(t *testing.T) {

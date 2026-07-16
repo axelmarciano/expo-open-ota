@@ -1,6 +1,7 @@
 package test
 
 import (
+	"context"
 	"encoding/json"
 	"expo-open-ota/config"
 	"expo-open-ota/internal/bucket"
@@ -8,6 +9,9 @@ import (
 	"expo-open-ota/internal/cdn"
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/metrics"
+	infrastructure "expo-open-ota/internal/router"
+	"expo-open-ota/internal/services"
+	"expo-open-ota/internal/store"
 	"expo-open-ota/internal/types"
 	"github.com/jarcoal/httpmock"
 	"net/http"
@@ -27,6 +31,27 @@ func setup(t *testing.T) func() {
 		GlobalAfterEach(t)
 		defer httpmock.DeactivateAndReset()
 	}
+}
+
+// testContainer builds a DI container from the current env, bucket and app
+// config. Request handlers were package-level funcs before the control-plane
+// refactor; they are now methods on the container's handler structs, so tests
+// resolve them through here (e.g. testContainer().ExpoProtocolHandler.
+// HandleManifest). Built fresh per call so a test that mutates the bucket path
+// or app registry before invoking a handler sees its change — the bucket is a
+// per-test singleton, so repeated calls reuse the same backend.
+func testContainer() *infrastructure.AppContainer {
+	container, _ := infrastructure.InitDependencies(context.Background())
+	return container
+}
+
+// testUpdateService builds an UpdateService over the current bucket, wired the
+// same way as the stateless branch of wire.go. Needed by tests that call
+// package-level service helpers (e.g. services.PreWarmManifestCache) directly
+// rather than through a handler.
+func testUpdateService() *services.UpdateService {
+	resolvedBucket := bucket.GetBucket()
+	return services.NewUpdateService(store.NewBucketUpdateStore(resolvedBucket), resolvedBucket)
 }
 
 func GlobalBeforeEach() {
@@ -429,22 +454,14 @@ func SetValidConfiguration() {
 	os.Setenv("USE_DASHBOARD", "true")
 	os.Setenv("ADMIN_PASSWORD", "admin")
 
-	// v2 multi-app config: a single test-app-id entry pointing at the
+	// v2 single-app flat-env config: a test-app-id entry pointing at the
 	// existing test keys, reproducing the legacy local-file key storage
 	// behavior the old env vars provided.
-	appsJSON, err := json.Marshal([]config.AppConfig{{
-		Id:          "test-app-id",
-		AccessToken: "EXPO_ACCESS_TOKEN",
-		Keys: config.KeysConfig{
-			Mode:        config.KeysModeLocal,
-			PublicPath:  filepath.Join(projectRoot, "/test/keys/public-key-test.pem"),
-			PrivatePath: filepath.Join(projectRoot, "/test/keys/private-key-test.pem"),
-		},
-	}})
-	if err != nil {
-		panic(err)
-	}
-	os.Setenv("EXPO_APPS_JSON", string(appsJSON))
+	os.Setenv("EXPO_APP_ID", "test-app-id")
+	os.Setenv("EXPO_ACCESS_TOKEN", "EXPO_ACCESS_TOKEN")
+	os.Setenv("KEYS_STORAGE_TYPE", "local")
+	os.Setenv("PUBLIC_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/public-key-test.pem"))
+	os.Setenv("PRIVATE_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/private-key-test.pem"))
 	config.ResetAppsForTest()
 	if err := config.LoadApps(); err != nil {
 		panic(err)

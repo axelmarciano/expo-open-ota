@@ -100,6 +100,13 @@ func (s *PostgresUpdateStore) GetUpdateType(ctx context.Context, update types.Up
 	return types.UpdateType(updateTypeInt), nil
 }
 
+// IsUpdateValid reports whether an update is complete. An update present in the
+// database was written through the upload pipeline, so it is valid by
+// construction — the bucket backend's ".check" sentinel has no DB equivalent.
+func (s *PostgresUpdateStore) IsUpdateValid(ctx context.Context, update types.Update) (bool, error) {
+	return true, nil
+}
+
 func (s *PostgresUpdateStore) MarkUpdateAsChecked(ctx context.Context, update types.Update) error {
 	pgAppID := ToPgUUID(update.AppId)
 	updateIdInt, err := strconv.ParseInt(update.UpdateId, 10, 64)

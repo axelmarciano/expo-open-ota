@@ -8,6 +8,7 @@ import (
 	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/keyStore"
 	"expo-open-ota/internal/store"
+	"expo-open-ota/internal/validation"
 	"fmt"
 	"math/big"
 	"time"
@@ -34,13 +35,17 @@ func NewAppService(appRepo AppRepository) *AppService {
 }
 
 func (s *AppService) CreateApp(ctx context.Context, displayName string, keysConfig config.KeysConfig) (string, error) {
+	if err := validation.DisplayName("name", displayName); err != nil {
+		return "", err
+	}
 	// Enforce presence of keys in environment variables for the environment keys mode for ValidateKeys function
 	if keysConfig.Mode == config.KeysModeEnvironment {
 		keysConfig.PublicB64 = config.GetEnv("PUBLIC_EXPO_KEY_B64")
 		keysConfig.PrivateB64 = config.GetEnv("PRIVATE_EXPO_KEY_B64")
 	}
 	if err := config.ValidateKeys(&keysConfig, "keysConfig"); err != nil {
-		return "", fmt.Errorf("invalid keys configuration: %w", err)
+		// Surface as a validation error so the handler answers 400, not 500.
+		return "", validation.Errorf("keysConfig", "%v", err)
 	}
 	appId := uuid.New()
 	modeStr := string(keysConfig.Mode)
@@ -128,6 +133,9 @@ func (s *AppService) GetAppByID(ctx context.Context, appId string) (config.AppCo
 }
 
 func (s *AppService) UpdateApp(ctx context.Context, appId string, newName string) error {
+	if err := validation.DisplayName("name", newName); err != nil {
+		return err
+	}
 	err := s.appRepo.UpdateAppNameByID(ctx, appId, newName)
 	if err != nil {
 		return err

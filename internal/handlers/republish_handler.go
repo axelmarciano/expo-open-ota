@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/services"
 	types2 "expo-open-ota/internal/types"
@@ -68,6 +69,11 @@ func (h *RepublishHandler) HandleRepublish(w http.ResponseWriter, r *http.Reques
 	}
 	newUpdate, err := h.deploymentService.RepublishUpdate(r.Context(), previousUpdate, platform, commitHash)
 	if err != nil {
+		var rErr *services.RepublishError
+		if errors.As(err, &rErr) {
+			http.Error(w, rErr.Message, rErr.Status)
+			return
+		}
 		http.Error(w, "Error republishing update", http.StatusInternalServerError)
 		return
 	}

@@ -47,6 +47,13 @@ func getAssetMetadata(req AssetsRequest, returnAsset bool) (AssetsResponse, *typ
 	}
 
 	lastUpdate := req.Update
+	if lastUpdate == nil {
+		// The service resolves the update and 404s before reaching here, so
+		// a nil Update means "no matching update". Guard it rather than
+		// dereferencing into a SIGSEGV below.
+		log.Printf("[RequestID: %s] No update found", requestID)
+		return AssetsResponse{StatusCode: http.StatusNotFound, Body: []byte("No update found")}, nil, "", nil
+	}
 	if !returnAsset {
 		headers := map[string]string{
 			"expo-protocol-version": "1",

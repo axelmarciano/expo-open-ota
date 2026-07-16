@@ -11,7 +11,7 @@ import (
 func TestDashboardServesStaticFile(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/dashboard/env.js", nil)
 	router.ServeHTTP(respRec, req)
@@ -22,7 +22,7 @@ func TestDashboardServesStaticFile(t *testing.T) {
 func TestDashboardSPAFallback(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/dashboard/some/route", nil)
 	router.ServeHTTP(respRec, req)
@@ -33,7 +33,7 @@ func TestDashboardSPAFallback(t *testing.T) {
 func TestDashboardPathTraversalBlockedJson(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	// Go's net/http cleans the path, so .. gets resolved before reaching the handler.
 	// But we still test that the guard works at the handler level.
@@ -47,7 +47,7 @@ func TestDashboardPathTraversalBlockedJson(t *testing.T) {
 func TestDashboardRedirectWithoutTrailingSlash(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/dashboard", nil)
 	router.ServeHTTP(respRec, req)

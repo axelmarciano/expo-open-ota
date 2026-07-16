@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	cache2 "expo-open-ota/internal/cache"
 	"expo-open-ota/internal/dashboard"
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/types"
+	"expo-open-ota/internal/validation"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -50,6 +52,11 @@ func (h *UpdateHandler) GetUpdateDetailsHandler(w http.ResponseWriter, r *http.R
 	}
 	update, err := h.updateService.GetUpdateDetails(r.Context(), appId, branchName, runtimeVersion, updateId)
 	if err != nil {
+		var valErr *validation.Error
+		if errors.As(err, &valErr) {
+			handlers.RenderError(w, http.StatusBadRequest, valErr.Error())
+			return
+		}
 		handlers.RenderError(w, http.StatusBadRequest, "An internal error occurred while fetching update details.")
 		return
 	}
@@ -95,6 +102,11 @@ func (h *UpdateHandler) GetUpdatesHandler(w http.ResponseWriter, r *http.Request
 	}
 	updates, err := h.updateService.GetUpdatesByRunTimeVersionAndBranchName(r.Context(), appId, runtimeVersion, branchName)
 	if err != nil {
+		var valErr *validation.Error
+		if errors.As(err, &valErr) {
+			handlers.RenderError(w, http.StatusBadRequest, valErr.Error())
+			return
+		}
 		handlers.RenderError(w, http.StatusInternalServerError, "An internal error occurred while fetching updates.")
 		return
 	}

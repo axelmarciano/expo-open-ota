@@ -9,6 +9,7 @@ import (
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
+	"expo-open-ota/internal/validation"
 	"fmt"
 	"net/http"
 
@@ -40,6 +41,11 @@ func (h *AppHandler) CreateAppHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	appId, err := h.appService.CreateApp(r.Context(), requestBody.Name, requestBody.KeysConfig)
 	if err != nil {
+		var valErr *validation.Error
+		if errors.As(err, &valErr) {
+			handlers.RenderError(w, http.StatusBadRequest, valErr.Error())
+			return
+		}
 		if alreadyExistsErr := (*store.ErrResourceAlreadyExists)(nil); errors.As(err, &alreadyExistsErr) {
 			handlers.RenderError(w, http.StatusConflict, alreadyExistsErr.Error())
 			return
@@ -62,8 +68,8 @@ func (h *AppHandler) CreateAppHandler(w http.ResponseWriter, r *http.Request) {
 
 func (h *AppHandler) GetAppHandler(w http.ResponseWriter, r *http.Request) {
 	appId := mux.Vars(r)["APP_ID"]
-	if appId == "" {
-		handlers.RenderError(w, http.StatusBadRequest, "APP_ID is required")
+	if err := config.ValidateAppId(appId, "APP_ID"); err != nil {
+		handlers.RenderError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	cache := cache2.GetCache()
@@ -166,6 +172,11 @@ func (h *AppHandler) UpdateAppHandler(w http.ResponseWriter, r *http.Request) {
 
 	err := h.appService.UpdateApp(r.Context(), appId, requestBody.Name)
 	if err != nil {
+		var valErr *validation.Error
+		if errors.As(err, &valErr) {
+			handlers.RenderError(w, http.StatusBadRequest, valErr.Error())
+			return
+		}
 		if notFoundErr := (*store.ErrResourceNotFound)(nil); errors.As(err, &notFoundErr) {
 			handlers.RenderError(w, http.StatusNotFound, notFoundErr.Error())
 			return
