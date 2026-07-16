@@ -17,12 +17,33 @@ import (
 // to differentiate "not configured" from "read error" should use
 // ReadExpoKey with the "public" selector.
 func GetPublicExpoKey(app config.AppConfig) string {
-	return readExpoKey(app.Keys, true)
+	return readExpoKey(app, true)
 }
 
 // GetPrivateExpoKey mirrors GetPublicExpoKey for the private half.
 func GetPrivateExpoKey(app config.AppConfig) string {
-	return readExpoKey(app.Keys, false)
+	return readExpoKey(app, false)
+}
+
+// AppKeyAAD binds a mode=database sealed key blob to the app id it belongs to
+// and to which half of the pair it is, as AES-GCM additional authenticated data.
+//
+// Every app seals under the same deployment-wide master key, so without this
+// binding any sealed blob decrypts cleanly from any row: a staging dump restored
+// over prod, a botched migration, or a future query joining the wrong row would
+// hand back a valid-looking key of the wrong app, and the mistake would only
+// surface as a signature rejection on every already-installed client. Binding
+// makes the unseal fail at the point of the mistake instead.
+//
+// The value is derived, never stored — it is rebuilt at unseal time from the
+// app id of the row the blob was actually read from, which is what makes the
+// check meaningful. Changing this format invalidates every existing blob.
+func AppKeyAAD(appId string, public bool) []byte {
+	half := "private"
+	if public {
+		half = "public"
+	}
+	return []byte(appId + "|" + half)
 }
 
 // ReadDBKeysMasterKey retrieves the 32-byte symmetric master key as a raw
@@ -44,7 +65,8 @@ func ReadDBKeysMasterKey() string {
 	return ""
 }
 
-func readExpoKey(k config.KeysConfig, public bool) string {
+func readExpoKey(app config.AppConfig, public bool) string {
+	k := app.Keys
 	switch k.Mode {
 	case config.KeysModeLocal:
 		if public {
@@ -62,17 +84,18 @@ func readExpoKey(k config.KeysConfig, public bool) string {
 		}
 		return decodeB64(k.PrivateB64)
 	case config.KeysModeDatabase:
+		aad := AppKeyAAD(app.Id, public)
 		if public {
-			key, err := crypto.UnsealAESGCM(k.SealedPublicKey, []byte(ReadDBKeysMasterKey()))
+			key, err := crypto.UnsealAESGCM(k.SealedPublicKey, []byte(ReadDBKeysMasterKey()), aad)
 			if err != nil {
-				log.Printf("Failed to unseal sealed public key: %v", err)
+				log.Printf("Failed to unseal sealed public key for app %q: %v", app.Id, err)
 				return ""
 			}
 			return string(key)
 		}
-		key, err := crypto.UnsealAESGCM(k.SealedPrivateKey, []byte(ReadDBKeysMasterKey()))
+		key, err := crypto.UnsealAESGCM(k.SealedPrivateKey, []byte(ReadDBKeysMasterKey()), aad)
 		if err != nil {
-			log.Printf("Failed to unseal sealed private key: %v", err)
+			log.Printf("Failed to unseal sealed private key for app %q: %v", app.Id, err)
 			return ""
 		}
 		return string(key)

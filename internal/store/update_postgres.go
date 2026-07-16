@@ -103,11 +103,29 @@ func (s *PostgresUpdateStore) GetUpdateType(ctx context.Context, update types.Up
 	return types.UpdateType(updateTypeInt), nil
 }
 
-// IsUpdateValid reports whether an update is complete. An update present in the
-// database was written through the upload pipeline, so it is valid by
-// construction — the bucket backend's ".check" sentinel has no DB equivalent.
+// IsUpdateValid reports whether an update is complete. checked_at is the DB
+// equivalent of the bucket backend's ".check" sentinel: the row is inserted when
+// the upload URLs are handed out, and only stamped once the uploaded files have
+// been verified, so a row without it is an upload that never finished — its
+// bucket folder may be missing the bundle or assets the metadata references.
+// Presence in the database is therefore not enough to call an update valid.
 func (s *PostgresUpdateStore) IsUpdateValid(ctx context.Context, update types.Update) (bool, error) {
-	return true, nil
+	updateIdInt, err := strconv.ParseInt(update.UpdateId, 10, 64)
+	if err != nil {
+		return false, fmt.Errorf("failed to parse update ID: %w", err)
+	}
+	checkedAt, err := s.engine.Queries.GetUpdateCheckedAt(ctx, pgdb.GetUpdateCheckedAtParams{
+		AppID: ToPgUUID(update.AppId),
+		Name:  update.Branch,
+		ID:    updateIdInt,
+	})
+	if err != nil {
+		if database.IsNoRows(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to retrieve update checked state from database: %w", err)
+	}
+	return checkedAt.Valid, nil
 }
 
 func (s *PostgresUpdateStore) MarkUpdateAsChecked(ctx context.Context, update types.Update) error {

@@ -125,7 +125,10 @@ func GenerateRSAKeyPair() (string, string, error) {
 }
 
 // SealAESGCM encrypts plaintext using a 32-byte master key and returns a base64 encoded string.
-func SealAESGCM(plaintext []byte, masterKey []byte) (string, error) {
+// aad is authenticated but not encrypted: it binds the ciphertext to the context it belongs
+// to, so a blob sealed under one context cannot be opened under another. UnsealAESGCM must be
+// given the exact same aad. Pass nil for data that has no context to bind to.
+func SealAESGCM(plaintext []byte, masterKey []byte, aad []byte) (string, error) {
 	if len(masterKey) != 32 {
 		return "", errors.New("master key must be exactly 32 bytes for AES-256")
 	}
@@ -143,12 +146,13 @@ func SealAESGCM(plaintext []byte, masterKey []byte) (string, error) {
 		return "", fmt.Errorf("failed to generate nonce: %w", err)
 	}
 	// Encrypt the data, appending the ciphertext directly to the nonce payload
-	ciphertext := aesGCM.Seal(nonce, nonce, plaintext, nil)
+	ciphertext := aesGCM.Seal(nonce, nonce, plaintext, aad)
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
 // UnsealAESGCM decrypts a base64 encoded ciphertext string using the 32-byte master key.
-func UnsealAESGCM(base64Ciphertext string, masterKey []byte) ([]byte, error) {
+// aad must match the value passed to SealAESGCM, otherwise decryption fails.
+func UnsealAESGCM(base64Ciphertext string, masterKey []byte, aad []byte) ([]byte, error) {
 	if len(masterKey) != 32 {
 		return nil, errors.New("master key must be exactly 32 bytes for AES-256")
 	}
@@ -170,9 +174,9 @@ func UnsealAESGCM(base64Ciphertext string, masterKey []byte) ([]byte, error) {
 	}
 	// Extract the nonce from the front and the actual encrypted text from the back
 	nonce, encryptedPayload := ciphertext[:nonceSize], ciphertext[nonceSize:]
-	plaintext, err := aesGCM.Open(nil, nonce, encryptedPayload, nil)
+	plaintext, err := aesGCM.Open(nil, nonce, encryptedPayload, aad)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt (key may be invalid or data was tampered with): %w", err)
+		return nil, fmt.Errorf("failed to decrypt (key may be invalid, data was tampered with, or the blob belongs to another context): %w", err)
 	}
 	return plaintext, nil
 }

@@ -5,9 +5,13 @@ import (
 	"expo-open-ota/config"
 	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/database/postgres/pgdb"
+	"expo-open-ota/internal/keyStore"
+	"expo-open-ota/internal/store"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 // setMasterKey installs a valid 32-byte master key for the duration of the test.
@@ -73,11 +77,11 @@ func TestSealLegacyKeysIntoDBPreservesLocalKeyPair(t *testing.T) {
 		t.Fatal("expected both keys to be sealed")
 	}
 
-	unsealedPub, err := crypto.UnsealAESGCM(*params.SealedPublicKey, masterKey)
+	unsealedPub, err := crypto.UnsealAESGCM(*params.SealedPublicKey, masterKey, keyStore.AppKeyAAD(app.Id, true))
 	if err != nil {
 		t.Fatalf("failed to unseal public key: %v", err)
 	}
-	unsealedPriv, err := crypto.UnsealAESGCM(*params.SealedPrivateKey, masterKey)
+	unsealedPriv, err := crypto.UnsealAESGCM(*params.SealedPrivateKey, masterKey, keyStore.AppKeyAAD(app.Id, false))
 	if err != nil {
 		t.Fatalf("failed to unseal private key: %v", err)
 	}
@@ -112,7 +116,7 @@ func TestSealLegacyKeysIntoDBPreservesEnvironmentKeyPair(t *testing.T) {
 		t.Fatalf("expected keys_mode=database, got %v", params.KeysMode)
 	}
 
-	unsealedPriv, err := crypto.UnsealAESGCM(*params.SealedPrivateKey, masterKey)
+	unsealedPriv, err := crypto.UnsealAESGCM(*params.SealedPrivateKey, masterKey, keyStore.AppKeyAAD(app.Id, false))
 	if err != nil {
 		t.Fatalf("failed to unseal private key: %v", err)
 	}
@@ -138,7 +142,7 @@ func TestSealedLocalKeyStillSigns(t *testing.T) {
 		t.Fatalf("failed to seal: %v", err)
 	}
 
-	unsealedPriv, err := crypto.UnsealAESGCM(*params.SealedPrivateKey, masterKey)
+	unsealedPriv, err := crypto.UnsealAESGCM(*params.SealedPrivateKey, masterKey, keyStore.AppKeyAAD(app.Id, false))
 	if err != nil {
 		t.Fatalf("failed to unseal: %v", err)
 	}
@@ -210,5 +214,55 @@ func TestSealLegacyKeysIntoDBFailsWithoutMasterKey(t *testing.T) {
 
 	if err := sealLegacyKeysIntoDB(app, &params); err == nil {
 		t.Fatal("expected the migration to abort without a master key, got nil")
+	}
+}
+
+// The migration canonicalizes a legacy app id with uuid.Parse before using it as
+// both the row key and the key-sealing aad. This guards that coupling: whatever
+// uuid.Parse canonicalizes to must be exactly what the row reads back as, or the
+// blob would bind to an id no unseal ever reconstructs and signing would break
+// after migration.
+func TestCanonicalAppIdMatchesWhatTheRowReadsBack(t *testing.T) {
+	for _, raw := range []string{
+		"11111111-aaaa-4bbb-8ccc-111111111111",   // already canonical
+		"11111111-AAAA-4BBB-8CCC-111111111111",   // uppercase
+		"{11111111-aaaa-4bbb-8ccc-111111111111}", // braced
+		"urn:uuid:11111111-aaaa-4bbb-8ccc-111111111111",
+	} {
+		parsed, err := uuid.Parse(raw)
+		if err != nil {
+			t.Fatalf("uuid.Parse(%q) unexpectedly failed: %v", raw, err)
+		}
+		if rowValue := store.ToPgUUID(raw).String(); rowValue != parsed.String() {
+			t.Errorf("id %q: the row reads back as %q but the aad would be sealed under %q",
+				raw, rowValue, parsed.String())
+		}
+	}
+}
+
+// Sealing must bind to the canonical id, not the raw one the operator typed.
+func TestSealLegacyKeysBindsToCanonicalAppId(t *testing.T) {
+	masterKey := setMasterKey(t)
+	pub, priv := newKeyPair(t)
+	pubPath, privPath := writeKeyFiles(t, pub, priv)
+
+	const canonical = "77777777-aaaa-4bbb-8ccc-777777777777"
+	app := config.AppConfig{
+		// What the migration loop hands down, having canonicalized EXPO_APP_ID.
+		Id:   uuid.MustParse("77777777-AAAA-4BBB-8CCC-777777777777").String(),
+		Keys: config.KeysConfig{Mode: config.KeysModeLocal, PublicPath: pubPath, PrivatePath: privPath},
+	}
+	params := pgdb.MigrateLegacyAppParams{}
+	if err := sealLegacyKeysIntoDB(app, &params); err != nil {
+		t.Fatalf("failed to seal: %v", err)
+	}
+
+	// The unseal path only ever sees the canonical id, read back off the row.
+	unsealed, err := crypto.UnsealAESGCM(*params.SealedPrivateKey, masterKey, keyStore.AppKeyAAD(canonical, false))
+	if err != nil {
+		t.Fatalf("sealed key does not open under the canonical app id: %v", err)
+	}
+	if string(unsealed) != priv {
+		t.Error("private key did not survive the round trip")
 	}
 }

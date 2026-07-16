@@ -496,6 +496,28 @@ func (q *Queries) GetUpdateByBranchNameAndRuntime(ctx context.Context, arg GetUp
 	return i, err
 }
 
+const getUpdateCheckedAt = `-- name: GetUpdateCheckedAt :one
+SELECT u.checked_at
+FROM updates u
+JOIN branches b ON u.branch_id = b.id
+WHERE b.app_id = $1
+  AND b.name = $2
+  AND u.id = $3
+`
+
+type GetUpdateCheckedAtParams struct {
+	AppID pgtype.UUID `json:"app_id"`
+	Name  string      `json:"name"`
+	ID    int64       `json:"id"`
+}
+
+func (q *Queries) GetUpdateCheckedAt(ctx context.Context, arg GetUpdateCheckedAtParams) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, getUpdateCheckedAt, arg.AppID, arg.Name, arg.ID)
+	var checked_at pgtype.Timestamptz
+	err := row.Scan(&checked_at)
+	return checked_at, err
+}
+
 const getUpdateMetadata = `-- name: GetUpdateMetadata :one
 SELECT updates.id, update_uuid, platform, commit_hash, message
 FROM updates

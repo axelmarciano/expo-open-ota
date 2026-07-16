@@ -1,7 +1,9 @@
 package keyStore
 
 import (
+	"encoding/base64"
 	"expo-open-ota/config"
+	"expo-open-ota/internal/crypto"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -61,6 +63,91 @@ func TestGetExpoKey_UnconfiguredKeysReturnEmpty(t *testing.T) {
 	// for unknown apps before we get here, so returning "" keeps the key path
 	// defensive.
 	app := config.AppConfig{Id: "app-1", AccessToken: "t", Keys: config.KeysConfig{Mode: config.KeysModeEnvironment}}
+	assert.Empty(t, GetPrivateExpoKey(app))
+	assert.Empty(t, GetPublicExpoKey(app))
+}
+
+// dbKeysApp mirrors what GetAppByID hydrates from an apps row: the id is the
+// row's own id, and the sealed blobs are whatever that row happens to carry.
+func dbKeysApp(id, sealedPub, sealedPriv string) config.AppConfig {
+	return config.AppConfig{
+		Id:          id,
+		AccessToken: "t",
+		Keys: config.KeysConfig{
+			Mode:             config.KeysModeDatabase,
+			SealedPublicKey:  sealedPub,
+			SealedPrivateKey: sealedPriv,
+		},
+	}
+}
+
+func sealFor(t *testing.T, appId, pub, priv string) (string, string) {
+	t.Helper()
+	master := []byte(ReadDBKeysMasterKey())
+	sealedPub, err := crypto.SealAESGCM([]byte(pub), master, AppKeyAAD(appId, true))
+	if err != nil {
+		t.Fatalf("failed to seal public key: %v", err)
+	}
+	sealedPriv, err := crypto.SealAESGCM([]byte(priv), master, AppKeyAAD(appId, false))
+	if err != nil {
+		t.Fatalf("failed to seal private key: %v", err)
+	}
+	return sealedPub, sealedPriv
+}
+
+func setTestMasterKey(t *testing.T) {
+	t.Helper()
+	t.Setenv("DB_KEYS_MASTER_KEY_B64",
+		base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef")))
+}
+
+func TestDatabaseKeys_RoundTripForOwnApp(t *testing.T) {
+	setTestMasterKey(t)
+	const appId = "11111111-1111-1111-1111-111111111111"
+	sealedPub, sealedPriv := sealFor(t, appId, app1PEM, app2PEM)
+	app := dbKeysApp(appId, sealedPub, sealedPriv)
+
+	assert.Equal(t, app1PEM, GetPublicExpoKey(app))
+	assert.Equal(t, app2PEM, GetPrivateExpoKey(app))
+}
+
+// The reason the aad exists. All apps seal under one master key, so app 2's row
+// carrying app 1's blob would otherwise decrypt cleanly and sign app 2's
+// manifests with app 1's key — surfacing only as a signature rejection on every
+// installed client. Binding turns it into a failed unseal at the point of use.
+func TestDatabaseKeys_BlobFromAnotherAppDoesNotOpen(t *testing.T) {
+	setTestMasterKey(t)
+	const app1Id = "11111111-1111-1111-1111-111111111111"
+	const app2Id = "22222222-2222-2222-2222-222222222222"
+	app1SealedPub, app1SealedPriv := sealFor(t, app1Id, app1PEM, app1PEM)
+
+	// App 2's row, with app 1's blobs pasted into it.
+	swapped := dbKeysApp(app2Id, app1SealedPub, app1SealedPriv)
+
+	assert.Empty(t, GetPrivateExpoKey(swapped), "app 1's sealed private key must not open under app 2's id")
+	assert.Empty(t, GetPublicExpoKey(swapped), "app 1's sealed public key must not open under app 2's id")
+}
+
+// Both halves sit under the same master key in adjacent columns, so the public
+// blob landing in the private column is the same class of mistake.
+func TestDatabaseKeys_HalvesAreNotInterchangeable(t *testing.T) {
+	setTestMasterKey(t)
+	const appId = "11111111-1111-1111-1111-111111111111"
+	sealedPub, sealedPriv := sealFor(t, appId, app1PEM, app2PEM)
+
+	crossed := dbKeysApp(appId, sealedPriv, sealedPub) // columns swapped
+
+	assert.Empty(t, GetPublicExpoKey(crossed), "the private blob must not open as the public half")
+	assert.Empty(t, GetPrivateExpoKey(crossed), "the public blob must not open as the private half")
+}
+
+func TestDatabaseKeys_MissingMasterKeyReturnsEmpty(t *testing.T) {
+	setTestMasterKey(t)
+	const appId = "11111111-1111-1111-1111-111111111111"
+	sealedPub, sealedPriv := sealFor(t, appId, app1PEM, app1PEM)
+
+	t.Setenv("DB_KEYS_MASTER_KEY_B64", "")
+	app := dbKeysApp(appId, sealedPub, sealedPriv)
 	assert.Empty(t, GetPrivateExpoKey(app))
 	assert.Empty(t, GetPublicExpoKey(app))
 }

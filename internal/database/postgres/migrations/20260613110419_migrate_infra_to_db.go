@@ -92,11 +92,11 @@ func sealLegacyKeysIntoDB(app config.AppConfig, params *pgdb.MigrateLegacyAppPar
 			app.Id, app.Keys.Mode, len(masterKey))
 	}
 
-	sealedPublicKey, err := crypto.SealAESGCM([]byte(publicKey), masterKey)
+	sealedPublicKey, err := crypto.SealAESGCM([]byte(publicKey), masterKey, keyStore.AppKeyAAD(app.Id, true))
 	if err != nil {
 		return fmt.Errorf("app %q: failed to seal public key: %w", app.Id, err)
 	}
-	sealedPrivateKey, err := crypto.SealAESGCM([]byte(privateKey), masterKey)
+	sealedPrivateKey, err := crypto.SealAESGCM([]byte(privateKey), masterKey, keyStore.AppKeyAAD(app.Id, false))
 	if err != nil {
 		return fmt.Errorf("app %q: failed to seal private key: %w", app.Id, err)
 	}
@@ -144,10 +144,18 @@ func UpMigrateEnvJSON(ctx context.Context, tx *sql.Tx) error {
 			// A legacy id predating it cannot be represented, but failing here
 			// would brick an otherwise healthy stateless deploy on upgrade — skip
 			// the app instead and let the operator recreate it from the dashboard.
-			if _, err := uuid.Parse(app.Id); err != nil {
+			parsedAppId, err := uuid.Parse(app.Id)
+			if err != nil {
 				log.Printf("⚠️ [DATABASE] Skipping legacy app %q: its id is not a UUID, so it cannot be migrated into the control plane. Recreate the app from the dashboard.", app.Id)
 				continue
 			}
+			// Canonicalize before the id is used as both the row key and the
+			// key-sealing AAD. uuid.Parse accepts uppercase, braced and urn:
+			// forms, but the row always reads back as the plain lowercase form —
+			// sealing under a non-canonical EXPO_APP_ID would bind the blob to an
+			// id no unseal ever reconstructs, breaking signing after migration.
+			// app is a per-iteration copy, so this does not touch the loaded config.
+			app.Id = parsedAppId.String()
 
 			params := pgdb.MigrateLegacyAppParams{
 				ID:                 store.ToPgUUID(app.Id),

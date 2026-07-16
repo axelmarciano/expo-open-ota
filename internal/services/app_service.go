@@ -85,11 +85,14 @@ func (s *AppService) CreateApp(ctx context.Context, displayName string, keysConf
 		if err != nil {
 			return "", fmt.Errorf("failed to generate application signing keys: %w", err)
 		}
-		sealedPublicKey, err := crypto.SealAESGCM([]byte(pubPEM), masterKeyBytes)
+		// Sealed under the id minted above, which is also the id the row is
+		// inserted with — so the binding is checked at unseal against the row the
+		// blob was actually read from. See keyStore.AppKeyAAD.
+		sealedPublicKey, err := crypto.SealAESGCM([]byte(pubPEM), masterKeyBytes, keyStore.AppKeyAAD(appId.String(), true))
 		if err != nil {
 			return "", fmt.Errorf("failed to seal public key: %w", err)
 		}
-		sealedPrivateKey, err := crypto.SealAESGCM([]byte(privPEM), masterKeyBytes)
+		sealedPrivateKey, err := crypto.SealAESGCM([]byte(privPEM), masterKeyBytes, keyStore.AppKeyAAD(appId.String(), false))
 		if err != nil {
 			return "", fmt.Errorf("failed to seal private key: %w", err)
 		}

@@ -135,6 +135,14 @@ WHERE b.app_id = $1
   AND b.name = $2
   AND u.id = $3;
 
+-- name: GetUpdateCheckedAt :one
+SELECT u.checked_at
+FROM updates u
+JOIN branches b ON u.branch_id = b.id
+WHERE b.app_id = $1
+  AND b.name = $2
+  AND u.id = $3;
+
 -- name: GetUpdateMetadata :one
 SELECT updates.id, update_uuid, platform, commit_hash, message
 FROM updates
