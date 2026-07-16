@@ -73,7 +73,7 @@ func TestGoodRollback(t *testing.T) {
 	assert.NotEmpty(t, body.RuntimeVersion, "Expected non-empty runtimeVersion")
 	assert.NotEmpty(t, body.Branch, "Expected non-empty branch")
 	assert.NotEmpty(t, body.CreatedAt, "Expected non-empty createdAt")
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "DO_NOT_USE", "1", "ios")
+	lastUpdate, err := testLatestUpdate("test-app-id", "DO_NOT_USE", "1", "ios")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestGoodRollbackWithoutCommitHash(t *testing.T) {
 	assert.NotEmpty(t, body.RuntimeVersion, "Expected non-empty runtimeVersion")
 	assert.NotEmpty(t, body.Branch, "Expected non-empty branch")
 	assert.NotEmpty(t, body.CreatedAt, "Expected non-empty createdAt")
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "DO_NOT_USE", "1", "ios")
+	lastUpdate, err := testLatestUpdate("test-app-id", "DO_NOT_USE", "1", "ios")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
@@ -168,9 +168,9 @@ func TestRollbackDoesNotPoisonLatestUpdateCache(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(stalePath, ".check"), []byte(".check"), 0o644))
 
 	// Read through UpdateService, which is what owns the lastUpdate cache that
-	// MarkUpdateAsChecked invalidates. The package-level
-	// update.GetLatestUpdateBundlePathForRuntimeVersion is a pure bucket scan
-	// and would never touch the cache this test exists to protect.
+	// MarkUpdateAsChecked invalidates. Reading the bucket store directly (as
+	// testLatestUpdate does) is a pure scan and would never touch the cache
+	// this test exists to protect.
 	updateService := testUpdateService()
 	ctx := context.Background()
 

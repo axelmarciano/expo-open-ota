@@ -3,7 +3,6 @@ package test
 import (
 	"bytes"
 	"encoding/json"
-	"expo-open-ota/internal/update"
 	"io"
 	"net/http/httptest"
 	"net/url"
@@ -93,7 +92,7 @@ func TestRollbackWithEncodedPlusInRuntimeVersion(t *testing.T) {
 	assert.Equal(t, runtimeVersionWithPlus, body.RuntimeVersion, "Expected runtimeVersion to contain + character, not space")
 	assert.NotEmpty(t, body.UpdateId)
 
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "DO_NOT_USE", runtimeVersionWithPlus, "ios")
+	lastUpdate, err := testLatestUpdate("test-app-id", "DO_NOT_USE", runtimeVersionWithPlus, "ios")
 	require.NoError(t, err)
 	assert.NotNil(t, lastUpdate, "Expected to find the rollback update using runtimeVersion with +")
 	assert.Equal(t, body.UpdateId, lastUpdate.UpdateId)

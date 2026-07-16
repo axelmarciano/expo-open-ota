@@ -113,7 +113,7 @@ func TestGoodRepublish(t *testing.T) {
 	assert.NotEmpty(t, body.RuntimeVersion, "Expected non-empty runtimeVersion")
 	assert.NotEmpty(t, body.Branch, "Expected non-empty branch")
 	assert.NotEmpty(t, body.CreatedAt, "Expected non-empty createdAt")
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "branch-2", "1", "ios")
+	lastUpdate, err := testLatestUpdate("test-app-id", "branch-2", "1", "ios")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestGoodRepublishWithoutCommitHash(t *testing.T) {
 	assert.NotEmpty(t, body.RuntimeVersion, "Expected non-empty runtimeVersion")
 	assert.NotEmpty(t, body.Branch, "Expected non-empty branch")
 	assert.NotEmpty(t, body.CreatedAt, "Expected non-empty createdAt")
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "branch-2", "1", "ios")
+	lastUpdate, err := testLatestUpdate("test-app-id", "branch-2", "1", "ios")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}

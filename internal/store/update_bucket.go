@@ -27,8 +27,55 @@ func NewBucketUpdateStore(bucket bucket2.Bucket) *BucketUpdateStore {
 	}
 }
 
+// GetLatestUpdate returns the newest complete update for the platform, or nil
+// when the branch has none yet.
+//
+// Callers that need the cached answer must go through UpdateService, which owns
+// the lastUpdate cache — this is the uncached read underneath it.
 func (s *BucketUpdateStore) GetLatestUpdate(ctx context.Context, appId string, branchName string, runtimeVersion string, platform string) (*types.Update, error) {
-	return update2.GetLatestUpdateBundlePathForRuntimeVersion(appId, branchName, runtimeVersion, platform)
+	updates, err := s.allUpdatesForRuntimeVersion(appId, branchName, runtimeVersion, platform)
+	if err != nil {
+		return nil, err
+	}
+	for _, update := range updates {
+		if update2.IsUpdateValid(update) {
+			return &update, nil
+		}
+	}
+	return nil, nil
+}
+
+// allUpdatesForRuntimeVersion lists the platform's updates, newest first.
+//
+// It resolves the bucket through the singleton rather than s.bucket on purpose:
+// filterByPlatform below reads each update's metadata via internal/update, which
+// is singleton-backed throughout. Mixing the two here would list updates from
+// one bucket and read their metadata from another whenever they diverge.
+// Untangling that means moving internal/update off the singleton wholesale.
+func (s *BucketUpdateStore) allUpdatesForRuntimeVersion(appId, branch, runtimeVersion, platform string) ([]types.Update, error) {
+	updates, err := bucket2.GetBucket().GetUpdates(appId, branch, runtimeVersion)
+	if err != nil {
+		return nil, err
+	}
+	return sortNewestFirst(filterByPlatform(updates, platform)), nil
+}
+
+func filterByPlatform(updates []types.Update, platform string) []types.Update {
+	filtered := make([]types.Update, 0)
+	for _, update := range updates {
+		storedMetadata, err := update2.RetrieveUpdateStoredMetadata(update)
+		if err == nil && storedMetadata != nil && storedMetadata.Platform == platform {
+			filtered = append(filtered, update)
+		}
+	}
+	return filtered
+}
+
+func sortNewestFirst(updates []types.Update) []types.Update {
+	sort.Slice(updates, func(i, j int) bool {
+		return updates[i].CreatedAt > updates[j].CreatedAt
+	})
+	return updates
 }
 
 func (s *BucketUpdateStore) GetUpdateType(ctx context.Context, update types.Update) (types.UpdateType, error) {
@@ -176,7 +223,7 @@ func (s *BucketUpdateStore) StoreUpdateUUIDInMetadata(ctx context.Context, updat
 }
 
 func (s *BucketUpdateStore) CreateRollback(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string) (*types.Update, error) {
-	return update2.CreateRollback(appId, platform, commitHash, runtimeVersion, branchName)
+	return update2.CreateRollback(appId, updateId, platform, commitHash, runtimeVersion, branchName)
 }
 
 func (s *BucketUpdateStore) GetUpdateByBranchNameAndRuntime(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string) (pgdb.GetUpdateByBranchNameAndRuntimeRow, error) {

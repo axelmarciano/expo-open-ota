@@ -368,7 +368,7 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 			assert.Nil(t, err, "Expected no errors when opening uploaded file")
 		}
 	}
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "DO_NOT_USE", "1", "android")
+	lastUpdate, err := testLatestUpdate("test-app-id", "DO_NOT_USE", "1", "android")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
@@ -380,7 +380,7 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 	rMark = mux.SetURLVars(rMark, map[string]string{"APP_ID": "test-app-id", "BRANCH": "DO_NOT_USE"})
 	testContainer().UploadHandler.MarkUpdateAsUploadedHandler(wMark, rMark)
 	assert.Equal(t, 200, wMark.Code, "Expected status code 200")
-	lastUpdate, err = update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "DO_NOT_USE", "1", "android")
+	lastUpdate, err = testLatestUpdate("test-app-id", "DO_NOT_USE", "1", "android")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
@@ -507,7 +507,7 @@ func TestIdenticalUpload(t *testing.T) {
 	if w2.Code == 200 {
 		t.Fatalf("Second mark as uploaded should have failed (non-200), got %d", w2.Code)
 	}
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", branch, runtimeVersion, "ios")
+	lastUpdate, err := testLatestUpdate("test-app-id", branch, runtimeVersion, "ios")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
@@ -535,7 +535,7 @@ func TestDifferentUpload(t *testing.T) {
 	updateId2 := performUpload(t, projectRoot, branch, runtimeVersion, sampleOtherUpdatePath, "android")
 	w2 := markUpdateAsUploaded(t, branch, runtimeVersion, updateId2, "android")
 	assert.Equal(t, 200, w2.Code, "Expected status code 200")
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", branch, runtimeVersion, "android")
+	lastUpdate, err := testLatestUpdate("test-app-id", branch, runtimeVersion, "android")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}

@@ -198,7 +198,7 @@ func TestToRetrieveBundleAsset(t *testing.T) {
 	// Update resolution moved from the assets funcs into the service, so the
 	// low-level HandleAssetsWith* now require a pre-resolved Update. Resolve it
 	// the same way the service does before calling them directly.
-	resolvedUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("test-app-id", "branch-1", "1", "android")
+	resolvedUpdate, err := testLatestUpdate("test-app-id", "branch-1", "1", "android")
 	require.NoError(t, err, "Expected to resolve the latest update")
 	asset.Update = resolvedUpdate
 	response, err := assets.HandleAssetsWithFile(asset)

@@ -12,40 +12,11 @@ import (
 	"fmt"
 	"mime"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
-
-func sortUpdates(updates []types.Update) []types.Update {
-	sort.Slice(updates, func(i, j int) bool {
-		return updates[i].CreatedAt > updates[j].CreatedAt
-	})
-	return updates
-}
-
-func filterPlatformUpdates(updates []types.Update, platform string) []types.Update {
-	filteredUpdates := make([]types.Update, 0)
-	for _, update := range updates {
-		storedMetadata, err := RetrieveUpdateStoredMetadata(update)
-		if err == nil && storedMetadata != nil && storedMetadata.Platform == platform {
-			filteredUpdates = append(filteredUpdates, update)
-		}
-	}
-	return filteredUpdates
-}
-
-func GetAllUpdatesForRuntimeVersion(appId, branch string, runtimeVersion string, platform string) ([]types.Update, error) {
-	resolvedBucket := bucket.GetBucket()
-	updates, errGetUpdates := resolvedBucket.GetUpdates(appId, branch, runtimeVersion)
-	if errGetUpdates != nil {
-		return nil, errGetUpdates
-	}
-	updates = sortUpdates(filterPlatformUpdates(updates, platform))
-	return updates, nil
-}
 
 func StoreUpdateUUIDInMetadata(update types.Update, updateUUID string) error {
 	resolvedBucket := bucket.GetBucket()
@@ -181,23 +152,6 @@ func AreUpdatesIdentical(update1, update2 types.Update) (bool, error) {
 		return false, errMetadata2
 	}
 	return metadata1.Fingerprint == metadata2.Fingerprint, nil
-}
-
-func GetLatestUpdateBundlePathForRuntimeVersion(appId string, branch string, runtimeVersion string, platform string) (*types.Update, error) {
-	updates, err := GetAllUpdatesForRuntimeVersion(appId, branch, runtimeVersion, platform)
-	if err != nil {
-		return nil, err
-	}
-	filteredUpdates := make([]types.Update, 0)
-	for _, update := range updates {
-		if IsUpdateValid(update) {
-			filteredUpdates = append(filteredUpdates, update)
-		}
-	}
-	if len(filteredUpdates) > 0 {
-		return &filteredUpdates[0], nil
-	}
-	return nil, nil
 }
 
 func GetUpdateType(update types.Update) types.UpdateType {
@@ -560,8 +514,14 @@ func ConvertUpdateTimestampToString(updateId int64) string {
 	return fmt.Sprintf("%d", updateId)
 }
 
-func CreateRollback(appId, platform, commitHash, runtimeVersion, branchName string) (*types.Update, error) {
-	updateId := GenerateUpdateTimestamp(platform)
+// CreateRollback writes the bucket backend's record of a rollback: the metadata
+// file plus the "rollback" marker that GetUpdateType keys off.
+//
+// updateId is supplied by the caller rather than minted here so that both
+// backends stamp the id the service generated — the Postgres store already
+// inserts the id it is handed, and minting a second one here made the two
+// backends disagree about who owns update identity.
+func CreateRollback(appId string, updateId int64, platform, commitHash, runtimeVersion, branchName string) (*types.Update, error) {
 	update := types.Update{
 		AppId:          appId,
 		UpdateId:       ConvertUpdateTimestampToString(updateId),
@@ -586,24 +546,3 @@ func CreateRollback(appId, platform, commitHash, runtimeVersion, branchName stri
 	return &update, nil
 }
 
-func RepublishUpdate(previousUpdate *types.Update, platform, commitHash string) (*types.Update, error) {
-	resolvedBucket := bucket.GetBucket()
-	updateId := GenerateUpdateTimestamp(platform)
-	newUpdate, err := resolvedBucket.CreateUpdateFrom(previousUpdate, ConvertUpdateTimestampToString(updateId))
-	if err != nil {
-		return nil, err
-	}
-	reader, err := createUpdateMetadata(platform, commitHash)
-	if err != nil {
-		return nil, err
-	}
-	err = resolvedBucket.UploadFileIntoUpdate(*newUpdate, "update-metadata.json", reader)
-	if err != nil {
-		return nil, err
-	}
-	err = MarkUpdateAsChecked(*newUpdate)
-	if err != nil {
-		return nil, err
-	}
-	return newUpdate, nil
-}

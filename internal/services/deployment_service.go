@@ -59,25 +59,6 @@ type RequestUploadURLResponse struct {
 	UploadRequests []bucket.FileUploadRequest
 }
 
-type RollbackParams struct {
-	RequestID      string
-	AppID          string
-	BranchName     string
-	Platform       string
-	RuntimeVersion string
-	CommitHash     string
-}
-
-type RepublishParams struct {
-	AppID          string
-	BranchName     string
-	Platform       string
-	RuntimeVersion string
-	CommitHash     string
-	UpdateID       string
-	RequestID      string
-}
-
 type DeploymentService struct {
 	branchService *BranchService
 	updateService *UpdateService
@@ -293,20 +274,6 @@ func (s *DeploymentService) RequestUploadURLs(ctx context.Context, params Reques
 	}, nil
 }
 
-func (s *DeploymentService) RollbackRelease(ctx context.Context, params RollbackParams) (*types.Update, error) {
-	err := s.branchService.UpsertBranchAndRuntimeVersion(ctx, params.AppID, params.BranchName, params.RuntimeVersion)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error upserting branch and runtime version: %v", params.RequestID, err)
-		return nil, err
-	}
-	rollback, err := s.CreateRollback(ctx, params.AppID, params.BranchName, params.RuntimeVersion, params.Platform, params.CommitHash)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error creating rollback: %v", params.RequestID, err)
-		return nil, err
-	}
-	return rollback, nil
-}
-
 func (s *DeploymentService) CreateRollback(ctx context.Context, appId, platform, commitHash, runtimeVersion, branchName string) (*types.Update, error) {
 	updateId := update2.GenerateUpdateTimestamp(platform)
 	rollback, err := s.updateRepo.CreateRollback(ctx, appId, updateId, branchName, runtimeVersion, platform, commitHash)
@@ -321,61 +288,6 @@ func (s *DeploymentService) CreateRollback(ctx context.Context, appId, platform,
 		return nil, err
 	}
 	return rollback, nil
-}
-
-func (s *DeploymentService) RepublishRelease(ctx context.Context, params RepublishParams) (*types.Update, error) {
-	err := s.branchService.UpsertBranchAndRuntimeVersion(ctx, params.AppID, params.BranchName, params.RuntimeVersion)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error upserting branch and runtime version: %v", params.RequestID, err)
-		return nil, err
-	}
-
-	targetUpdate, err := s.updateRepo.GetUpdate(ctx, params.AppID, params.BranchName, params.RuntimeVersion, params.UpdateID)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error getting update: %v", params.RequestID, err)
-	}
-	if targetUpdate == nil {
-		log.Printf("[RequestID: %s] Validation failed: Source update %s not found for branch %s", params.RequestID, params.UpdateID, params.BranchName)
-		return nil, fmt.Errorf("source update record not found")
-	}
-
-	updateType, err := s.updateRepo.GetUpdateType(ctx, *targetUpdate)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error determining update type: %v", params.RequestID, err)
-		return nil, fmt.Errorf("failed to determine source update type: %w", err)
-	}
-	if updateType != types.NormalUpdate {
-		log.Printf("[RequestID: %s] Update type is not normal update", params.RequestID)
-		return nil, fmt.Errorf("republish aborted: Update type is not normal update")
-	}
-
-	if !update2.IsUpdateValid(*targetUpdate) {
-		log.Printf("[RequestID: %s] Update is not valid", params.RequestID)
-		return nil, fmt.Errorf("republish aborted: Update is not valid")
-	}
-
-	storedMetadata, err := s.updateRepo.RetrieveUpdateStoredMetadata(ctx, *targetUpdate)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error retrieving update commit hash and platform: %v", params.RequestID, err)
-		return nil, fmt.Errorf("Error retrieving update commit hash and platform: %w", err)
-	}
-	if storedMetadata == nil {
-		log.Printf("[RequestID: %s] No stored metadata found for update: %s", params.RequestID, params.UpdateID)
-		return nil, fmt.Errorf("No stored metadata found for update")
-	}
-
-	if storedMetadata.Platform != params.Platform {
-		log.Printf("[RequestID: %s] Update platform mismatch: %s != %s", params.RequestID, storedMetadata.Platform, params.Platform)
-		return nil, fmt.Errorf("platform identifier mismatch: package compiled for %s cannot target %s", storedMetadata.Platform, params.Platform)
-	}
-
-	newUpdate, err := s.RepublishUpdate(ctx, targetUpdate, params.Platform, params.CommitHash)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error republishing update: %v", params.RequestID, err)
-		return nil, fmt.Errorf("Error republishing update: %w", err)
-	}
-
-	return newUpdate, nil
 }
 
 // RepublishError rejects a republish request because the source update is
