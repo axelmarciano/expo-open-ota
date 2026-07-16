@@ -297,14 +297,18 @@ export class ApiClient {
     });
   }
 
+  // Remaps a release channel onto a branch. The channel id drives the remap;
+  // its name is also sent because the server invalidates the channel-mapping
+  // cache by name.
   public async updateChannelBranchMapping(
-    branchName: string,
+    branchId: string,
     payload: {
-      releaseChannel: string;
+      releaseChannelId: string;
+      releaseChannelName: string;
     }
   ) {
     return this.request(
-      `${this.appScope()}/branch/${encodeURIComponent(branchName)}/updateChannelBranchMapping`,
+      `${this.appScope()}/branch/${encodeURIComponent(branchId)}/updateChannelBranchMapping`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

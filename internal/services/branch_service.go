@@ -99,13 +99,13 @@ func (s *BranchService) GetRuntimeVersionsWithUpdateStats(ctx context.Context, a
 }
 
 func (s *BranchService) UpdateChannelBranchMapping(ctx context.Context, appId string, channelId string, branchId string) error {
-	// channelId carries the release-channel name coming from the dashboard.
-	if err := validation.Name("releaseChannel", channelId); err != nil {
+	// channelId is the release channel's id, not its name. Both ids are
+	// backend-dependent (numeric on the DB control plane, provider id strings on
+	// the bucket backend), so validate them as safe segments rather than forcing
+	// numeric.
+	if err := validation.Name("releaseChannelId", channelId); err != nil {
 		return err
 	}
-	// branchId format is backend-dependent (a numeric id on the DB control
-	// plane, a provider id string on the bucket backend), so validate it as a
-	// safe segment rather than forcing numeric.
 	if err := validation.Name("branchId", branchId); err != nil {
 		return err
 	}

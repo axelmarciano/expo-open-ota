@@ -38,16 +38,16 @@ Set two things and restart:
 1. **`DB_URL`** — a Postgres connection string, e.g.
    `postgresql://user:pass@host:5432/expo_ota`. Its presence switches the server
    into control-plane mode; schema migrations run automatically on boot.
-2. **A control-plane master key** — exactly one of:
-   - `CONTROL_PLANE_MASTER_KEY_B64` — the key inline (local / dev).
-   - `AWSSM_CONTROL_PLANE_MASTER_KEY_B64_SECRET_ID` — the AWS Secrets Manager
+2. **A master key for the database-stored signing keys** — exactly one of:
+   - `DB_KEYS_MASTER_KEY_B64` — the key inline (local / dev).
+   - `AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID` — the AWS Secrets Manager
      secret id holding it (production).
 
    Setting both, or neither, fails fast at boot.
 
 ```bash
 DB_URL=postgresql://user:pass@db:5432/expo_ota
-CONTROL_PLANE_MASTER_KEY_B64=C1wZdX78be0W+EfSKef/8YhgbPzjeCz0uLMXJskc0h0=
+DB_KEYS_MASTER_KEY_B64=C1wZdX78be0W+EfSKef/8YhgbPzjeCz0uLMXJskc0h0=
 ```
 
 ### The master key

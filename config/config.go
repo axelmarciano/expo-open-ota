@@ -31,14 +31,14 @@ func IsDBMode() bool {
 }
 
 func ValidateMasterKey() error {
-	awsKeyId := GetEnv("AWSSM_CONTROL_PLANE_MASTER_KEY_B64_SECRET_ID")
-	localKey := GetEnv("CONTROL_PLANE_MASTER_KEY_B64")
+	awsKeyId := GetEnv("AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID")
+	localKey := GetEnv("DB_KEYS_MASTER_KEY_B64")
 	if awsKeyId == "" && localKey == "" {
-		return fmt.Errorf("Neither AWSSM_CONTROL_PLANE_MASTER_KEY_B64_SECRET_ID nor CONTROL_PLANE_MASTER_KEY_B64 is set")
+		return fmt.Errorf("Neither AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID nor DB_KEYS_MASTER_KEY_B64 is set: DB mode requires a master key to seal the per-app Expo signing keys stored in Postgres. Generate one with `openssl rand -base64 32`")
 	}
 	if awsKeyId != "" && localKey != "" {
-		log.Printf("Both AWSSM_CONTROL_PLANE_MASTER_KEY_B64_SECRET_ID and CONTROL_PLANE_MASTER_KEY_B64 are set; please set only one")
-		return fmt.Errorf("Both AWSSM_CONTROL_PLANE_MASTER_KEY_B64_SECRET_ID and CONTROL_PLANE_MASTER_KEY_B64 are set; please set only one")
+		log.Printf("Both AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID and DB_KEYS_MASTER_KEY_B64 are set; please set only one")
+		return fmt.Errorf("Both AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID and DB_KEYS_MASTER_KEY_B64 are set; please set only one")
 	}
 	return nil
 }

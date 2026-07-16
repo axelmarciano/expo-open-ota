@@ -29,16 +29,12 @@ export const CreateAppModal = ({
   
   const [name, setName] = useState('');
   const [keysMode, setKeysMode] = useState<KeysMode>('database');
-  const [publicPath, setPublicPath] = useState('');
-  const [privatePath, setPrivatePath] = useState('');
   const [publicSecretId, setPublicSecretId] = useState('');
   const [privateSecretId, setPrivateSecretId] = useState('');
 
   const resetForm = () => {
     setName('');
     setKeysMode('database');
-    setPublicPath('');
-    setPrivatePath('');
     setPublicSecretId('');
     setPrivateSecretId('');
   };
@@ -63,10 +59,6 @@ export const CreateAppModal = ({
       name: name.trim(),
       keysConfig: {
         mode: keysMode,
-        ...(keysMode === 'local' && {
-          publicPath: publicPath.trim(),
-          privatePath: privatePath.trim(),
-        }),
         ...(keysMode === 'aws-secrets-manager' && {
           publicSecretId: publicSecretId.trim(),
           privateSecretId: privateSecretId.trim(),
@@ -132,8 +124,7 @@ export const CreateAppModal = ({
             </Label>
             <div className="grid grid-cols-1 gap-2">
               {[
-                { id: 'database', label: 'Database Managed', desc: 'Backend natively manages storage and handling.' },
-                { id: 'local', label: 'Local File Paths', desc: 'Bind references to local server key-pair structures.' },
+                { id: 'database', label: 'Database Managed', desc: 'Keys are generated for you, sealed with the master key and stored in the database.' },
                 { id: 'aws-secrets-manager', label: 'AWS Secrets Manager', desc: 'Securely fetch keys directly from AWS vaults.' }
               ].map((mode) => (
                 <label
@@ -161,40 +152,6 @@ export const CreateAppModal = ({
               ))}
             </div>
           </div>
-
-          {keysMode === 'local' && (
-            <div className="space-y-3 p-3 rounded-lg border border-dashed border-border bg-muted/20 animate-in fade-in-50 duration-200">
-              <div className="space-y-1.5">
-                <Label htmlFor="publicKeyPath" className="text-xs font-medium text-foreground">
-                  Public Key Path
-                </Label>
-                <Input
-                  id="publicKeyPath"
-                  placeholder="/var/secrets/public.pem"
-                  value={publicPath}
-                  onChange={(e) => setPublicPath(e.target.value)}
-                  disabled={isSubmitting}
-                  className="h-9 bg-background"
-                  required
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="privateKeyPath" className="text-xs font-medium text-foreground">
-                  Private Key Path
-                </Label>
-                <Input
-                  id="privateKeyPath"
-                  placeholder="/var/secrets/private.pem"
-                  value={privatePath}
-                  onChange={(e) => setPrivatePath(e.target.value)}
-                  disabled={isSubmitting}
-                  className="h-9 bg-background"
-                  type="text"
-                  required
-                />
-              </div>
-            </div>
-          )}
 
           {keysMode === 'aws-secrets-manager' && (
             <div className="space-y-3 p-3 rounded-lg border border-dashed border-border bg-muted/20 animate-in fade-in-50 duration-200">

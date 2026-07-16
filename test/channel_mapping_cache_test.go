@@ -90,9 +90,12 @@ func TestUpdateChannelBranchMappingInvalidatesChannelMappingCache(t *testing.T) 
 			return httpmock.NewStringResponse(404, "Unknown operation"), nil
 		})
 
-	// Call UpdateChannelBranchMappingHandler via the router — this should invalidate the cache
+	// Call UpdateChannelBranchMappingHandler via the router — this should invalidate the cache.
+	// The channel's id and name differ on purpose, mirroring what the dashboard
+	// sends: the remap is keyed by id while the mapping cache is keyed by name,
+	// so invalidating with the id would silently leave the stale entry behind.
 	router := infrastructure.NewRouter(testContainer())
-	body := `{"releaseChannel":"staging"}`
+	body := `{"releaseChannelId":"staging-id","releaseChannelName":"staging"}`
 	req, _ := http.NewRequest("POST", "/api/apps/test-app-id/branch/branch-2-id/updateChannelBranchMapping", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+login().Token)

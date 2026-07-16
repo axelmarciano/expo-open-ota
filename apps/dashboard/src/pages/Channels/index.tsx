@@ -7,7 +7,9 @@ import { useCallback, useMemo, useState } from 'react';
 import { useToast } from '@/hooks/use-toast.ts';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
 import { Button } from '@/components/ui/button';
-import { ResourceCreateForm } from '@/components/ui/resource-create-form';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { DeleteDialog } from '@/components/ui/delete-dialog';
 import { TimestampCell } from '@/components/ui/timestamp-cell';
@@ -32,6 +34,9 @@ export const Channels = () => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
+  const [newChannelBranch, setNewChannelBranch] = useState<{ id: string; name: string } | null>(
+    null
+  );
   const [isCreating, setIsCreating] = useState(false);
   const [channelToDelete, setChannelToDelete] = useState<ChannelRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -39,26 +44,30 @@ export const Channels = () => {
   const updateBranchMutation = useMutation({
     mutationKey: ['update-branch'],
     mutationFn: async ({
-      branchName,
-      releaseChannel,
+      branchId,
+      releaseChannelId,
+      releaseChannelName,
     }: {
-      branchName: string;
-      releaseChannel: string;
+      branchId: string;
+      releaseChannelId: string;
+      releaseChannelName: string;
     }) => {
-      return api.updateChannelBranchMapping(branchName, {
-        releaseChannel
+      return api.updateChannelBranchMapping(branchId, {
+        releaseChannelId,
+        releaseChannelName,
       });
     },
   });
 
   const onBranchChange = useCallback(
-    (channelId: string) => async (branchId?: string | null) => {
+    (channel: ChannelRecord) => async (branchId?: string | null) => {
       if (!branchId) return;
       setLoading(true);
       try {
         await updateBranchMutation.mutateAsync({
-          branchName: branchId,
-          releaseChannel: channelId,
+          branchId,
+          releaseChannelId: channel.releaseChannelId,
+          releaseChannelName: channel.releaseChannelName,
         });
         await refetch();
         toast({
@@ -92,10 +101,19 @@ export const Channels = () => {
     if (!newChannelName.trim()) return;
     setIsCreating(true);
     try {
-      await api.createChannel({ channelName: newChannelName.trim() });
+      await api.createChannel({
+        channelName: newChannelName.trim(),
+        ...(newChannelBranch && { branchName: newChannelBranch.name }),
+      });
       setNewChannelName('');
+      setNewChannelBranch(null);
       await refetch();
-      toast({ title: 'Channel Created', description: 'New release environment tracking route provisioned.' });
+      toast({
+        title: 'Channel created',
+        description: newChannelBranch
+          ? `"${newChannelName.trim()}" now serves the "${newChannelBranch.name}" branch.`
+          : `"${newChannelName.trim()}" created. Map it to a branch to start serving updates.`,
+      });
     } catch (error) {
         let errorTitle = 'Error creating channel';
         let errorMessage = 'An unexpected error occurred.';
@@ -160,7 +178,7 @@ export const Channels = () => {
           <SelectBranch
             currentBranch={row.original.branchId || ''}
             loading={isLoading || loading}
-            onChange={onBranchChange(row.original.releaseChannelId)}
+            onChange={onBranchChange(row.original)}
           />
         ),
       },
@@ -197,25 +215,70 @@ export const Channels = () => {
     <div className="w-full h-screen flex-1 p-5 space-y-6">
       <div className="space-y-2">
         <h1 className="text-2xl font-medium tracking-tight">Channels</h1>
-        <p className="text-sm text-muted-foreground">
-          Manage distribution paths and map runtime bundle updates to client channels.
+        <p className="text-sm text-muted-foreground max-w-3xl">
+          A <span className="font-medium text-foreground">branch</span> is a line of updates you
+          publish to, much like a git branch. A{' '}
+          <span className="font-medium text-foreground">release channel</span> is the name your app
+          asks for when it checks for updates — it is baked into the build and never changes.
+        </p>
+        <p className="text-sm text-muted-foreground max-w-3xl">
+          Mapping a channel to a branch is what decides which updates an app actually receives.
+          Point{' '}
+          <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
+            production
+          </code>{' '}
+          at a new branch to roll out, or back at the previous one to roll back — without shipping a
+          new build.
         </p>
         <Separator />
       </div>
       {!!error && <ApiError error={error} />}
       
       {CONTROL_PLANE_ENABLED && (
-        <ResourceCreateForm
-          id="channel-name"
-          label="New Release Channel Name"
-          placeholder="e.g., production, staging-v2"
-          inputValue={newChannelName}
-          onInputChange={setNewChannelName}
-          onSubmit={handleCreateChannel}
-          isSubmitting={isCreating}
-          buttonText="Provision Channel"
-          icon={Plus}
-        />
+        <Card>
+          <CardContent className="p-4 space-y-2">
+            <form onSubmit={handleCreateChannel} className="flex gap-3 items-end flex-wrap">
+              <div className="space-y-1.5">
+                <Label
+                  htmlFor="channel-name"
+                  className="text-xs font-medium uppercase text-muted-foreground"
+                >
+                  New release channel
+                </Label>
+                <Input
+                  id="channel-name"
+                  placeholder="e.g., production, staging-v2"
+                  value={newChannelName}
+                  onChange={e => setNewChannelName(e.target.value)}
+                  disabled={isCreating}
+                  className="h-9 w-64"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium uppercase text-muted-foreground">
+                  Branch to serve
+                </Label>
+                <SelectBranch
+                  currentBranch={newChannelBranch?.id ?? ''}
+                  loading={isCreating}
+                  onChange={(branchId, branchName) =>
+                    setNewChannelBranch(
+                      branchId && branchName ? { id: branchId, name: branchName } : null
+                    )
+                  }
+                />
+              </div>
+              <Button type="submit" disabled={isCreating || !newChannelName.trim()}>
+                <Plus className="mr-1.5 h-4 w-4" />
+                {isCreating ? 'Creating...' : 'Create channel'}
+              </Button>
+            </form>
+            <p className="text-xs text-muted-foreground">
+              Pick an existing branch or create one on the fly. You can also leave it empty and map a
+              branch later from the table below.
+            </p>
+          </CardContent>
+        </Card>
       )}
 
       <DataTable

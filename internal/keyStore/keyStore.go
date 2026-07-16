@@ -25,20 +25,20 @@ func GetPrivateExpoKey(app config.AppConfig) string {
 	return readExpoKey(app.Keys, false)
 }
 
-// ReadControlPlaneMasterKey retrieves the 32-byte symmetric master key as a raw
+// ReadDBKeysMasterKey retrieves the 32-byte symmetric master key as a raw
 // binary string. To avoid the logistical overhead and lack of native OpenSSL standard
 // commands for symmetric PEM files, the secret is strictly managed as a standard 44-character Base64 text string.
 // It decodes the payload at runtime into its 32 binary characters, supporting both production
 // (AWS Secrets Manager) and local development (flat environment variables) workflows.
-func ReadControlPlaneMasterKey() string {
-	if secretId := config.GetEnv("AWSSM_CONTROL_PLANE_MASTER_KEY_B64_SECRET_ID"); secretId != "" {
+func ReadDBKeysMasterKey() string {
+	if secretId := config.GetEnv("AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID"); secretId != "" {
 		b64Secret := providers.FetchSecret(secretId)
 		if b64Secret == "" {
 			return ""
 		}
 		return decodeB64(b64Secret)
 	}
-	if b64Env := config.GetEnv("CONTROL_PLANE_MASTER_KEY_B64"); b64Env != "" {
+	if b64Env := config.GetEnv("DB_KEYS_MASTER_KEY_B64"); b64Env != "" {
 		return decodeB64(b64Env)
 	}
 	return ""
@@ -63,14 +63,14 @@ func readExpoKey(k config.KeysConfig, public bool) string {
 		return decodeB64(k.PrivateB64)
 	case config.KeysModeDatabase:
 		if public {
-			key, err := crypto.UnsealAESGCM(k.SealedPublicKey, []byte(ReadControlPlaneMasterKey()))
+			key, err := crypto.UnsealAESGCM(k.SealedPublicKey, []byte(ReadDBKeysMasterKey()))
 			if err != nil {
 				log.Printf("Failed to unseal sealed public key: %v", err)
 				return ""
 			}
 			return string(key)
 		}
-		key, err := crypto.UnsealAESGCM(k.SealedPrivateKey, []byte(ReadControlPlaneMasterKey()))
+		key, err := crypto.UnsealAESGCM(k.SealedPrivateKey, []byte(ReadDBKeysMasterKey()))
 		if err != nil {
 			log.Printf("Failed to unseal sealed private key: %v", err)
 			return ""

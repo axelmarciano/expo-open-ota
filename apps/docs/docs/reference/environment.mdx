@@ -55,8 +55,8 @@ from the dashboard instead of env vars:
 | Name | Required | Description | Example |
 | --- | --- | --- | --- |
 | `DB_URL` | ✅ for the control plane | Postgres connection string. Its presence enables control-plane (multi-app) mode; schema migrations run on boot. | `postgresql://user:pass@host:5432/expo_ota` |
-| `CONTROL_PLANE_MASTER_KEY_B64` | ✅ (this **or** the AWS SM var) | 44-char base64 (32-byte) master key that seals per-app signing keys at rest. Generate with `openssl rand -base64 32`. | `Base64 string` |
-| `AWSSM_CONTROL_PLANE_MASTER_KEY_B64_SECRET_ID` | ✅ (this **or** the inline var) | AWS Secrets Manager secret id holding the master key | `/eoota/control-plane-master-key` |
+| `DB_KEYS_MASTER_KEY_B64` | ✅ (this **or** the AWS SM var) | 44-char base64 (32-byte) master key that seals per-app signing keys at rest. Generate with `openssl rand -base64 32`. | `Base64 string` |
+| `AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID` | ✅ (this **or** the inline var) | AWS Secrets Manager secret id holding the base64 master key | `/eoota/db-keys-master-key` |
 
 When `DB_URL` is unset the server runs stateless (single-app, Path A). Setting
 both master-key variables — or neither — fails fast at boot. See the

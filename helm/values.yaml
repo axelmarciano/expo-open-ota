@@ -38,6 +38,12 @@ useRedisTLS: "false"
 # the flat EXPO_APP_ID / EXPO_ACCESS_TOKEN / key vars are used.
 # See https://github.com/axelmarciano/expo-open-ota/blob/main/apps/docs/docs/advanced/multi-app.mdx
 controlPlane: "false"
+# Where the DB keys master key comes from when controlPlane="true": "environment"
+# renders DB_KEYS_MASTER_KEY_B64, "aws-secrets-manager" renders
+# AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID. Independent of keysStorageType, which only
+# describes the stateless app's own signing keys and is not rendered at all in
+# control-plane mode. Ignored when controlPlane="false".
+dbKeysMasterKeySource: "environment"
 
 environment:
   - name: "USE_DASHBOARD"
@@ -227,8 +233,7 @@ environment:
       - key: "controlPlane"
         is: "false"
   # Control Plane (DB mode). Rendered only when controlPlane="true". Set DB_URL
-  # and exactly one master key: the inline b64 (keysStorageType=environment) or
-  # the AWS Secrets Manager secret id (keysStorageType=aws-secrets-manager). The
+  # and the master key, whose source is picked by dbKeysMasterKeySource. The
   # master key seals per-app signing keys at rest — generate it with
   # `openssl rand -base64 32`.
   - name: "DB_URL"
@@ -236,19 +241,19 @@ environment:
     required:
       - key: "controlPlane"
         is: "true"
-  - name: "CONTROL_PLANE_MASTER_KEY_B64"
+  - name: "DB_KEYS_MASTER_KEY_B64"
     value: ""
     required:
       - key: "controlPlane"
         is: "true"
-      - key: "keysStorageType"
+      - key: "dbKeysMasterKeySource"
         is: "environment"
-  - name: "AWSSM_CONTROL_PLANE_MASTER_KEY_B64_SECRET_ID"
+  - name: "AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID"
     value: ""
     required:
       - key: "controlPlane"
         is: "true"
-      - key: "keysStorageType"
+      - key: "dbKeysMasterKeySource"
         is: "aws-secrets-manager"
   # Optional Postgres pool tuning (sensible defaults apply when unset).
   - name: "DB_MAX_CONNS"

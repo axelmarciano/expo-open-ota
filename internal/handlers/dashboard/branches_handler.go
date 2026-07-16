@@ -166,24 +166,34 @@ func (h *BranchHandler) UpdateChannelBranchMappingHandler(w http.ResponseWriter,
 	vars := mux.Vars(r)
 	appId := vars["APP_ID"]
 	branchId := vars["BRANCH_ID"]
+	// Both identifiers are needed and they are not interchangeable: the remap
+	// itself is keyed by the channel's *id* (numeric on the control plane, the
+	// provider's channel id on the bucket backend), while the Expo channel
+	// mapping cache is keyed by the channel's *name*.
 	var requestBody struct {
-		ReleaseChannel string `json:"releaseChannel"`
+		ReleaseChannelId   string `json:"releaseChannelId"`
+		ReleaseChannelName string `json:"releaseChannelName"`
 	}
 	err := json.NewDecoder(r.Body).Decode(&requestBody)
 	if err != nil {
 		handlers.RenderError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	releaseChannel := requestBody.ReleaseChannel
-	if releaseChannel == "" {
-		handlers.RenderError(w, http.StatusBadRequest, "Release channel is empty")
+	releaseChannelId := requestBody.ReleaseChannelId
+	if releaseChannelId == "" {
+		handlers.RenderError(w, http.StatusBadRequest, "Release channel id is empty")
+		return
+	}
+	releaseChannelName := requestBody.ReleaseChannelName
+	if releaseChannelName == "" {
+		handlers.RenderError(w, http.StatusBadRequest, "Release channel name is empty")
 		return
 	}
 	if branchId == "" {
 		handlers.RenderError(w, http.StatusBadRequest, "Branch ID is empty")
 		return
 	}
-	err = h.branchService.UpdateChannelBranchMapping(r.Context(), appId, releaseChannel, branchId)
+	err = h.branchService.UpdateChannelBranchMapping(r.Context(), appId, releaseChannelId, branchId)
 	if err != nil {
 		var valErr *validation.Error
 		if errors.As(err, &valErr) {
@@ -201,7 +211,9 @@ func (h *BranchHandler) UpdateChannelBranchMappingHandler(w http.ResponseWriter,
 
 	channelsCacheKey := dashboard.ComputeGetChannelsCacheKey(appId)
 	branchesCacheKey := dashboard.ComputeGetBranchesCacheKey(appId)
-	channelMappingCacheKey := providers.ComputeChannelMappingCacheKey(appId, releaseChannel)
+	// Keyed by name: this is the cache FetchExpoChannelMapping writes, and
+	// remapping the channel is exactly what makes its entry stale.
+	channelMappingCacheKey := providers.ComputeChannelMappingCacheKey(appId, releaseChannelName)
 	cache := cache2.GetCache()
 	cache.Delete(channelsCacheKey)
 	cache.Delete(branchesCacheKey)

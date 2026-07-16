@@ -179,6 +179,6 @@ func (s *BucketUpdateStore) CreateRollback(ctx context.Context, appId string, up
 	return update2.CreateRollback(appId, platform, commitHash, runtimeVersion, branchName)
 }
 
-func (s *BucketUpdateStore) GetUpdateByBranchNameAndRuntime(ctx context.Context, updateId int64, branchName string, runtimeVersion string) (pgdb.GetUpdateByBranchNameAndRuntimeRow, error) {
+func (s *BucketUpdateStore) GetUpdateByBranchNameAndRuntime(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string) (pgdb.GetUpdateByBranchNameAndRuntimeRow, error) {
 	return pgdb.GetUpdateByBranchNameAndRuntimeRow{}, ErrNotSupportedInStatelessMode
 }

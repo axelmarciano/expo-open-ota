@@ -38,6 +38,20 @@ func (s *AppService) CreateApp(ctx context.Context, displayName string, keysConf
 	if err := validation.DisplayName("name", displayName); err != nil {
 		return "", err
 	}
+	// Apps are only ever created through the control plane — the bucket store
+	// rejects InsertApp — so creation always happens at runtime, from the
+	// dashboard. Local key paths would have to already exist on every replica
+	// and cannot be provisioned from the UI, so such an app would only fail at
+	// its first manifest signature. Reject it up front.
+	//
+	// This deliberately lives here and not in config.ValidateKeys: the infra->DB
+	// migration loads the legacy flat-env app (which may legitimately use local
+	// key files) through that validator, and must keep working.
+	if keysConfig.Mode == config.KeysModeLocal {
+		return "", validation.Errorf("keysConfig.mode",
+			"%q is not supported when creating an app: local key files cannot be provisioned from the dashboard — use %q, %q or %q",
+			config.KeysModeLocal, config.KeysModeDatabase, config.KeysModeAWSSM, config.KeysModeEnvironment)
+	}
 	// Enforce presence of keys in environment variables for the environment keys mode for ValidateKeys function
 	if keysConfig.Mode == config.KeysModeEnvironment {
 		keysConfig.PublicB64 = config.GetEnv("PUBLIC_EXPO_KEY_B64")
@@ -56,7 +70,7 @@ func (s *AppService) CreateApp(ctx context.Context, displayName string, keysConf
 	}
 	switch keysConfig.Mode {
 	case config.KeysModeDatabase:
-		masterKeyStr := keyStore.ReadControlPlaneMasterKey()
+		masterKeyStr := keyStore.ReadDBKeysMasterKey()
 		if masterKeyStr == "" {
 			return "", fmt.Errorf("master key is required for database keys mode")
 		}

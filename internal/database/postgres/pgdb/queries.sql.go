@@ -168,7 +168,7 @@ SELECT DISTINCT ON (branches.id)
     branches.id, branches.app_id, branches.name, branches.created_at, 
     channels.name AS channel_name 
 FROM branches
-LEFT JOIN channels ON branches.id = channels.branch_id
+LEFT JOIN channels ON branches.id = channels.branch_id AND channels.app_id = branches.app_id
 WHERE branches.app_id = $1
 `
 
@@ -209,7 +209,7 @@ func (q *Queries) GetBranchesByAppID(ctx context.Context, appID pgtype.UUID) ([]
 const getChannelBranchMapping = `-- name: GetChannelBranchMapping :one
 SELECT c.id, b.name AS branch_name
 FROM channels c
-JOIN branches b ON c.branch_id = b.id
+JOIN branches b ON c.branch_id = b.id AND b.app_id = c.app_id
 WHERE c.app_id = $1 AND c.name = $2
 `
 
@@ -233,7 +233,7 @@ func (q *Queries) GetChannelBranchMapping(ctx context.Context, arg GetChannelBra
 const getChannelNamesByBranchName = `-- name: GetChannelNamesByBranchName :many
 SELECT c.name
 FROM channels c
-INNER JOIN branches b ON c.branch_id = b.id
+INNER JOIN branches b ON c.branch_id = b.id AND b.app_id = c.app_id
 WHERE b.name = $1 AND b.app_id = $2
 ORDER BY c.created_at ASC
 `
@@ -266,7 +266,7 @@ func (q *Queries) GetChannelNamesByBranchName(ctx context.Context, arg GetChanne
 const getChannelsByAppID = `-- name: GetChannelsByAppID :many
 SELECT channels.id, channels.app_id, channels.branch_id, channels.name, channels.created_at, branches.name as branch_name 
 FROM channels
-LEFT JOIN branches ON channels.branch_id = branches.id
+LEFT JOIN branches ON channels.branch_id = branches.id AND branches.app_id = channels.app_id
 WHERE channels.app_id = $1
 ORDER BY channels.created_at ASC
 `
@@ -442,16 +442,18 @@ SELECT u.id, u.update_uuid, b.app_id, b.name AS branch_name, r.version AS runtim
 FROM updates u
 INNER JOIN branches b ON u.branch_id = b.id
 INNER JOIN runtime_versions r ON u.runtime_version_id = r.id
-WHERE u.id = $1 
-  AND b.name = $2 
-  AND r.version = $3
+WHERE b.app_id = $1
+  AND u.id = $2
+  AND b.name = $3
+  AND r.version = $4
 LIMIT 1
 `
 
 type GetUpdateByBranchNameAndRuntimeParams struct {
-	ID      int64  `json:"id"`
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	AppID   pgtype.UUID `json:"app_id"`
+	ID      int64       `json:"id"`
+	Name    string      `json:"name"`
+	Version string      `json:"version"`
 }
 
 type GetUpdateByBranchNameAndRuntimeRow struct {
@@ -467,8 +469,17 @@ type GetUpdateByBranchNameAndRuntimeRow struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
+// app_id is load-bearing, not redundant: pk_updates is (branch_id, id), so an
+// update id is only unique per branch, and branch names are only unique per app.
+// Without the app filter the same (id, branch, runtime) triple matches another
+// tenant's row.
 func (q *Queries) GetUpdateByBranchNameAndRuntime(ctx context.Context, arg GetUpdateByBranchNameAndRuntimeParams) (GetUpdateByBranchNameAndRuntimeRow, error) {
-	row := q.db.QueryRow(ctx, getUpdateByBranchNameAndRuntime, arg.ID, arg.Name, arg.Version)
+	row := q.db.QueryRow(ctx, getUpdateByBranchNameAndRuntime,
+		arg.AppID,
+		arg.ID,
+		arg.Name,
+		arg.Version,
+	)
 	var i GetUpdateByBranchNameAndRuntimeRow
 	err := row.Scan(
 		&i.ID,
@@ -1131,7 +1142,12 @@ func (q *Queries) UpdateAppNameByID(ctx context.Context, arg UpdateAppNameByIDPa
 const updateChannelBranchMapping = `-- name: UpdateChannelBranchMapping :execresult
 UPDATE channels
 SET branch_id = $1
-WHERE app_id = $2 AND id = $3
+WHERE channels.app_id = $2
+  AND channels.id = $3
+  AND EXISTS (
+      SELECT 1 FROM branches
+      WHERE branches.id = $1 AND branches.app_id = $2
+  )
 `
 
 type UpdateChannelBranchMappingParams struct {
@@ -1140,6 +1156,8 @@ type UpdateChannelBranchMappingParams struct {
 	ID       int64       `json:"id"`
 }
 
+// The EXISTS clause scopes the *target* branch to the caller's app. fk_channels_branch
+// only references branches(id), so without it any tenant's branch id satisfies the FK.
 func (q *Queries) UpdateChannelBranchMapping(ctx context.Context, arg UpdateChannelBranchMappingParams) (pgconn.CommandTag, error) {
 	return q.db.Exec(ctx, updateChannelBranchMapping, arg.BranchID, arg.AppID, arg.ID)
 }

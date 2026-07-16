@@ -37,6 +37,11 @@ The environment variables used by the application depend on the following key se
   - If `true`, requires `CLOUDFRONT_DOMAIN`, `CLOUDFRONT_KEY_PAIR_ID`, and a CloudFront private key (`CLOUDFRONT_PRIVATE_KEY_B64`, `PRIVATE_CLOUDFRONT_KEY_PATH`, or `AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID`, depending on `keysStorageType`).
 - **`useAWSAccessKeys`**:
   - If `true`, requires `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` to be set.
+- **`controlPlane`**:
+  - If `true`, runs the server in control-plane (DB) mode: requires `DB_URL` plus a master key (see `dbKeysMasterKeySource`), and none of the flat single-app vars (`KEYS_STORAGE_TYPE`, `EXPO_APP_ID`, …) are rendered. See [Multi-app](/docs/advanced/multi-app).
+- **`dbKeysMasterKeySource`**: where the master key that seals database-stored signing keys comes from. Only used when `controlPlane` is `true`, and independent of `keysStorageType`.
+  - `environment` (default): Requires `DB_KEYS_MASTER_KEY_B64`.
+  - `aws-secrets-manager`: Requires `AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID`.
 
 ### Deployment
 

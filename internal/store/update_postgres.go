@@ -26,7 +26,10 @@ func NewPostgresUpdateStore(engine *database.Engine) *PostgresUpdateStore {
 
 func (s *PostgresUpdateStore) GetUpdateDetails(ctx context.Context, appId string, branchName string, runtimeVersion string, updateId string) (types.UpdateDetails, error) {
 	updateIdInt, err := strconv.ParseInt(updateId, 10, 64)
-	update, err := s.GetUpdateByBranchNameAndRuntime(ctx, updateIdInt, branchName, runtimeVersion)
+	if err != nil {
+		return types.UpdateDetails{}, fmt.Errorf("failed to parse update ID: %w", err)
+	}
+	update, err := s.GetUpdateByBranchNameAndRuntime(ctx, appId, updateIdInt, branchName, runtimeVersion)
 	if err != nil {
 		return types.UpdateDetails{}, fmt.Errorf("failed to retrieve update by ID from database: %w", err)
 	}
@@ -35,7 +38,7 @@ func (s *PostgresUpdateStore) GetUpdateDetails(ctx context.Context, appId string
 		RuntimeVersion: update.RuntimeVersion,
 		UpdateId:       strconv.FormatInt(update.ID, 10),
 		CreatedAt:      time.Duration(update.CreatedAt.Time.UnixMilli()),
-		AppId:          update.AppID.String(),
+		AppId:          appId,
 	})
 	if err != nil {
 		return types.UpdateDetails{}, fmt.Errorf("failed to get expo config for update: %w", err)
@@ -157,7 +160,7 @@ func (s *PostgresUpdateStore) GetUpdate(ctx context.Context, appId string, branc
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse update ID: %w", err)
 	}
-	update, err := s.GetUpdateByBranchNameAndRuntime(ctx, updateIdInt, branchName, runtimeVersion)
+	update, err := s.GetUpdateByBranchNameAndRuntime(ctx, appId, updateIdInt, branchName, runtimeVersion)
 	if err != nil {
 		if database.IsNoRows(err) {
 			return nil, nil
@@ -169,12 +172,13 @@ func (s *PostgresUpdateStore) GetUpdate(ctx context.Context, appId string, branc
 		Branch:         update.BranchName,
 		RuntimeVersion: update.RuntimeVersion,
 		CreatedAt:      time.Duration(update.CreatedAt.Time.UnixMilli()),
-		AppId:          update.AppID.String(),
+		AppId:          appId,
 	}, nil
 }
 
-func (s *PostgresUpdateStore) GetUpdateByBranchNameAndRuntime(ctx context.Context, updateId int64, branchName string, runtimeVersion string) (pgdb.GetUpdateByBranchNameAndRuntimeRow, error) {
+func (s *PostgresUpdateStore) GetUpdateByBranchNameAndRuntime(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string) (pgdb.GetUpdateByBranchNameAndRuntimeRow, error) {
 	return s.engine.Queries.GetUpdateByBranchNameAndRuntime(ctx, pgdb.GetUpdateByBranchNameAndRuntimeParams{
+		AppID:   ToPgUUID(appId),
 		ID:      updateId,
 		Name:    branchName,
 		Version: runtimeVersion,

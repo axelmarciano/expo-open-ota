@@ -100,8 +100,8 @@ If you can't rebuild every client at once, keep a v1 server instance alive for t
 Once you're on v2 and want to host a second Expo project on the same server, move
 to the **control plane** — multi-app lives in a database, not env vars:
 
-1. Provision Postgres and set `DB_URL` plus a control-plane master key
-   (`CONTROL_PLANE_MASTER_KEY_B64` or `AWSSM_CONTROL_PLANE_MASTER_KEY_B64_SECRET_ID`).
+1. Provision Postgres and set `DB_URL` plus a master key for the database-stored
+   signing keys (`DB_KEYS_MASTER_KEY_B64` or `AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID`).
    Keep your existing flat env vars in place for the first boot.
 2. On startup, a one-time infra → DB migration seeds your existing app (and its
    branches, channels and update history) into the database. From then on, manage
