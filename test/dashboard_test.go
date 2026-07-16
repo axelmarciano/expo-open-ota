@@ -282,7 +282,7 @@ func TestDashboardUseExpoAuthCrossAppAttackRejected(t *testing.T) {
 
 	router := infrastructure.NewRouter(testContainer())
 	// Seed the two tenants AFTER the container build: InitDependencies re-runs
-	// config.LoadApps (flat-env single app), which would otherwise clobber this
+	// config.LoadAppsFromFlatEnv (flat-env single app), which would otherwise clobber this
 	// injection. The bucket app store reads the registry live, so the resolver
 	// middleware sees app-1/app-2 at request time. app-1's token resolves to
 	// "user-1"; app-2's to "user-2" — distinct usernames are what make the

@@ -472,7 +472,7 @@ func SetValidConfiguration() {
 	os.Setenv("PUBLIC_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/public-key-test.pem"))
 	os.Setenv("PRIVATE_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/private-key-test.pem"))
 	config.ResetAppsForTest()
-	if err := config.LoadApps(); err != nil {
+	if err := config.LoadAppsFromFlatEnv(); err != nil {
 		panic(err)
 	}
 }

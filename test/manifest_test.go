@@ -265,8 +265,8 @@ func TestNotValidCertificatesForManifest(t *testing.T) {
 	os.Setenv("PUBLIC_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/not.pem"))
 	os.Setenv("PRIVATE_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/exists.pem"))
 	config.ResetAppsForTest()
-	if err := config.LoadApps(); err != nil {
-		t.Fatalf("LoadApps: %v", err)
+	if err := config.LoadAppsFromFlatEnv(); err != nil {
+		t.Fatalf("LoadAppsFromFlatEnv: %v", err)
 	}
 	defer func() {
 		SetValidConfiguration()

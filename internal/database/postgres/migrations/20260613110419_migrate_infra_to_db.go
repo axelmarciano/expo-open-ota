@@ -116,7 +116,7 @@ func sealLegacyKeysIntoDB(app config.AppConfig, params *pgdb.MigrateLegacyAppPar
 func UpMigrateEnvJSON(ctx context.Context, tx *sql.Tx) error {
 	// A fresh control-plane install has nothing to import: apps are created from
 	// the dashboard and EXPO_APP_ID is deliberately unset. Bail out before
-	// ReadApps, which reports an absent flat-env config as an error — goose
+	// ReadAppsFromFlatEnv, which reports an absent flat-env config as an error — goose
 	// turns that into a fatal and the server could never boot. Mirrors the guard
 	// in the sibling bucket migration (20260422_v2_scope_data_under_appid).
 	if strings.TrimSpace(os.Getenv("EXPO_APP_ID")) == "" {
@@ -125,8 +125,8 @@ func UpMigrateEnvJSON(ctx context.Context, tx *sql.Tx) error {
 	}
 
 	log.Println("🚀 [DATABASE] Starting migration of infrastructure from env/bucket to the database...")
-	config.LoadApps()
-	apps, source, err := config.ReadApps()
+	config.LoadAppsFromFlatEnv()
+	apps, source, err := config.ReadAppsFromFlatEnv()
 	if err != nil {
 		log.Printf("Error reading apps from config: %v", err)
 		return err

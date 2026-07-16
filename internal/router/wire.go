@@ -67,7 +67,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		updateRepo = store.NewPostgresUpdateStore(dbEngine)
 	} else {
 		log.Println("⚙️  [STATELESS] Initializing Stateless Mode (Flat-Env Mode)...")
-		if err := config.LoadApps(); err != nil {
+		if err := config.LoadAppsFromFlatEnv(); err != nil {
 			log.Fatalf("Invalid apps config: %v\nSee https://axelmarciano.github.io/expo-open-ota/docs/getting-started/prerequisites for the v2 multi-app config format.", err)
 		}
 		authRepo = store.NewBucketAuthStore(resolvedBucket)

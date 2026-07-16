@@ -8,7 +8,7 @@ import (
 // A fresh control-plane install sets DB_URL and a master key but no
 // EXPO_APP_ID — apps are created from the dashboard. The migration must treat
 // that as "nothing legacy to import" and no-op. It previously let
-// config.ReadApps' "no app config found" error escape, which goose turned into
+// config.ReadAppsFromFlatEnv' "no app config found" error escape, which goose turned into
 // a fatal, so the documented fresh-install path could never boot.
 //
 // dbEngine is nil here: reaching it at all means the guard failed to return

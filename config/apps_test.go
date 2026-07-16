@@ -15,7 +15,7 @@ import (
 // not required — the validator only checks for the BEGIN marker.
 const stubPEMB64 = "LS0tLS1CRUdJTiBURVNUIEtFWS0tLS0tCnRlc3RkYXRhCi0tLS0tRU5EIFRFU1QgS0VZLS0tLS0K"
 
-// resetAppsEnv unsets every env var that LoadApps can read so each test
+// resetAppsEnv unsets every env var that LoadAppsFromFlatEnv can read so each test
 // starts from a known-empty environment. Central list — when a new env var
 // is added to the loader, add it here too or the test suite will start
 // interfering across runs.
@@ -292,11 +292,11 @@ func TestValidateKeys_RejectsMissingOrUnknownMode(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// LoadApps — flat env. The only stateless config source: one app, v1-compat.
+// LoadAppsFromFlatEnv — flat env. The only stateless config source: one app, v1-compat.
 // Each key mode, and failure modes.
 // -----------------------------------------------------------------------------
 
-func TestLoadApps_FromFlatEnv_LocalMode(t *testing.T) {
+func TestLoadAppsFromFlatEnv_LocalMode(t *testing.T) {
 	resetAppsEnv(t)
 	os.Setenv("EXPO_APP_ID", "solo")
 	os.Setenv("EXPO_ACCESS_TOKEN", "tok")
@@ -304,7 +304,7 @@ func TestLoadApps_FromFlatEnv_LocalMode(t *testing.T) {
 	os.Setenv("PUBLIC_LOCAL_EXPO_KEY_PATH", "/k/pub.pem")
 	os.Setenv("PRIVATE_LOCAL_EXPO_KEY_PATH", "/k/priv.pem")
 
-	require.NoError(t, LoadApps())
+	require.NoError(t, LoadAppsFromFlatEnv())
 	a, err := GetAppConfig("solo")
 	require.NoError(t, err)
 	assert.Equal(t, KeysModeLocal, a.Keys.Mode)
@@ -313,9 +313,9 @@ func TestLoadApps_FromFlatEnv_LocalMode(t *testing.T) {
 	assert.Equal(t, "tok", a.AccessToken)
 }
 
-func TestLoadApps_FromFlatEnv_DefaultsToLocalWhenStorageTypeUnset(t *testing.T) {
+func TestLoadAppsFromFlatEnv_DefaultsToLocalWhenStorageTypeUnset(t *testing.T) {
 	// v1 DefaultEnvValues had KEYS_STORAGE_TYPE=local; in v2 that default
-	// moved into loadFromFlatEnv itself. Unsetting the var must behave the
+	// moved into parseFlatEnvApp itself. Unsetting the var must behave the
 	// same as setting it to "local".
 	resetAppsEnv(t)
 	os.Setenv("EXPO_APP_ID", "solo")
@@ -323,13 +323,13 @@ func TestLoadApps_FromFlatEnv_DefaultsToLocalWhenStorageTypeUnset(t *testing.T) 
 	os.Setenv("PUBLIC_LOCAL_EXPO_KEY_PATH", "/k/pub.pem")
 	os.Setenv("PRIVATE_LOCAL_EXPO_KEY_PATH", "/k/priv.pem")
 
-	require.NoError(t, LoadApps())
+	require.NoError(t, LoadAppsFromFlatEnv())
 	a, err := GetAppConfig("solo")
 	require.NoError(t, err)
 	assert.Equal(t, KeysModeLocal, a.Keys.Mode)
 }
 
-func TestLoadApps_FromFlatEnv_AWSSMMode(t *testing.T) {
+func TestLoadAppsFromFlatEnv_AWSSMMode(t *testing.T) {
 	resetAppsEnv(t)
 	os.Setenv("EXPO_APP_ID", "solo")
 	os.Setenv("EXPO_ACCESS_TOKEN", "tok")
@@ -337,7 +337,7 @@ func TestLoadApps_FromFlatEnv_AWSSMMode(t *testing.T) {
 	os.Setenv("AWSSM_EXPO_PUBLIC_KEY_SECRET_ID", "/eoota/pub")
 	os.Setenv("AWSSM_EXPO_PRIVATE_KEY_SECRET_ID", "/eoota/priv")
 
-	require.NoError(t, LoadApps())
+	require.NoError(t, LoadAppsFromFlatEnv())
 	a, err := GetAppConfig("solo")
 	require.NoError(t, err)
 	assert.Equal(t, KeysModeAWSSM, a.Keys.Mode)
@@ -345,7 +345,7 @@ func TestLoadApps_FromFlatEnv_AWSSMMode(t *testing.T) {
 	assert.Equal(t, "/eoota/priv", a.Keys.PrivateSecretId)
 }
 
-func TestLoadApps_FromFlatEnv_EnvironmentMode(t *testing.T) {
+func TestLoadAppsFromFlatEnv_EnvironmentMode(t *testing.T) {
 	resetAppsEnv(t)
 	os.Setenv("EXPO_APP_ID", "solo")
 	os.Setenv("EXPO_ACCESS_TOKEN", "tok")
@@ -353,41 +353,41 @@ func TestLoadApps_FromFlatEnv_EnvironmentMode(t *testing.T) {
 	os.Setenv("PUBLIC_EXPO_KEY_B64", stubPEMB64)
 	os.Setenv("PRIVATE_EXPO_KEY_B64", stubPEMB64)
 
-	require.NoError(t, LoadApps())
+	require.NoError(t, LoadAppsFromFlatEnv())
 	a, err := GetAppConfig("solo")
 	require.NoError(t, err)
 	assert.Equal(t, KeysModeEnvironment, a.Keys.Mode)
 	assert.Equal(t, stubPEMB64, a.Keys.PublicB64)
 }
 
-func TestLoadApps_FromFlatEnv_RejectsUnknownStorageType(t *testing.T) {
-	// An unknown KEYS_STORAGE_TYPE leaves Mode empty in loadFromFlatEnv,
+func TestLoadAppsFromFlatEnv_RejectsUnknownStorageType(t *testing.T) {
+	// An unknown KEYS_STORAGE_TYPE leaves Mode empty in parseFlatEnvApp,
 	// then validateApp catches it with the "mode is required" error.
 	resetAppsEnv(t)
 	os.Setenv("EXPO_APP_ID", "solo")
 	os.Setenv("EXPO_ACCESS_TOKEN", "tok")
 	os.Setenv("KEYS_STORAGE_TYPE", "vault") // not supported
-	err := LoadApps()
+	err := LoadAppsFromFlatEnv()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "mode is required")
 }
 
-func TestLoadApps_FromFlatEnv_RejectsMissingToken(t *testing.T) {
+func TestLoadAppsFromFlatEnv_RejectsMissingToken(t *testing.T) {
 	resetAppsEnv(t)
 	os.Setenv("EXPO_APP_ID", "solo")
 	// No EXPO_ACCESS_TOKEN, no keys set either
-	err := LoadApps()
+	err := LoadAppsFromFlatEnv()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "accessToken")
 }
 
 // -----------------------------------------------------------------------------
-// LoadApps — "nothing set" error path.
+// LoadAppsFromFlatEnv — "nothing set" error path.
 // -----------------------------------------------------------------------------
 
-func TestLoadApps_NoSourceSetReturnsActionableError(t *testing.T) {
+func TestLoadAppsFromFlatEnv_NoSourceSetReturnsActionableError(t *testing.T) {
 	resetAppsEnv(t)
-	err := LoadApps()
+	err := LoadAppsFromFlatEnv()
 	require.Error(t, err)
 	// The error message is part of the UX — it must name the flat-env entry
 	// point and point multi-app users at the control plane so a user who

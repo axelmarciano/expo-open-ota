@@ -90,18 +90,18 @@ var (
 	appsById   map[string]*AppConfig
 )
 
-// LoadApps resolves the single-app stateless config from the flat env vars
-// (EXPO_APP_ID, EXPO_ACCESS_TOKEN, KEYS_STORAGE_TYPE and its mode-specific
-// siblings), validates it, and caches the result in memory. This mirrors the
-// v1 env layout unchanged, so a v1 install upgrades to v2 with zero config
-// changes. Multi-app deployments are served by the control plane (DB mode),
-// which loads apps from the database and never calls this.
+// LoadAppsFromFlatEnv resolves the single-app stateless config from the flat
+// env vars (EXPO_APP_ID, EXPO_ACCESS_TOKEN, KEYS_STORAGE_TYPE and its mode-
+// specific siblings), validates it, and caches the result in memory. This
+// mirrors the v1 env layout unchanged, so a v1 install upgrades to v2 with
+// zero config changes. Multi-app deployments are served by the control plane
+// (DB mode), which loads apps from the database and never calls this.
 //
 // Must be called once from wire.go (stateless branch) before any handler
 // resolves an app. Returns a non-nil error on any structural or semantic
 // issue; callers are expected to log.Fatal on error.
-func LoadApps() error {
-	apps, source, err := ReadApps()
+func LoadAppsFromFlatEnv() error {
+	apps, source, err := ReadAppsFromFlatEnv()
 	if err != nil {
 		return err
 	}
@@ -125,22 +125,23 @@ func LoadApps() error {
 	return nil
 }
 
-// ReadApps returns the parsed (but not yet validated) single-app config plus
-// a human-readable source tag used for error messages. It reads the legacy v1
-// variable names verbatim to preserve upgrade-in-place. Returned as a slice so
-// callers (LoadApps, the infra→DB migration) share one iteration shape whether
-// the config carries one app (stateless) or many (control plane).
-func ReadApps() ([]AppConfig, string, error) {
+// ReadAppsFromFlatEnv returns the parsed (but not yet validated) single-app
+// config plus a human-readable source tag used for error messages. It reads
+// the legacy v1 variable names verbatim to preserve upgrade-in-place. Returned
+// as a slice so callers (LoadAppsFromFlatEnv, the infra→DB migration) share one
+// iteration shape whether the config carries one app (stateless) or many
+// (control plane).
+func ReadAppsFromFlatEnv() ([]AppConfig, string, error) {
 	if appId := strings.TrimSpace(os.Getenv("EXPO_APP_ID")); appId != "" {
-		return []AppConfig{loadFromFlatEnv(appId)}, "flat env (EXPO_APP_ID)", nil
+		return []AppConfig{parseFlatEnvApp(appId)}, "flat env (EXPO_APP_ID)", nil
 	}
 	return nil, "", fmt.Errorf("no app config found: set EXPO_APP_ID + EXPO_ACCESS_TOKEN + key vars (multi-app deployments are managed by the control plane / DB mode)")
 }
 
-// loadFromFlatEnv reads the v1 single-app env vars and returns an AppConfig.
+// parseFlatEnvApp reads the v1 single-app env vars and returns an AppConfig.
 // Validation is deferred to validateApp so the error path is uniform with the
 // JSON case.
-func loadFromFlatEnv(appId string) AppConfig {
+func parseFlatEnvApp(appId string) AppConfig {
 	app := AppConfig{
 		Id:          appId,
 		AccessToken: os.Getenv("EXPO_ACCESS_TOKEN"),
