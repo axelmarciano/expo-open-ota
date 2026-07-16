@@ -14,7 +14,9 @@ import (
 	update2 "expo-open-ota/internal/update"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -112,6 +114,16 @@ func sealLegacyKeysIntoDB(app config.AppConfig, params *pgdb.MigrateLegacyAppPar
 }
 
 func UpMigrateEnvJSON(ctx context.Context, tx *sql.Tx) error {
+	// A fresh control-plane install has nothing to import: apps are created from
+	// the dashboard and EXPO_APP_ID is deliberately unset. Bail out before
+	// ReadApps, which reports an absent flat-env config as an error — goose
+	// turns that into a fatal and the server could never boot. Mirrors the guard
+	// in the sibling bucket migration (20260422_v2_scope_data_under_appid).
+	if strings.TrimSpace(os.Getenv("EXPO_APP_ID")) == "" {
+		log.Println("⏭️ [DATABASE] No legacy EXPO_APP_ID set — nothing to migrate from env/bucket.")
+		return nil
+	}
+
 	log.Println("🚀 [DATABASE] Starting migration of infrastructure from env/bucket to the database...")
 	config.LoadApps()
 	apps, source, err := config.ReadApps()
@@ -119,10 +131,7 @@ func UpMigrateEnvJSON(ctx context.Context, tx *sql.Tx) error {
 		log.Printf("Error reading apps from config: %v", err)
 		return err
 	}
-	if len(apps) == 0 {
-		log.Printf("No apps found in config source '%s'", source)
-		return nil
-	}
+	log.Printf("📦 [DATABASE] Migrating %d legacy app(s) from %s", len(apps), source)
 
 	err = dbEngine.WithTx(ctx, func(qtx *pgdb.Queries) error {
 		resolvedBucket := bucket.GetBucket()
@@ -131,9 +140,13 @@ func UpMigrateEnvJSON(ctx context.Context, tx *sql.Tx) error {
 		updateStore := store.NewBucketUpdateStore(resolvedBucket)
 
 		for _, app := range apps {
+			// The apps table keys on a UUID, which only the control plane mints.
+			// A legacy id predating it cannot be represented, but failing here
+			// would brick an otherwise healthy stateless deploy on upgrade — skip
+			// the app instead and let the operator recreate it from the dashboard.
 			if _, err := uuid.Parse(app.Id); err != nil {
-				log.Printf("Error parsing app ID '%s': %v", app.Id, err)
-				return err
+				log.Printf("⚠️ [DATABASE] Skipping legacy app %q: its id is not a UUID, so it cannot be migrated into the control plane. Recreate the app from the dashboard.", app.Id)
+				continue
 			}
 
 			params := pgdb.MigrateLegacyAppParams{
@@ -165,7 +178,7 @@ func UpMigrateEnvJSON(ctx context.Context, tx *sql.Tx) error {
 				return err
 			}
 
-			channelNameToBranchId := make(map[string]int64)
+			branchNameToBranchId := make(map[string]int64)
 			insertedRuntimeVersions := make(map[string]bool)
 
 			for _, branch := range branches {
@@ -178,9 +191,7 @@ func UpMigrateEnvJSON(ctx context.Context, tx *sql.Tx) error {
 					return err
 				}
 
-				if branch.ReleaseChannel != nil && *branch.ReleaseChannel != "" {
-					channelNameToBranchId[*branch.ReleaseChannel] = branchId
-				}
+				branchNameToBranchId[branch.BranchName] = branchId
 
 				// Fetch runtime versions associated *specifically* with this branch context
 				runtimeVersionsForBranch, err := branchStore.GetRuntimeVersionsWithUpdateStats(ctx, app.Id, branch.BranchName)
@@ -269,10 +280,16 @@ func UpMigrateEnvJSON(ctx context.Context, tx *sql.Tx) error {
 			}
 
 			for _, channel := range channels {
+				// Resolve via the channel's own branch, not a branch->channel map:
+				// BucketBranchStore.GetBranches keeps only the first channel of
+				// each branch, so every further channel sharing that branch would
+				// migrate with a NULL branch_id and silently stop serving updates.
 				var branchIDPtr *int64
-				if id, exists := channelNameToBranchId[channel.ReleaseChannelName]; exists {
-					allocatedID := id
-					branchIDPtr = &allocatedID
+				if channel.BranchName != nil {
+					if id, exists := branchNameToBranchId[*channel.BranchName]; exists {
+						allocatedID := id
+						branchIDPtr = &allocatedID
+					}
 				}
 
 				channelParams := pgdb.MigrateLegacyChannelParams{

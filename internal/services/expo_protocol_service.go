@@ -7,7 +7,6 @@ import (
 	"expo-open-ota/internal/assets"
 	cdn2 "expo-open-ota/internal/cdn"
 	"expo-open-ota/internal/crypto"
-	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/keyStore"
 	"expo-open-ota/internal/metrics"
 	"expo-open-ota/internal/types"
@@ -17,6 +16,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 type ExpoProtocolService struct {
@@ -204,8 +204,11 @@ func (s *ExpoProtocolService) PutRollbackInResponse(w http.ResponseWriter, r *ht
 		return
 	}
 
-	normalizedTime := helpers.NormalizeTimestamp(int64(lastUpdate.CreatedAt))
-	commitTime := normalizedTime.Format("2006-01-02T15:04:05.000Z")
+	// Update.CreatedAt is a duration since the epoch, i.e. nanoseconds — not the
+	// milliseconds NormalizeTimestamp expects. Feeding it there sent every value
+	// down the overflow branch and emitted a commitTime in the year 5655856,
+	// which expo-updates uses to decide whether to apply the rollback.
+	commitTime := time.Unix(0, int64(lastUpdate.CreatedAt)).UTC().Format("2006-01-02T15:04:05.000Z")
 	directive, err := update2.CreateRollbackDirective(lastUpdate, commitTime)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error creating rollback directive: %v", requestID, err)
@@ -332,6 +335,19 @@ func (s *ExpoProtocolService) ResolveAssetBundle(ctx context.Context, params Ass
 	resp, err := assets.HandleAssetsWithURL(req, cdn)
 	if err != nil {
 		return nil, &ExpoAssetError{StatusCode: http.StatusInternalServerError, Message: "Internal Server Error"}
+	}
+
+	// A miss (no update yet for this runtime version, unknown asset) comes back
+	// as a non-200 StatusCode with a nil error and an empty URL. Keeping only
+	// the URL would hand the handler a zero StatusCode and no redirect target,
+	// which lands in http.Error(w, "", 0) and panics in WriteHeader.
+	if resp.StatusCode != http.StatusOK {
+		return &ExpoAssetResult{
+			Body:        resp.Body,
+			ContentType: resp.ContentType,
+			Headers:     resp.Headers,
+			StatusCode:  resp.StatusCode,
+		}, nil
 	}
 
 	return &ExpoAssetResult{

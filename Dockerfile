@@ -7,6 +7,12 @@ RUN npm run build
 
 FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
 ARG TARGETARCH
+# Stamped into the binary because every cache key embeds version.Version: without
+# this the released image reports "development" forever, the keys never rotate,
+# and a release that changes a cached payload's shape silently decodes the
+# previous release's entries. Release CI passes the git tag; local builds keep
+# the package default, which is also what LocalCache.Clear() gates on.
+ARG VERSION=development
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
@@ -15,7 +21,9 @@ COPY internal ./internal
 COPY keys ./keys
 COPY config ./config
 COPY updates ./updates
-RUN GOOS=linux GOARCH=${TARGETARCH} go build -o main ./cmd/api
+RUN GOOS=linux GOARCH=${TARGETARCH} go build \
+    -ldflags "-X expo-open-ota/internal/version.Version=${VERSION}" \
+    -o main ./cmd/api
 
 FROM alpine:latest
 RUN apk add --no-cache bash

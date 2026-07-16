@@ -576,6 +576,14 @@ func TestRollbackResponseforManifest(t *testing.T) {
 		t.Errorf("Error parsing json body: %v", err)
 	}
 	assert.Equal(t, "rollBackToEmbedded", directive.Type, "rollBackToEmbedded")
+	// Pin the commitTime. Update.CreatedAt is a duration since the epoch, i.e.
+	// nanoseconds; passing it to the millisecond-based NormalizeTimestamp sent
+	// every value down the overflow branch and emitted dates thousands of years
+	// out. expo-updates reads this field to decide whether to apply the
+	// rollback, so a wrong value silently disables it on shipped clients.
+	// Expected here is NormalizeTimestamp(1666304169) — the branch-3 fixture's
+	// own update id, which is second-based, hence 1970.
+	assert.Equal(t, "1970-01-20T06:51:44.169Z", directive.Parameters.CommitTime, "unexpected rollback commitTime")
 }
 
 func TestValidRequestForProductionManifest(t *testing.T) {

@@ -1,6 +1,7 @@
 package test
 
 import (
+	"context"
 	"encoding/json"
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/update"
@@ -166,9 +167,16 @@ func TestRollbackDoesNotPoisonLatestUpdateCache(t *testing.T) {
 		[]byte(`{"platform":"android","commitHash":"stale","updateUUID":"00000000-0000-0000-0000-000000000001"}`), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(stalePath, ".check"), []byte(".check"), 0o644))
 
+	// Read through UpdateService, which is what owns the lastUpdate cache that
+	// MarkUpdateAsChecked invalidates. The package-level
+	// update.GetLatestUpdateBundlePathForRuntimeVersion is a pure bucket scan
+	// and would never touch the cache this test exists to protect.
+	updateService := testUpdateService()
+	ctx := context.Background()
+
 	// Warm the lastUpdate cache with the planted update so a poisoned cache
 	// can actually point at a stale value.
-	warmed, err := update.GetLatestUpdateBundlePathForRuntimeVersion(appId, branchName, runtimeVersion, platform)
+	warmed, err := updateService.GetLatestUpdate(ctx, appId, branchName, runtimeVersion, platform)
 	require.NoError(t, err)
 	require.NotNil(t, warmed, "fixture setup: planted update not picked up — check LOCAL_BUCKET_BASE_PATH wiring")
 	require.Equal(t, staleUpdateId, warmed.UpdateId, "fixture setup: expected cache warmed with planted update")
@@ -189,7 +197,7 @@ func TestRollbackDoesNotPoisonLatestUpdateCache(t *testing.T) {
 				case <-stop:
 					return
 				default:
-					_, _ = update.GetLatestUpdateBundlePathForRuntimeVersion(appId, branchName, runtimeVersion, platform)
+					_, _ = updateService.GetLatestUpdate(ctx, appId, branchName, runtimeVersion, platform)
 					atomic.AddInt64(&reads, 1)
 				}
 			}
@@ -207,7 +215,7 @@ func TestRollbackDoesNotPoisonLatestUpdateCache(t *testing.T) {
 	// Definitive assertion: after the rollback, the latest update must be
 	// the rollback itself, not the planted stale update. A failure here
 	// means a concurrent reader poisoned the cache with the stale entry.
-	latest, err := update.GetLatestUpdateBundlePathForRuntimeVersion(appId, branchName, runtimeVersion, platform)
+	latest, err := updateService.GetLatestUpdate(ctx, appId, branchName, runtimeVersion, platform)
 	require.NoError(t, err)
 	require.NotNil(t, latest)
 	assert.NotEqual(t, staleUpdateId, latest.UpdateId, "lastUpdate cache poisoned with stale update after %d reads", reads)

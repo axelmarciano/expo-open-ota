@@ -40,22 +40,22 @@ func (s *AppService) CreateApp(ctx context.Context, displayName string, keysConf
 	}
 	// Apps are only ever created through the control plane — the bucket store
 	// rejects InsertApp — so creation always happens at runtime, from the
-	// dashboard. Local key paths would have to already exist on every replica
-	// and cannot be provisioned from the UI, so such an app would only fail at
-	// its first manifest signature. Reject it up front.
+	// dashboard, which offers only database and aws-secrets-manager. Neither
+	// legacy mode can carry usable key material for a new app: local key paths
+	// would have to already exist on every replica and cannot be provisioned
+	// from the UI, and the apps table has no column for an inline b64 key, so an
+	// environment-mode app would persist nothing and fail at its first manifest
+	// signature — unrepairably, since UpdateApp only renames. Reject both up
+	// front rather than let them fall through to a 201 and a broken app.
 	//
 	// This deliberately lives here and not in config.ValidateKeys: the infra->DB
 	// migration loads the legacy flat-env app (which may legitimately use local
-	// key files) through that validator, and must keep working.
-	if keysConfig.Mode == config.KeysModeLocal {
+	// key files or env b64 keys) through that validator and must keep working —
+	// it seals such keys into mode=database instead.
+	if keysConfig.Mode == config.KeysModeLocal || keysConfig.Mode == config.KeysModeEnvironment {
 		return "", validation.Errorf("keysConfig.mode",
-			"%q is not supported when creating an app: local key files cannot be provisioned from the dashboard — use %q, %q or %q",
-			config.KeysModeLocal, config.KeysModeDatabase, config.KeysModeAWSSM, config.KeysModeEnvironment)
-	}
-	// Enforce presence of keys in environment variables for the environment keys mode for ValidateKeys function
-	if keysConfig.Mode == config.KeysModeEnvironment {
-		keysConfig.PublicB64 = config.GetEnv("PUBLIC_EXPO_KEY_B64")
-		keysConfig.PrivateB64 = config.GetEnv("PRIVATE_EXPO_KEY_B64")
+			"%q is not supported when creating an app: it cannot be provisioned from the dashboard — use %q or %q",
+			keysConfig.Mode, config.KeysModeDatabase, config.KeysModeAWSSM)
 	}
 	if err := config.ValidateKeys(&keysConfig, "keysConfig"); err != nil {
 		// Surface as a validation error so the handler answers 400, not 500.
@@ -96,16 +96,10 @@ func (s *AppService) CreateApp(ctx context.Context, displayName string, keysConf
 		params.SealedPublicKey = &sealedPublicKey
 		params.SealedPrivateKey = &sealedPrivateKey
 
-	case config.KeysModeLocal:
-		params.PathPublicKey = &keysConfig.PublicPath
-		params.PathPrivateKey = &keysConfig.PrivatePath
-
 	case config.KeysModeAWSSM:
 		params.AwsSecretIDPublic = &keysConfig.PublicSecretId
 		params.AwsSecretIDPrivate = &keysConfig.PrivateSecretId
 
-	case config.KeysModeEnvironment:
-		// Replaced by database keystore mode
 	default:
 		return "", fmt.Errorf("invalid keys mode %q", keysConfig.Mode)
 	}

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"expo-open-ota/internal/database"
 	"expo-open-ota/internal/database/postgres/pgdb"
 	"expo-open-ota/internal/providers"
@@ -9,6 +10,8 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type PostgresChannelStore struct {
@@ -105,6 +108,14 @@ func (s *PostgresChannelStore) GetChannelBranchMapping(ctx context.Context, appI
 		Name:  channelName,
 	})
 	if err != nil {
+		// An unknown channel, or one deliberately left unmapped (branch_id is
+		// nilable, and the INNER JOIN on branches then yields no row), is a
+		// 404 for the caller — not a server error. The bucket backend already
+		// reports it as (nil, nil); match it so ResolveManifestBundle's
+		// nil-check stays live in DB mode.
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("failed to retrieve channel mapping from database: %w", err)
 	}
 	mappingStr := strconv.FormatInt(mapping.ID, 10)

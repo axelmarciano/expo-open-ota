@@ -37,7 +37,7 @@ func (s *PostgresUpdateStore) GetUpdateDetails(ctx context.Context, appId string
 		Branch:         update.BranchName,
 		RuntimeVersion: update.RuntimeVersion,
 		UpdateId:       strconv.FormatInt(update.ID, 10),
-		CreatedAt:      time.Duration(update.CreatedAt.Time.UnixMilli()),
+		CreatedAt:      time.Duration(update.CreatedAt.Time.UnixNano()),
 		AppId:          appId,
 	})
 	if err != nil {
@@ -81,7 +81,7 @@ func (s *PostgresUpdateStore) GetLatestUpdate(ctx context.Context, appId string,
 		UpdateId:       strconv.FormatInt(row.ID, 10),
 		Branch:         branchName,
 		RuntimeVersion: runtimeVersion,
-		CreatedAt:      time.Duration(row.CreatedAt.Time.UnixMilli()),
+		CreatedAt:      time.Duration(row.CreatedAt.Time.UnixNano()),
 		AppId:          appId,
 	}, nil
 }
@@ -150,7 +150,7 @@ func (s *PostgresUpdateStore) CreateUpdate(ctx context.Context, appId string, up
 		UpdateId:       strconv.FormatInt(row.ID, 10),
 		Branch:         row.BranchName,
 		RuntimeVersion: row.RuntimeVersion,
-		CreatedAt:      time.Duration(row.CreatedAt.Time.UnixMilli()),
+		CreatedAt:      time.Duration(row.CreatedAt.Time.UnixNano()),
 		AppId:          appId,
 	}, nil
 }
@@ -171,7 +171,7 @@ func (s *PostgresUpdateStore) GetUpdate(ctx context.Context, appId string, branc
 		UpdateId:       strconv.FormatInt(update.ID, 10),
 		Branch:         update.BranchName,
 		RuntimeVersion: update.RuntimeVersion,
-		CreatedAt:      time.Duration(update.CreatedAt.Time.UnixMilli()),
+		CreatedAt:      time.Duration(update.CreatedAt.Time.UnixNano()),
 		AppId:          appId,
 	}, nil
 }
@@ -210,7 +210,7 @@ func (s *PostgresUpdateStore) GetUpdatesByRunTimeVersionAndBranchName(ctx contex
 					Branch:         branchName,
 					RuntimeVersion: runtimeVersion,
 					UpdateId:       strconv.FormatInt(row.ID, 10),
-					CreatedAt:      time.Duration(row.CreatedAt.Time.UnixMilli()),
+					CreatedAt:      time.Duration(row.CreatedAt.Time.UnixNano()),
 					AppId:          appId,
 				})
 				if err != nil {
@@ -301,7 +301,7 @@ func (s *PostgresUpdateStore) CreateRollback(ctx context.Context, appId string, 
 		UpdateId:       strconv.FormatInt(row.ID, 10),
 		Branch:         row.BranchName,
 		RuntimeVersion: row.RuntimeVersion,
-		CreatedAt:      time.Duration(row.CreatedAt.Time.UnixMilli()),
+		CreatedAt:      time.Duration(row.CreatedAt.Time.UnixNano()),
 		AppId:          pgAppID.String(),
 	}, nil
 }
