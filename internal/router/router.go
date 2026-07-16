@@ -99,7 +99,7 @@ func NewRouter(container *AppContainer) *mux.Router {
 	}
 
 	authSubrouter := r.PathPrefix("/api").Subrouter()
-	authSubrouter.Use(middleware.NewAuthMiddleware(container.AuthService))
+	authSubrouter.Use(middleware.NewAuthMiddleware(container.DashboardAuthService, container.CliAuthService))
 	authSubrouter.HandleFunc("/settings", container.SettingsHandler.GetSettingsHandler).Methods(http.MethodGet)
 
 	// Apps management router

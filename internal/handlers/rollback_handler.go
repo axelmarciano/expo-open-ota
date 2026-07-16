@@ -12,13 +12,13 @@ import (
 )
 
 type RollbackHandler struct {
-	authService       *services.AuthService
+	cliAuthService    *services.CliAuthService
 	deploymentService *services.DeploymentService
 }
 
-func NewRollbackHandler(authService *services.AuthService, deploymentService *services.DeploymentService) *RollbackHandler {
+func NewRollbackHandler(cliAuthService *services.CliAuthService, deploymentService *services.DeploymentService) *RollbackHandler {
 	return &RollbackHandler{
-		authService:       authService,
+		cliAuthService:    cliAuthService,
 		deploymentService: deploymentService,
 	}
 }
@@ -40,7 +40,7 @@ func (h *RollbackHandler) HandleRollback(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	auth := helpers.GetAuth(r)
-	err := h.authService.ValidateAuth(r.Context(), appId, auth)
+	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
 		http.Error(w, "Error validating auth", http.StatusUnauthorized)

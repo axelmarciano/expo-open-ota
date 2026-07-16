@@ -8,7 +8,15 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func NewAuthMiddleware(authService *services.AuthService) mux.MiddlewareFunc {
+// NewAuthMiddleware guards a route with one of two unrelated credentials,
+// picked by the Use-Cli-Auth header:
+//   - "true": a CLI credential scoped to an app (an eoo_ API key in DB mode, an
+//     Expo token/session in stateless mode) -> cliAuthService.
+//   - otherwise: the dashboard's own session JWT -> dashboardAuthService.
+//
+// Both travel as `Authorization: Bearer …`, which is why the header decides
+// which one to expect rather than the credential's shape.
+func NewAuthMiddleware(dashboardAuthService *services.DashboardAuthService, cliAuthService *services.CliAuthService) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			useCliAuth := r.Header.Get("Use-Cli-Auth")
@@ -26,7 +34,7 @@ func NewAuthMiddleware(authService *services.AuthService) mux.MiddlewareFunc {
 				}
 
 				auth := helpers.GetAuth(r)
-				err := authService.ValidateAuth(r.Context(), appId, auth)
+				err := cliAuthService.ValidateCliCredential(r.Context(), appId, auth)
 				if err != nil {
 					http.Error(w, "Error validating auth", http.StatusUnauthorized)
 					return
@@ -45,7 +53,7 @@ func NewAuthMiddleware(authService *services.AuthService) mux.MiddlewareFunc {
 				http.Error(w, "No Authorization header provided", http.StatusUnauthorized)
 				return
 			}
-			_, err = authService.ValidateToken(bearerToken)
+			_, err = dashboardAuthService.ValidateSession(bearerToken)
 			if err != nil {
 				http.Error(w, "Invalid token", http.StatusUnauthorized)
 				return

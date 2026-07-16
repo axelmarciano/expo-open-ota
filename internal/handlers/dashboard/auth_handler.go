@@ -8,12 +8,12 @@ import (
 )
 
 type AuthHandler struct {
-	authService *services.AuthService
+	dashboardAuthService *services.DashboardAuthService
 }
 
-func NewAuthHandler(authService *services.AuthService) *AuthHandler {
+func NewAuthHandler(dashboardAuthService *services.DashboardAuthService) *AuthHandler {
 	return &AuthHandler{
-		authService: authService,
+		dashboardAuthService: dashboardAuthService,
 	}
 }
 
@@ -28,14 +28,14 @@ func (ah *AuthHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		handlers.RenderError(w, http.StatusBadRequest, "Password is empty")
 		return
 	}
-	authResponse, err := ah.authService.LoginWithPassword(password)
+	session, err := ah.dashboardAuthService.LoginWithPassword(password)
 	if err != nil {
 		handlers.RenderError(w, http.StatusUnauthorized, "Invalid credentials")
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(`{"token":"` + authResponse.Token + `","refreshToken":"` + authResponse.RefreshToken + `"}`))
+	_, _ = w.Write([]byte(`{"token":"` + session.Token + `","refreshToken":"` + session.RefreshToken + `"}`))
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -50,13 +50,13 @@ func (ah *AuthHandler) RefreshTokenHandler(w http.ResponseWriter, r *http.Reques
 		handlers.RenderError(w, http.StatusBadRequest, "Refresh token is empty")
 		return
 	}
-	authResponse, err := ah.authService.RefreshToken(refreshToken)
+	session, err := ah.dashboardAuthService.RefreshSession(refreshToken)
 	if err != nil {
 		handlers.RenderError(w, http.StatusInternalServerError, "Error refreshing token")
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(`{"token":"` + authResponse.Token + `","refreshToken":"` + authResponse.RefreshToken + `"}`))
+	_, _ = w.Write([]byte(`{"token":"` + session.Token + `","refreshToken":"` + session.RefreshToken + `"}`))
 	w.WriteHeader(http.StatusOK)
 }

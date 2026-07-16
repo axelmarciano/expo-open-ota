@@ -19,7 +19,7 @@ func NewBucketAuthStore(bucket bucket.Bucket) *BucketAuthStore {
 	}
 }
 
-func (s *BucketAuthStore) ValidateAuth(ctx context.Context, appId string, auth types.Auth) error {
+func (s *BucketAuthStore) ValidateCliCredential(ctx context.Context, appId string, auth types.Auth) error {
 	// ValidateExpoAuth(appId, ...) enforces that the caller's Expo session
 	// matches the app identified by APP_ID — without the appId check,
 	// FetchExpoUserAccountInformations alone would accept any authenticated

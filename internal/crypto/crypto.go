@@ -7,7 +7,6 @@ import (
 	"crypto/md5"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
 	"crypto/x509"
@@ -99,34 +98,6 @@ func SignRSASHA256(data, privateKeyPEM string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to sign data: %w", err)
 	}
-	return base64.StdEncoding.EncodeToString(signature), nil
-}
-
-func SignRSASHA1(data, privateKeyPEM string) (string, error) {
-	block, _ := pem.Decode([]byte(privateKeyPEM))
-	if block == nil {
-		return "", errors.New("invalid private key PEM format")
-	}
-
-	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
-	if err != nil {
-		parsedKey, parseErr := x509.ParsePKCS8PrivateKey(block.Bytes)
-		if parseErr != nil {
-			return "", fmt.Errorf("failed to parse private key: %w", parseErr)
-		}
-		privateKeyTmp, ok := parsedKey.(*rsa.PrivateKey)
-		if !ok {
-			return "", errors.New("key is not an RSA private key")
-		}
-		privateKey = privateKeyTmp
-	}
-
-	hashed := sha1.Sum([]byte(data))
-	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA1, hashed[:])
-	if err != nil {
-		return "", fmt.Errorf("failed to sign data: %w", err)
-	}
-
 	return base64.StdEncoding.EncodeToString(signature), nil
 }
 

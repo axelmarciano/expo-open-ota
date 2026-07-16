@@ -19,7 +19,7 @@ func NewPostgresAuthStore(engine *database.Engine) *PostgresAuthStore {
 	}
 }
 
-func (s *PostgresAuthStore) ValidateAuth(ctx context.Context, appId string, auth types.Auth) error {
+func (s *PostgresAuthStore) ValidateCliCredential(ctx context.Context, appId string, auth types.Auth) error {
 	pgAppID := ToPgUUID(appId)
 	token := auth.Token
 	if token == nil {

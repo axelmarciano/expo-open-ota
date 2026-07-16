@@ -14,13 +14,13 @@ import (
 )
 
 type RepublishHandler struct {
-	authService       *services.AuthService
+	cliAuthService    *services.CliAuthService
 	deploymentService *services.DeploymentService
 }
 
-func NewRepublishHandler(authService *services.AuthService, deploymentService *services.DeploymentService) *RepublishHandler {
+func NewRepublishHandler(cliAuthService *services.CliAuthService, deploymentService *services.DeploymentService) *RepublishHandler {
 	return &RepublishHandler{
-		authService:       authService,
+		cliAuthService:    cliAuthService,
 		deploymentService: deploymentService,
 	}
 }
@@ -42,7 +42,7 @@ func (h *RepublishHandler) HandleRepublish(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	auth := helpers.GetAuth(r)
-	err := h.authService.ValidateAuth(r.Context(), appId, auth)
+	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
 		http.Error(w, "Error validating auth", http.StatusUnauthorized)

@@ -69,14 +69,14 @@ func TestLoginValidPassword(t *testing.T) {
 	// Retrieve token & refreshToken from response
 	body := respRec.Body.String()
 
-	var response services.AuthResponse
+	var response services.DashboardSession
 	err := json.Unmarshal([]byte(body), &response)
 	assert.Nil(t, err)
 	assert.NotEmpty(t, response.Token)
 	assert.NotEmpty(t, response.RefreshToken)
 }
 
-func login() services.AuthResponse {
+func login() services.DashboardSession {
 	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	formData := url.Values{}
@@ -85,7 +85,7 @@ func login() services.AuthResponse {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	router.ServeHTTP(respRec, req)
 	body := respRec.Body.String()
-	var response services.AuthResponse
+	var response services.DashboardSession
 	_ = json.Unmarshal([]byte(body), &response)
 	return response
 }
@@ -102,7 +102,7 @@ func TestRefreshToken(t *testing.T) {
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusOK, respRec.Code)
 	body := respRec.Body.String()
-	var response services.AuthResponse
+	var response services.DashboardSession
 	err := json.Unmarshal([]byte(body), &response)
 	assert.Nil(t, err)
 	assert.NotEmpty(t, response.Token)

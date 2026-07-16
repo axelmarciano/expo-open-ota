@@ -16,13 +16,13 @@ import (
 )
 
 type UploadHandler struct {
-	authService       *services.AuthService
+	cliAuthService    *services.CliAuthService
 	deploymentService *services.DeploymentService
 }
 
-func NewUploadHandler(authService *services.AuthService, deploymentService *services.DeploymentService) *UploadHandler {
+func NewUploadHandler(cliAuthService *services.CliAuthService, deploymentService *services.DeploymentService) *UploadHandler {
 	return &UploadHandler{
-		authService:       authService,
+		cliAuthService:    cliAuthService,
 		deploymentService: deploymentService,
 	}
 }
@@ -49,7 +49,7 @@ func (h *UploadHandler) MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *ht
 		return
 	}
 	auth := helpers.GetAuth(r)
-	err := h.authService.ValidateAuth(r.Context(), appId, auth)
+	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
 		http.Error(w, "Error validating auth", http.StatusUnauthorized)
@@ -108,7 +108,7 @@ func (h *UploadHandler) RequestUploadLocalFileHandler(w http.ResponseWriter, r *
 	appId := mux.Vars(r)["APP_ID"]
 
 	auth := helpers.GetAuth(r)
-	err := h.authService.ValidateAuth(r.Context(), appId, auth)
+	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
 		http.Error(w, "Error validating auth", http.StatusUnauthorized)
@@ -183,7 +183,7 @@ func (h *UploadHandler) RequestUploadUrlHandler(w http.ResponseWriter, r *http.R
 	}
 
 	auth := helpers.GetAuth(r)
-	err := h.authService.ValidateAuth(r.Context(), appId, auth)
+	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
 		http.Error(w, "Error validating auth", http.StatusUnauthorized)

@@ -15,12 +15,12 @@ import (
 )
 
 type ApiKeyHandler struct {
-	authService *services.AuthService
+	cliAuthService *services.CliAuthService
 }
 
-func NewApiKeyHandler(authService *services.AuthService) *ApiKeyHandler {
+func NewApiKeyHandler(cliAuthService *services.CliAuthService) *ApiKeyHandler {
 	return &ApiKeyHandler{
-		authService: authService,
+		cliAuthService: cliAuthService,
 	}
 }
 
@@ -38,7 +38,7 @@ func (h *ApiKeyHandler) CreateApiKeyHandler(w http.ResponseWriter, r *http.Reque
 		handlers.RenderError(w, http.StatusBadRequest, "API key name is empty")
 		return
 	}
-	apiKey, err := h.authService.GenerateAPIKey(r.Context(), appId, req.Name)
+	apiKey, err := h.cliAuthService.GenerateAPIKey(r.Context(), appId, req.Name)
 	if err != nil {
 		var valErr *validation.Error
 		if errors.As(err, &valErr) {
@@ -71,7 +71,7 @@ func (h *ApiKeyHandler) GetApiKeysHandler(w http.ResponseWriter, r *http.Request
 		w.Write([]byte(cacheValue))
 		return
 	}
-	apiKeysMetadata, err := h.authService.GetApiKeysMetadata(r.Context(), appId)
+	apiKeysMetadata, err := h.cliAuthService.GetApiKeysMetadata(r.Context(), appId)
 	if err != nil {
 		handlers.RenderError(w, http.StatusInternalServerError, "An internal error occurred while fetching API keys metadata.")
 		return
@@ -93,7 +93,7 @@ func (h *ApiKeyHandler) RevokeApiKeyHandler(w http.ResponseWriter, r *http.Reque
 		handlers.RenderError(w, http.StatusBadRequest, "API key ID is empty")
 		return
 	}
-	err := h.authService.RevokeApiKey(r.Context(), appId, apiKeyId)
+	err := h.cliAuthService.RevokeApiKey(r.Context(), appId, apiKeyId)
 	if err != nil {
 		var valErr *validation.Error
 		if errors.As(err, &valErr) {

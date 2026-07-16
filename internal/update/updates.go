@@ -319,16 +319,6 @@ func shapeManifestAsset(update types.Update, asset *types.Asset, isLaunchAsset b
 	return manifestAsset, nil
 }
 
-func appendChannelOverrideToUrl(urlStr string) string {
-	parsedUrl, err := url.Parse(urlStr)
-	if err != nil {
-		return urlStr
-	}
-	query := parsedUrl.Query()
-	parsedUrl.RawQuery = query.Encode()
-	return parsedUrl.String()
-}
-
 func computeManifestMetadata(update types.Update) json.RawMessage {
 	metadataMap := map[string]string{
 		"branch": update.Branch,
