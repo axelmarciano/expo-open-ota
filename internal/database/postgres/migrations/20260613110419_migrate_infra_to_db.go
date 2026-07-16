@@ -5,11 +5,14 @@ import (
 	"database/sql"
 	"expo-open-ota/config"
 	"expo-open-ota/internal/bucket"
+	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/database/postgres/pgdb"
 	"expo-open-ota/internal/helpers"
+	"expo-open-ota/internal/keyStore"
 	"expo-open-ota/internal/store"
 	"expo-open-ota/internal/types"
 	update2 "expo-open-ota/internal/update"
+	"fmt"
 	"log"
 	"strconv"
 	"time"
@@ -41,6 +44,71 @@ func parseRFC3339ToTz(str string, fieldName string) pgtype.Timestamptz {
 	}
 	normalizedTime := helpers.NormalizeTimestamp(ms)
 	return toTimestamptz(normalizedTime)
+}
+
+// sealLegacyKeysIntoDB converts an app whose signing keys live outside the
+// database — a PEM file on disk (mode=local) or a base64 env var
+// (mode=environment) — into mode=database, sealing the key material under the
+// master key.
+//
+// Neither legacy mode survives the move to the control plane as-is. The
+// dashboard refuses to create local-mode apps because key files cannot be
+// provisioned on every replica, and the apps table has no column for an inline
+// b64 key, so an environment-mode app would migrate with no key at all and only
+// fail at its first signature. Sealing both at migration time keeps the DB row
+// self-sufficient.
+//
+// The existing pair is resealed verbatim, never regenerated: expo-updates
+// clients pin the certificate at build time, so a new pair would break
+// signature verification on every already-installed binary until it is rebuilt
+// and shipped through the stores.
+//
+// aws-secrets-manager is deliberately left alone. Like a key path it is only a
+// reference to external custody, but unlike a path it stays reachable from
+// every replica and is still creatable from the dashboard.
+func sealLegacyKeysIntoDB(app config.AppConfig, params *pgdb.MigrateLegacyAppParams) error {
+	if app.Keys.Mode != config.KeysModeLocal && app.Keys.Mode != config.KeysModeEnvironment {
+		return nil
+	}
+
+	// Read through keyStore so each legacy mode is resolved the same way the
+	// v1 server resolved it (file read, or b64 decode). Both return "" on any
+	// failure, which must abort: sealing an empty string would migrate cleanly
+	// and then break manifest signing at runtime.
+	publicKey := keyStore.GetPublicExpoKey(app)
+	privateKey := keyStore.GetPrivateExpoKey(app)
+	if publicKey == "" || privateKey == "" {
+		return fmt.Errorf("app %q: cannot read the existing mode=%s signing keys to seal them into the database. "+
+			"Make sure the key files or env vars are readable by this process, then retry the migration",
+			app.Id, app.Keys.Mode)
+	}
+
+	masterKey := []byte(keyStore.ReadDBKeysMasterKey())
+	if len(masterKey) != 32 {
+		return fmt.Errorf("app %q: migrating mode=%s signing keys into the database needs a 32-byte master key, got %d bytes. "+
+			"Set DB_KEYS_MASTER_KEY_B64 (44-char base64) or AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID before migrating",
+			app.Id, app.Keys.Mode, len(masterKey))
+	}
+
+	sealedPublicKey, err := crypto.SealAESGCM([]byte(publicKey), masterKey)
+	if err != nil {
+		return fmt.Errorf("app %q: failed to seal public key: %w", app.Id, err)
+	}
+	sealedPrivateKey, err := crypto.SealAESGCM([]byte(privateKey), masterKey)
+	if err != nil {
+		return fmt.Errorf("app %q: failed to seal private key: %w", app.Id, err)
+	}
+
+	databaseMode := string(config.KeysModeDatabase)
+	params.KeysMode = &databaseMode
+	params.SealedPublicKey = &sealedPublicKey
+	params.SealedPrivateKey = &sealedPrivateKey
+	// Drop the now-stale pointers to the external key material.
+	params.PathPublicKey = nil
+	params.PathPrivateKey = nil
+
+	log.Printf("🔑 [DATABASE] App %s: sealed its mode=%s signing keys into the database (same key pair, now mode=database)", app.Id, app.Keys.Mode)
+	return nil
 }
 
 func UpMigrateEnvJSON(ctx context.Context, tx *sql.Tx) error {
@@ -78,6 +146,11 @@ func UpMigrateEnvJSON(ctx context.Context, tx *sql.Tx) error {
 				PathPrivateKey:     helpers.StringOrNil(string(app.Keys.PrivatePath)),
 				AwsSecretIDPublic:  helpers.StringOrNil(string(app.Keys.PublicSecretId)),
 				AwsSecretIDPrivate: helpers.StringOrNil(string(app.Keys.PrivateSecretId)),
+			}
+
+			if err := sealLegacyKeysIntoDB(app, &params); err != nil {
+				log.Printf("Error migrating signing keys for app '%s': %v", app.Id, err)
+				return err
 			}
 
 			if err := qtx.MigrateLegacyApp(ctx, params); err != nil {

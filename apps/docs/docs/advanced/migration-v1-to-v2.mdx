@@ -106,6 +106,29 @@ to the **control plane** — multi-app lives in a database, not env vars:
 2. On startup, a one-time infra → DB migration seeds your existing app (and its
    branches, channels and update history) into the database. From then on, manage
    apps from the dashboard.
+
+    :::info Your signing keys move into the database
+    If your app uses `KEYS_STORAGE_TYPE=local` or `environment`, the migration
+    reads your **existing** key pair and seals it into the database under the
+    master key, switching the app to `database` key mode. The key pair itself is
+    preserved byte for byte — your already-installed builds keep verifying signed
+    manifests, and no rebuild is needed.
+
+    This is why the master key must be set *before* the first boot. If it is missing
+    the server refuses to start at all, before the migration runs; if it is present
+    but malformed, the migration aborts and rolls back rather than storing an app
+    with no usable key. Either way nothing is recorded as applied — fix the key and
+    boot again.
+
+    Once migrated, you no longer need `PUBLIC_LOCAL_EXPO_KEY_PATH` /
+    `PRIVATE_LOCAL_EXPO_KEY_PATH` (or the `_B64` vars), and you no longer need to
+    mount the PEM files on every replica. Keep a backup of the original keys anyway:
+    the migration does not delete them, and there is no down migration.
+
+    `KEYS_STORAGE_TYPE=aws-secrets-manager` is left untouched — the app keeps
+    fetching its keys from AWS, since a secret id stays reachable from every
+    replica.
+    :::
 3. Add the second app from the dashboard (name, access token, key storage), then in
    its `app.config.ts` set `'expo-app-id'` to the new app's id and run
    `npx eoas init` to wire the rest (URL, certificate, channel header). Rebuild
