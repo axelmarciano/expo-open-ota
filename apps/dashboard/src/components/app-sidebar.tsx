@@ -53,9 +53,6 @@ export function AppSidebar() {
   const currentPath = location.pathname;
   const { apps, selectedAppId, setSelectedAppId, refreshApps, isLoading } = useSelectedApp();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  // Only show the selector when there is something to choose from. Single-app
-  // deployments (the majority) get the plain navigation with no extra UI.
-  const showSelector = apps.length > 1;
 
   const handleAppCreated = async (newAppId: string) => {
     await refreshApps();
@@ -69,45 +66,32 @@ export function AppSidebar() {
           <h1 className="text-lg font-semibold">Expo Open OTA</h1>
         </SidebarHeader>
         <SidebarContent className="p-2">
-          {showSelector && (
-            <SidebarGroup>
-              <SidebarGroupLabel>App</SidebarGroupLabel>
-              <SidebarGroupContent className="px-2 pb-2 flex flex-col gap-2">
-                <Combobox
-                  label="Select app"
-                  options={apps.map(a => ({ value: a.id, label: a.name || a.id }))}
-                  value={selectedAppId ?? ''}
-                  onChange={v => {
-                    if (v) setSelectedAppId(v);
-                  }}
-                  loading={isLoading}
-                />
-                {CONTROL_PLANE_ENABLED && (
-                  <button
-                    onClick={() => setIsCreateModalOpen(true)}
-                    className="flex items-center justify-center gap-1.5 px-3 py-1.5 font-medium text-gray-500 border border-dashed border-gray-300 rounded-lg hover:border-gray-400 hover:text-gray-900 transition bg-transparent cursor-pointer text-xs"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>New Application</span>
-                  </button>
-                )}
-              </SidebarGroupContent>
-            </SidebarGroup>
-          )}
-          
-          {!showSelector && CONTROL_PLANE_ENABLED && (
-            <SidebarGroup>
-              <SidebarGroupContent className="px-2 pb-2">
-                <button
-                  onClick={() => setIsCreateModalOpen(true)}
-                  className="flex items-center justify-center gap-1.5 w-full px-3 py-2 font-medium text-gray-500 border border-dashed border-gray-300 rounded-lg hover:border-gray-400 hover:text-gray-900 transition bg-transparent cursor-pointer text-sm"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>New Application</span>
-                </button>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          )}
+          {/* Always rendered, even with a single app: the selector is what tells
+              you which app every view below is scoped to. Creating apps only
+              exists on the control plane, so the action is gated on it. */}
+          <SidebarGroup>
+            <SidebarGroupLabel>App</SidebarGroupLabel>
+            <SidebarGroupContent className="px-2 pb-2">
+              <Combobox
+                label="Select app"
+                options={apps.map(a => ({ value: a.id, label: a.name || a.id }))}
+                value={selectedAppId ?? ''}
+                onChange={v => {
+                  if (v) setSelectedAppId(v);
+                }}
+                loading={isLoading}
+                action={
+                  CONTROL_PLANE_ENABLED
+                    ? {
+                        label: 'New Application',
+                        icon: <Plus className="mr-2 h-4 w-4" />,
+                        onSelect: () => setIsCreateModalOpen(true),
+                      }
+                    : undefined
+                }
+              />
+            </SidebarGroupContent>
+          </SidebarGroup>
 
           <SidebarGroup>
             <SidebarGroupContent>
