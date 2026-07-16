@@ -1,4 +1,4 @@
-package providers
+package crypto
 
 import "github.com/golang-jwt/jwt/v5"
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/database/postgres/pgdb"
-	"expo-open-ota/internal/providers"
+	"expo-open-ota/internal/providers/expo"
 	"expo-open-ota/internal/types"
 	"fmt"
 )
@@ -24,7 +24,7 @@ func (s *BucketAuthStore) ValidateAuth(ctx context.Context, appId string, auth t
 	// matches the app identified by APP_ID — without the appId check,
 	// FetchExpoUserAccountInformations alone would accept any authenticated
 	// Expo user against any app (cross-tenant authz bypass).
-	expoAccount, err := providers.ValidateExpoAuth(appId, auth)
+	expoAccount, err := expo.ValidateAuth(appId, auth)
 	if err != nil || expoAccount == nil {
 		return fmt.Errorf("Error validating expo auth: %w", err)
 	}

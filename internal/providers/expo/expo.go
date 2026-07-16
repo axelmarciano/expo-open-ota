@@ -1,4 +1,4 @@
-package providers
+package expo
 
 import (
 	"bytes"
@@ -15,30 +15,38 @@ import (
 	"net/http"
 )
 
-type ExpoUserAccount struct {
+// The "operationName" header values below are a contract with the test mocks
+// (test/helpers.go and friends match on them), not a reflection of the Go
+// function names — they intentionally kept their original "FetchExpo…" spelling
+// when this package was split out of providers and the prefix was dropped.
+// Renaming one to match its function silently breaks the mock that matches it.
+
+type UserAccount struct {
 	Id       string `json:"id"`
 	Username string `json:"username"`
 	Email    string `json:"email"`
 }
 
-type ExpoChannelMapping struct {
+type ChannelMapping struct {
 	Id         string `json:"id"`
 	BranchName string `json:"branchName"`
 }
 
-type ExpoBranchMapping struct {
+type BranchMapping struct {
 	BranchName  string  `json:"branchName"`
 	BranchId    string  `json:"branchId"`
 	ChannelName *string `json:"channelName"`
 }
 
-type ExpoChannel struct {
+type Channel struct {
 	Id       string `json:"id"`
 	Name     string `json:"name"`
 	BranchId string `json:"branchId"`
 }
 
-type BranchMapping struct {
+// RawBranchMapping is the wire shape of a channel's branchMapping field as
+// returned by the EAS API, before it is resolved into a BranchMapping.
+type RawBranchMapping struct {
 	Version int `json:"version"`
 	Data    []struct {
 		BranchId           string          `json:"branchId"`
@@ -46,28 +54,28 @@ type BranchMapping struct {
 	} `json:"data"`
 }
 
-func ValidateExpoAuth(appId string, expoAuth types.Auth) (*ExpoUserAccount, error) {
+func ValidateAuth(appId string, expoAuth types.Auth) (*UserAccount, error) {
 	if expoAuth.Token == nil && expoAuth.SessionSecret == nil {
 		return nil, errors.New("no valid Expo auth provided")
 	}
-	expoAccount, err := FetchExpoUserAccountInformations(expoAuth)
+	expoAccount, err := FetchUserAccountInformations(expoAuth)
 	if err != nil {
 		return nil, err
 	}
 	if expoAccount == nil {
 		return nil, errors.New("no expo account found")
 	}
-	selfExpoUsername := FetchSelfExpoUsername(appId)
+	selfExpoUsername := FetchSelfUsername(appId)
 	if selfExpoUsername != expoAccount.Username {
 		return nil, errors.New("expo account does not match self expo username")
 	}
 	return expoAccount, nil
 }
 
-// GetExpoAccessToken returns the Expo access token configured for the given
+// GetAccessToken returns the Expo access token configured for the given
 // app in the v2 apps config. Returns "" if the app is unknown so callers
 // that treat it as "missing token" produce the same auth-failure path.
-func GetExpoAccessToken(appId string) string {
+func GetAccessToken(appId string) string {
 	app, err := config.GetAppConfig(appId)
 	if err != nil {
 		return ""
@@ -125,7 +133,7 @@ func MakeGraphQLRequest(ctx context.Context, query string, variables map[string]
 	return json.NewDecoder(resp.Body).Decode(result)
 }
 
-func FetchExpoChannels(appId string) ([]ExpoChannel, error) {
+func FetchChannels(appId string) ([]Channel, error) {
 	query := `
 		query FetchAppChannel($appId: String!) {
 			app {
@@ -139,7 +147,7 @@ func FetchExpoChannels(appId string) ([]ExpoChannel, error) {
 			}
 		}
 	`
-	expoToken := GetExpoAccessToken(appId)
+	expoToken := GetAccessToken(appId)
 	variables := map[string]interface{}{
 		"appId": appId,
 	}
@@ -147,7 +155,7 @@ func FetchExpoChannels(appId string) ([]ExpoChannel, error) {
 		Data struct {
 			App struct {
 				ById struct {
-					UpdateChannels []ExpoChannel `json:"updateChannels"`
+					UpdateChannels []Channel `json:"updateChannels"`
 				} `json:"byId"`
 			} `json:"app"`
 		} `json:"data"`
@@ -165,7 +173,7 @@ func FetchExpoChannels(appId string) ([]ExpoChannel, error) {
 	return resp.Data.App.ById.UpdateChannels, nil
 }
 
-func FetchExpoBranches(appId string) ([]string, error) {
+func FetchBranches(appId string) ([]string, error) {
 	query := `
 		query FetchAppChannel($appId: String!) {
 			app {
@@ -179,7 +187,7 @@ func FetchExpoBranches(appId string) ([]string, error) {
 			}
 		}
 	`
-	expoToken := GetExpoAccessToken(appId)
+	expoToken := GetAccessToken(appId)
 	variables := map[string]interface{}{
 		"appId": appId,
 	}
@@ -212,7 +220,7 @@ func FetchExpoBranches(appId string) ([]string, error) {
 	return branches, nil
 }
 
-func FetchExpoUserAccountInformations(expoAuth types.Auth) (*ExpoUserAccount, error) {
+func FetchUserAccountInformations(expoAuth types.Auth) (*UserAccount, error) {
 	query := `
 		query GetCurrentUserAccount {
 			me {
@@ -225,7 +233,7 @@ func FetchExpoUserAccountInformations(expoAuth types.Auth) (*ExpoUserAccount, er
 
 	var resp struct {
 		Data struct {
-			Me ExpoUserAccount `json:"me"`
+			Me UserAccount `json:"me"`
 		} `json:"data"`
 	}
 
@@ -242,9 +250,9 @@ func FetchExpoUserAccountInformations(expoAuth types.Auth) (*ExpoUserAccount, er
 	return &resp.Data.Me, nil
 }
 
-func FetchSelfExpoUsername(appId string) string {
-	token := GetExpoAccessToken(appId)
-	expoAccount, err := FetchExpoUserAccountInformations(types.Auth{
+func FetchSelfUsername(appId string) string {
+	token := GetAccessToken(appId)
+	expoAccount, err := FetchUserAccountInformations(types.Auth{
 		Token: &token,
 	})
 	if err != nil {
@@ -257,11 +265,11 @@ func ComputeChannelMappingCacheKey(appId, channelName string) string {
 	return fmt.Sprintf("channelMapping:%s:%s:%s", version.Version, appId, channelName)
 }
 
-func FetchExpoChannelMapping(appId, channelName string) (*ExpoChannelMapping, error) {
+func FetchChannelMapping(appId, channelName string) (*ChannelMapping, error) {
 	cache := cache2.GetCache()
 	cacheKey := ComputeChannelMappingCacheKey(appId, channelName)
 	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
-		var mapping ExpoChannelMapping
+		var mapping ChannelMapping
 		if err := json.Unmarshal([]byte(cachedValue), &mapping); err != nil {
 			log.Printf("[ChannelMapping] cache unmarshal error for key=%s: %v", cacheKey, err)
 		} else {
@@ -288,7 +296,7 @@ func FetchExpoChannelMapping(appId, channelName string) (*ExpoChannelMapping, er
 		}
 	`
 
-	expoToken := GetExpoAccessToken(appId)
+	expoToken := GetAccessToken(appId)
 	variables := map[string]interface{}{
 		"appId":       appId,
 		"channelName": channelName,
@@ -320,7 +328,7 @@ func FetchExpoChannelMapping(appId, channelName string) (*ExpoChannelMapping, er
 		return nil, err
 	}
 
-	var branchMapping BranchMapping
+	var branchMapping RawBranchMapping
 	if err := json.Unmarshal([]byte(resp.Data.App.ById.UpdateChannelByName.BranchMapping), &branchMapping); err != nil {
 		return nil, err
 	}
@@ -348,7 +356,7 @@ func FetchExpoChannelMapping(appId, channelName string) (*ExpoChannelMapping, er
 		return nil, nil
 	}
 
-	result := &ExpoChannelMapping{
+	result := &ChannelMapping{
 		Id:         resp.Data.App.ById.UpdateChannelByName.ID,
 		BranchName: branchName,
 	}
@@ -359,7 +367,7 @@ func FetchExpoChannelMapping(appId, channelName string) (*ExpoChannelMapping, er
 	return result, nil
 }
 
-func FetchExpoBranchesMapping(appId string) ([]ExpoBranchMapping, error) {
+func FetchBranchesMapping(appId string) ([]BranchMapping, error) {
 	query := `
 		query FetchAppChannel($appId: String!) {
 			app {
@@ -379,7 +387,7 @@ func FetchExpoBranchesMapping(appId string) ([]ExpoBranchMapping, error) {
 		}
 	`
 
-	expoToken := GetExpoAccessToken(appId)
+	expoToken := GetAccessToken(appId)
 	variables := map[string]interface{}{"appId": appId}
 
 	headers := map[string]string{}
@@ -414,7 +422,7 @@ func FetchExpoBranchesMapping(appId string) ([]ExpoBranchMapping, error) {
 
 	branchIDToChannels := make(map[string][]string)
 	for _, channel := range resp.Data.App.ById.UpdateChannels {
-		var mapping BranchMapping
+		var mapping RawBranchMapping
 		if err := json.Unmarshal([]byte(channel.BranchMapping), &mapping); err != nil {
 			return nil, err
 		}
@@ -427,11 +435,11 @@ func FetchExpoBranchesMapping(appId string) ([]ExpoBranchMapping, error) {
 		}
 	}
 
-	var branchMappings []ExpoBranchMapping
+	var branchMappings []BranchMapping
 	for _, branch := range resp.Data.App.ById.UpdateBranches {
 		channelNames, found := branchIDToChannels[branch.ID]
 		if !found || len(channelNames) == 0 {
-			branchMappings = append(branchMappings, ExpoBranchMapping{
+			branchMappings = append(branchMappings, BranchMapping{
 				BranchName:  branch.Name,
 				BranchId:    branch.ID,
 				ChannelName: nil,
@@ -441,7 +449,7 @@ func FetchExpoBranchesMapping(appId string) ([]ExpoBranchMapping, error) {
 
 		for _, channelName := range channelNames {
 			cn := channelName
-			branchMappings = append(branchMappings, ExpoBranchMapping{
+			branchMappings = append(branchMappings, BranchMapping{
 				BranchName:  branch.Name,
 				BranchId:    branch.ID,
 				ChannelName: &cn,
@@ -466,7 +474,7 @@ func CreateBranch(appId, branch string) error {
 		"appId": appId,
 		"name":  branch,
 	}
-	token := GetExpoAccessToken(appId)
+	token := GetAccessToken(appId)
 	headers := map[string]string{}
 	if config.IsTestMode() {
 		headers["operationName"] = "CreateBranch"
@@ -478,7 +486,7 @@ func CreateBranch(appId, branch string) error {
 	}, &resp, headers)
 }
 
-type ExpoApp struct {
+type App struct {
 	Id   string `json:"id"`
 	Name string `json:"name"`
 }

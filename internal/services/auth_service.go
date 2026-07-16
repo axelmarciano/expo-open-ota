@@ -6,7 +6,6 @@ import (
 	"expo-open-ota/config"
 	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/database/postgres/pgdb"
-	"expo-open-ota/internal/providers"
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/validation"
 	"fmt"
@@ -56,7 +55,7 @@ func isPasswordValid(password string) bool {
 }
 
 func (a *AuthService) generateAuthToken() (*string, error) {
-	token, err := providers.GenerateJWTToken(a.Secret, jwt.MapClaims{
+	token, err := crypto.GenerateJWTToken(a.Secret, jwt.MapClaims{
 		"sub":  "admin-dashboard",
 		"exp":  time.Now().Add(time.Hour * 2).Unix(),
 		"iat":  time.Now().Unix(),
@@ -69,7 +68,7 @@ func (a *AuthService) generateAuthToken() (*string, error) {
 }
 
 func (a *AuthService) generateRefreshToken() (*string, error) {
-	refreshToken, err := providers.GenerateJWTToken(a.Secret, jwt.MapClaims{
+	refreshToken, err := crypto.GenerateJWTToken(a.Secret, jwt.MapClaims{
 		"sub":  "admin-dashboard",
 		"exp":  time.Now().Add(time.Hour * 24 * 7).Unix(),
 		"iat":  time.Now().Unix(),
@@ -102,7 +101,7 @@ func (a *AuthService) LoginWithPassword(password string) (*AuthResponse, error) 
 
 func (a *AuthService) ValidateToken(tokenString string) (*jwt.Token, error) {
 	claims := jwt.MapClaims{}
-	token, err := providers.DecodeAndExtractJWTToken(a.Secret, tokenString, &claims)
+	token, err := crypto.DecodeAndExtractJWTToken(a.Secret, tokenString, &claims)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +116,7 @@ func (a *AuthService) ValidateToken(tokenString string) (*jwt.Token, error) {
 
 func (a *AuthService) RefreshToken(tokenString string) (*AuthResponse, error) {
 	claims := jwt.MapClaims{}
-	_, err := providers.DecodeAndExtractJWTToken(a.Secret, tokenString, &claims)
+	_, err := crypto.DecodeAndExtractJWTToken(a.Secret, tokenString, &claims)
 	if err != nil {
 		return nil, err
 	}

@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"expo-open-ota/internal/helpers"
-	"expo-open-ota/internal/providers"
+	"expo-open-ota/internal/providers/aws"
 	"expo-open-ota/internal/types"
 	"fmt"
 	"io"
@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
@@ -35,7 +35,7 @@ func (b *S3Bucket) DeleteUpdateFolder(appId, branch, runtimeVersion, updateId st
 		return errors.New("BucketName not set")
 	}
 
-	s3Client, err := providers.GetS3Client()
+	s3Client, err := aws.GetS3Client()
 	if err != nil {
 		return fmt.Errorf("error getting S3 client: %w", err)
 	}
@@ -43,8 +43,8 @@ func (b *S3Bucket) DeleteUpdateFolder(appId, branch, runtimeVersion, updateId st
 	prefix := b.prefixedKey(fmt.Sprintf("%s/%s/%s/%s/", appId, branch, runtimeVersion, updateId))
 
 	listInput := &s3.ListObjectsV2Input{
-		Bucket: aws.String(b.BucketName),
-		Prefix: aws.String(prefix),
+		Bucket: awssdk.String(b.BucketName),
+		Prefix: awssdk.String(prefix),
 	}
 
 	var objects []s3types.ObjectIdentifier
@@ -75,10 +75,10 @@ func (b *S3Bucket) DeleteUpdateFolder(appId, branch, runtimeVersion, updateId st
 		}
 
 		deleteInput := &s3.DeleteObjectsInput{
-			Bucket: aws.String(b.BucketName),
+			Bucket: awssdk.String(b.BucketName),
 			Delete: &s3types.Delete{
 				Objects: objects[i:end],
-				Quiet:   aws.Bool(true),
+				Quiet:   awssdk.Bool(true),
 			},
 		}
 
@@ -95,16 +95,16 @@ func (b *S3Bucket) GetRuntimeVersions(appId string, branch string) ([]types.Runt
 	if b.BucketName == "" {
 		return nil, errors.New("BucketName not set")
 	}
-	s3Client, errS3 := providers.GetS3Client()
+	s3Client, errS3 := aws.GetS3Client()
 	if errS3 != nil {
 		return nil, errS3
 	}
 
 	branchPrefix := b.prefixedKey(appId + "/" + branch + "/")
 	input := &s3.ListObjectsV2Input{
-		Bucket:    aws.String(b.BucketName),
-		Prefix:    aws.String(branchPrefix),
-		Delimiter: aws.String("/"),
+		Bucket:    awssdk.String(b.BucketName),
+		Prefix:    awssdk.String(branchPrefix),
+		Delimiter: awssdk.String("/"),
 	}
 	resp, err := s3Client.ListObjectsV2(context.TODO(), input)
 	if err != nil {
@@ -118,9 +118,9 @@ func (b *S3Bucket) GetRuntimeVersions(appId string, branch string) ([]types.Runt
 		runtimeVersion := (*commonPrefix.Prefix)[prefixLen : len(*commonPrefix.Prefix)-1]
 		updatesPath := *commonPrefix.Prefix
 		updateInput := &s3.ListObjectsV2Input{
-			Bucket:    aws.String(b.BucketName),
-			Prefix:    aws.String(updatesPath),
-			Delimiter: aws.String("/"),
+			Bucket:    awssdk.String(b.BucketName),
+			Prefix:    awssdk.String(updatesPath),
+			Delimiter: awssdk.String("/"),
 		}
 		updateResp, err := s3Client.ListObjectsV2(context.TODO(), updateInput)
 		if err != nil {
@@ -158,15 +158,15 @@ func (b *S3Bucket) GetBranches(appId string) ([]string, error) {
 	if b.BucketName == "" {
 		return nil, errors.New("BucketName not set")
 	}
-	s3Client, errS3 := providers.GetS3Client()
+	s3Client, errS3 := aws.GetS3Client()
 	if errS3 != nil {
 		return nil, errS3
 	}
 	appPrefix := b.prefixedKey(appId + "/")
 	input := &s3.ListObjectsV2Input{
-		Bucket:    aws.String(b.BucketName),
-		Prefix:    aws.String(appPrefix),
-		Delimiter: aws.String("/"),
+		Bucket:    awssdk.String(b.BucketName),
+		Prefix:    awssdk.String(appPrefix),
+		Delimiter: awssdk.String("/"),
 	}
 	resp, err := s3Client.ListObjectsV2(context.TODO(), input)
 	if err != nil {
@@ -185,15 +185,15 @@ func (b *S3Bucket) GetUpdates(appId string, branch string, runtimeVersion string
 	if b.BucketName == "" {
 		return nil, errors.New("BucketName not set")
 	}
-	s3Client, errS3 := providers.GetS3Client()
+	s3Client, errS3 := aws.GetS3Client()
 	if errS3 != nil {
 		return nil, errS3
 	}
 	prefix := b.prefixedKey(appId + "/" + branch + "/" + runtimeVersion + "/")
 	input := &s3.ListObjectsV2Input{
-		Bucket:    aws.String(b.BucketName),
-		Prefix:    aws.String(prefix),
-		Delimiter: aws.String("/"),
+		Bucket:    awssdk.String(b.BucketName),
+		Prefix:    awssdk.String(prefix),
+		Delimiter: awssdk.String("/"),
 	}
 	resp, err := s3Client.ListObjectsV2(context.TODO(), input)
 	if err != nil {
@@ -221,14 +221,14 @@ func (b *S3Bucket) GetFile(update types.Update, assetPath string) (*types.Bucket
 	}
 	key := b.prefixedKey(update.AppId + "/" + update.Branch + "/" + update.RuntimeVersion + "/" + update.UpdateId + "/" + assetPath)
 
-	s3Client, err := providers.GetS3Client()
+	s3Client, err := aws.GetS3Client()
 	if err != nil {
 		return nil, err
 	}
 
 	input := &s3.GetObjectInput{
-		Bucket: aws.String(b.BucketName),
-		Key:    aws.String(key),
+		Bucket: awssdk.String(b.BucketName),
+		Key:    awssdk.String(key),
 	}
 	resp, err := s3Client.GetObject(context.TODO(), input)
 	if err != nil {
@@ -250,7 +250,7 @@ func (b *S3Bucket) RequestUploadUrlForFileUpdate(appId string, branch string, ru
 		return "", errors.New("BucketName not set")
 	}
 
-	s3Client, err := providers.GetS3Client()
+	s3Client, err := aws.GetS3Client()
 	if err != nil {
 		return "", fmt.Errorf("error getting S3 client: %w", err)
 	}
@@ -260,8 +260,8 @@ func (b *S3Bucket) RequestUploadUrlForFileUpdate(appId string, branch string, ru
 	key := b.prefixedKey(fmt.Sprintf("%s/%s/%s/%s/%s", appId, branch, runtimeVersion, updateId, fileName))
 
 	input := &s3.PutObjectInput{
-		Bucket: aws.String(b.BucketName),
-		Key:    aws.String(key),
+		Bucket: awssdk.String(b.BucketName),
+		Key:    awssdk.String(key),
 	}
 
 	presignResult, err := presignClient.PresignPutObject(context.TODO(), input, func(opt *s3.PresignOptions) {
@@ -278,14 +278,14 @@ func (b *S3Bucket) UploadFileIntoUpdate(update types.Update, fileName string, fi
 	if b.BucketName == "" {
 		return errors.New("BucketName not set")
 	}
-	s3Client, err := providers.GetS3Client()
+	s3Client, err := aws.GetS3Client()
 	if err != nil {
 		return err
 	}
 	key := b.prefixedKey(fmt.Sprintf("%s/%s/%s/%s/%s", update.AppId, update.Branch, update.RuntimeVersion, update.UpdateId, fileName))
 	input := &s3.PutObjectInput{
-		Bucket: aws.String(b.BucketName),
-		Key:    aws.String(key),
+		Bucket: awssdk.String(b.BucketName),
+		Key:    awssdk.String(key),
 		Body:   file,
 	}
 	_, err = s3Client.PutObject(context.TODO(), input)
@@ -309,7 +309,7 @@ func (b *S3Bucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId st
 		return nil, errors.New("newUpdateId is empty")
 	}
 
-	s3Client, err := providers.GetS3Client()
+	s3Client, err := aws.GetS3Client()
 	if err != nil {
 		return nil, fmt.Errorf("error getting S3 client: %w", err)
 	}
@@ -318,8 +318,8 @@ func (b *S3Bucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId st
 	targetPrefix := b.prefixedKey(fmt.Sprintf("%s/%s/%s/%s/", previousUpdate.AppId, previousUpdate.Branch, previousUpdate.RuntimeVersion, newUpdateId))
 
 	paginator := s3.NewListObjectsV2Paginator(s3Client, &s3.ListObjectsV2Input{
-		Bucket: aws.String(b.BucketName),
-		Prefix: aws.String(sourcePrefix),
+		Bucket: awssdk.String(b.BucketName),
+		Prefix: awssdk.String(sourcePrefix),
 	})
 
 	var wg sync.WaitGroup
@@ -350,8 +350,8 @@ func (b *S3Bucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId st
 				defer func() { <-sem }()
 
 				getObjOutput, err := s3Client.GetObject(context.TODO(), &s3.GetObjectInput{
-					Bucket: aws.String(b.BucketName),
-					Key:    aws.String(srcKey),
+					Bucket: awssdk.String(b.BucketName),
+					Key:    awssdk.String(srcKey),
 				})
 				if err != nil {
 					errChan <- fmt.Errorf("error getting object %s: %w", srcKey, err)
@@ -360,8 +360,8 @@ func (b *S3Bucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId st
 				defer getObjOutput.Body.Close()
 
 				_, err = s3Client.PutObject(context.TODO(), &s3.PutObjectInput{
-					Bucket: aws.String(b.BucketName),
-					Key:    aws.String(dstKey),
+					Bucket: awssdk.String(b.BucketName),
+					Key:    awssdk.String(dstKey),
 					Body:   getObjOutput.Body,
 				})
 				if err != nil {
@@ -398,13 +398,13 @@ func (b *S3Bucket) RetrieveMigrationHistory() ([]string, error) {
 	if b.BucketName == "" {
 		return nil, errors.New("BucketName not set")
 	}
-	s3Client, errS3 := providers.GetS3Client()
+	s3Client, errS3 := aws.GetS3Client()
 	if errS3 != nil {
 		return nil, errS3
 	}
 	input := &s3.GetObjectInput{
-		Bucket: aws.String(b.BucketName),
-		Key:    aws.String(b.prefixedKey(".migrationhistory")),
+		Bucket: awssdk.String(b.BucketName),
+		Key:    awssdk.String(b.prefixedKey(".migrationhistory")),
 	}
 	resp, err := s3Client.GetObject(context.TODO(), input)
 	if err != nil {
@@ -448,15 +448,15 @@ func (b *S3Bucket) ApplyMigration(migrationId string) error {
 		return nil
 	}
 
-	s3Client, errS3 := providers.GetS3Client()
+	s3Client, errS3 := aws.GetS3Client()
 	if errS3 != nil {
 		return errS3
 	}
 
 	var currentContent []byte
 	obj, err := s3Client.GetObject(context.TODO(), &s3.GetObjectInput{
-		Bucket: aws.String(b.BucketName),
-		Key:    aws.String(b.prefixedKey(".migrationhistory")),
+		Bucket: awssdk.String(b.BucketName),
+		Key:    awssdk.String(b.prefixedKey(".migrationhistory")),
 	})
 	if err == nil {
 		defer obj.Body.Close()
@@ -466,8 +466,8 @@ func (b *S3Bucket) ApplyMigration(migrationId string) error {
 	newContent := append(currentContent, []byte(migrationId+"\n")...)
 
 	_, err = s3Client.PutObject(context.TODO(), &s3.PutObjectInput{
-		Bucket: aws.String(b.BucketName),
-		Key:    aws.String(b.prefixedKey(".migrationhistory")),
+		Bucket: awssdk.String(b.BucketName),
+		Key:    awssdk.String(b.prefixedKey(".migrationhistory")),
 		Body:   bytes.NewReader(newContent),
 	})
 	if err != nil {
@@ -505,14 +505,14 @@ func (b *S3Bucket) RemoveMigrationFromHistory(migrationId string) error {
 		}
 	}
 
-	s3Client, errS3 := providers.GetS3Client()
+	s3Client, errS3 := aws.GetS3Client()
 	if errS3 != nil {
 		return errS3
 	}
 
 	_, err = s3Client.PutObject(context.TODO(), &s3.PutObjectInput{
-		Bucket: aws.String(b.BucketName),
-		Key:    aws.String(b.prefixedKey(".migrationhistory")),
+		Bucket: awssdk.String(b.BucketName),
+		Key:    awssdk.String(b.prefixedKey(".migrationhistory")),
 		Body:   bytes.NewReader(newContent),
 	})
 	if err != nil {

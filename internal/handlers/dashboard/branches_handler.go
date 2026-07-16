@@ -6,7 +6,7 @@ import (
 	cache2 "expo-open-ota/internal/cache"
 	"expo-open-ota/internal/dashboard"
 	"expo-open-ota/internal/handlers"
-	"expo-open-ota/internal/providers"
+	"expo-open-ota/internal/providers/expo"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
 	"expo-open-ota/internal/validation"
@@ -213,7 +213,7 @@ func (h *BranchHandler) UpdateChannelBranchMappingHandler(w http.ResponseWriter,
 	branchesCacheKey := dashboard.ComputeGetBranchesCacheKey(appId)
 	// Keyed by name: this is the cache FetchExpoChannelMapping writes, and
 	// remapping the channel is exactly what makes its entry stale.
-	channelMappingCacheKey := providers.ComputeChannelMappingCacheKey(appId, releaseChannelName)
+	channelMappingCacheKey := expo.ComputeChannelMappingCacheKey(appId, releaseChannelName)
 	cache := cache2.GetCache()
 	cache.Delete(channelsCacheKey)
 	cache.Delete(branchesCacheKey)

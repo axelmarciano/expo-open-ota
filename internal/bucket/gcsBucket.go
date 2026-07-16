@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"expo-open-ota/internal/helpers"
-	"expo-open-ota/internal/providers"
+	"expo-open-ota/internal/providers/gcp"
 	"expo-open-ota/internal/types"
 	"fmt"
 	"io"
@@ -33,7 +33,7 @@ func (b *GCSBucket) bucketHandle(ctx context.Context) (*storage.BucketHandle, er
 	if b.BucketName == "" {
 		return nil, errors.New("BucketName not set")
 	}
-	client, err := providers.GetGCSClient()
+	client, err := gcp.GetClient()
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +228,7 @@ func (b *GCSBucket) RequestUploadUrlForFileUpdate(appId string, branch string, r
 		return "", errors.New("BucketName not set")
 	}
 	key := b.prefixedKey(fmt.Sprintf("%s/%s/%s/%s/%s", appId, branch, runtimeVersion, updateId, fileName))
-	url, err := providers.GCSSignedURL(b.BucketName, key, "PUT", "", 15*time.Minute)
+	url, err := gcp.SignedURL(b.BucketName, key, "PUT", "", 15*time.Minute)
 	if err != nil {
 		return "", fmt.Errorf("error generating signed URL: %w", err)
 	}

@@ -4,8 +4,9 @@ import (
 	"bufio"
 	"errors"
 	"expo-open-ota/config"
+	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/helpers"
-	"expo-open-ota/internal/providers"
+	"expo-open-ota/internal/providers/expo"
 	"expo-open-ota/internal/types"
 	"fmt"
 	"io"
@@ -53,7 +54,7 @@ func (b *LocalBucket) RequestUploadUrlForFileUpdate(appId string, branch string,
 	if err != nil {
 		return "", err
 	}
-	token, err := providers.GenerateJWTToken(config.GetEnv("JWT_SECRET"), jwt.MapClaims{
+	token, err := crypto.GenerateJWTToken(config.GetEnv("JWT_SECRET"), jwt.MapClaims{
 		"sub":      GetSubjectForApp(appId),
 		"exp":      time.Now().Add(time.Minute * 10).Unix(),
 		"filePath": filepath.Join(dirPath, fileName),
@@ -236,7 +237,7 @@ func GetSubjectForApp(appId string) string {
 	isDBMode := config.IsDBMode()
 	if !isDBMode {
 		// Fetch expo username
-		return providers.FetchSelfExpoUsername(appId)
+		return expo.FetchSelfUsername(appId)
 	}
 	return fmt.Sprintf("app:%s", appId)
 }
@@ -249,7 +250,7 @@ func GetSubjectForApp(appId string) string {
 // /{AppB}/uploadLocalFile?token=<appA_token>.
 func ValidateUploadTokenAndResolveFilePath(token string) (filePath string, appId string, err error) {
 	claims := jwt.MapClaims{}
-	decodedToken, err := providers.DecodeAndExtractJWTToken(config.GetEnv("JWT_SECRET"), token, claims)
+	decodedToken, err := crypto.DecodeAndExtractJWTToken(config.GetEnv("JWT_SECRET"), token, claims)
 	if err != nil {
 		return "", "", err
 	}

@@ -2,7 +2,7 @@ package services
 
 import (
 	"context"
-	"expo-open-ota/internal/providers"
+	"expo-open-ota/internal/providers/expo"
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/validation"
 	"fmt"
@@ -18,7 +18,7 @@ type ChannelRepository interface {
 	DeleteChannel(ctx context.Context, channelName string, appId string) error
 	GetChannelNameByBranchName(ctx context.Context, appId string, branchName string) ([]string, error)
 	GetChannels(ctx context.Context, appId string) ([]types.ChannelMapping, error)
-	GetChannelBranchMapping(ctx context.Context, appId string, channelName string) (*providers.ExpoChannelMapping, error)
+	GetChannelBranchMapping(ctx context.Context, appId string, channelName string) (*expo.ChannelMapping, error)
 }
 
 func NewChannelService(branchRepo BranchRepository, channelRepo ChannelRepository) *ChannelService {

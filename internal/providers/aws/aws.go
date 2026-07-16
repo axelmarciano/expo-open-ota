@@ -1,4 +1,4 @@
-package providers
+package aws
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -21,7 +21,7 @@ var (
 
 func GetS3Client() (*s3.Client, error) {
 	initS3Client.Do(func() {
-		var cfg aws.Config
+		var cfg awssdk.Config
 		opts := []func(*awsconfig.LoadOptions) error{
 			awsconfig.WithRegion(config.GetEnv("AWS_REGION")),
 		}
@@ -29,8 +29,8 @@ func GetS3Client() (*s3.Client, error) {
 		secretKey := config.GetEnv("AWS_SECRET_ACCESS_KEY")
 		if accessKey != "" && secretKey != "" {
 			opts = append(opts, awsconfig.WithCredentialsProvider(
-				aws.CredentialsProviderFunc(func(ctx context.Context) (aws.Credentials, error) {
-					return aws.Credentials{
+				awssdk.CredentialsProviderFunc(func(ctx context.Context) (awssdk.Credentials, error) {
+					return awssdk.Credentials{
 						AccessKeyID:     accessKey,
 						SecretAccessKey: secretKey,
 					}, nil
@@ -46,7 +46,7 @@ func GetS3Client() (*s3.Client, error) {
 		baseEndpoint := config.GetEnv("AWS_BASE_ENDPOINT")
 		if baseEndpoint != "" {
 			s3Client = s3.NewFromConfig(cfg, func(o *s3.Options) {
-				o.BaseEndpoint = aws.String(baseEndpoint)
+				o.BaseEndpoint = awssdk.String(baseEndpoint)
 			})
 		} else {
 			s3Client = s3.NewFromConfig(cfg)
@@ -65,7 +65,7 @@ func FetchSecret(secretName string) string {
 	client := secretsmanager.NewFromConfig(cfg)
 
 	resp, err := client.GetSecretValue(context.TODO(), &secretsmanager.GetSecretValueInput{
-		SecretId: aws.String(secretName),
+		SecretId: awssdk.String(secretName),
 	})
 	if err != nil {
 		log.Fatalf("Failed to retrieve secret %s: %v", secretName, err)

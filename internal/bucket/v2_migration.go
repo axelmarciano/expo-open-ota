@@ -2,7 +2,7 @@ package bucket
 
 import (
 	"context"
-	"expo-open-ota/internal/providers"
+	"expo-open-ota/internal/providers/aws"
 	"fmt"
 	"net/url"
 	"os"
@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"cloud.google.com/go/storage"
-	"github.com/aws/aws-sdk-go-v2/aws"
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"google.golang.org/api/iterator"
 )
@@ -146,7 +146,7 @@ func (b *LocalBucket) looksLikeV1Branch(name string) bool {
 // keys have their marker at segment 5, so their triple never gets
 // confirmed and they are left alone.
 func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
-	client, err := providers.GetS3Client()
+	client, err := aws.GetS3Client()
 	if err != nil {
 		return err
 	}
@@ -158,8 +158,8 @@ func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
 	// the key prefix). v2 objects under the same appPrefix sit at 5
 	// segments and are ignored here.
 	pc := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
-		Bucket: aws.String(b.BucketName),
-		Prefix: aws.String(appPrefix),
+		Bucket: awssdk.String(b.BucketName),
+		Prefix: awssdk.String(appPrefix),
 	})
 	for pc.HasMorePages() {
 		page, err := pc.NextPage(ctx)
@@ -176,8 +176,8 @@ func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
 
 	confirmed := map[string]bool{}
 	p1 := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
-		Bucket: aws.String(b.BucketName),
-		Prefix: aws.String(b.KeyPrefix),
+		Bucket: awssdk.String(b.BucketName),
+		Prefix: awssdk.String(b.KeyPrefix),
 	})
 	for p1.HasMorePages() {
 		page, err := p1.NextPage(ctx)
@@ -200,8 +200,8 @@ func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
 	}
 
 	p2 := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
-		Bucket: aws.String(b.BucketName),
-		Prefix: aws.String(b.KeyPrefix),
+		Bucket: awssdk.String(b.BucketName),
+		Prefix: awssdk.String(b.KeyPrefix),
 	})
 	for p2.HasMorePages() {
 		page, err := p2.NextPage(ctx)
@@ -228,15 +228,15 @@ func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
 			// S3 rejects with InvalidArgument.
 			source := b.BucketName + "/" + escapeKeyForCopySource(key)
 			if _, err := client.CopyObject(ctx, &s3.CopyObjectInput{
-				Bucket:     aws.String(b.BucketName),
-				CopySource: aws.String(source),
-				Key:        aws.String(newKey),
+				Bucket:     awssdk.String(b.BucketName),
+				CopySource: awssdk.String(source),
+				Key:        awssdk.String(newKey),
 			}); err != nil {
 				return fmt.Errorf("copy %s -> %s: %w", key, newKey, err)
 			}
 			if _, err := client.DeleteObject(ctx, &s3.DeleteObjectInput{
-				Bucket: aws.String(b.BucketName),
-				Key:    aws.String(key),
+				Bucket: awssdk.String(b.BucketName),
+				Key:    awssdk.String(key),
 			}); err != nil {
 				return fmt.Errorf("delete %s after copy: %w", key, err)
 			}

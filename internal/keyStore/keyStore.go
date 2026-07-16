@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"expo-open-ota/config"
 	"expo-open-ota/internal/crypto"
-	"expo-open-ota/internal/providers"
+	"expo-open-ota/internal/providers/aws"
 	"fmt"
 	"io"
 	"log"
@@ -32,7 +32,7 @@ func GetPrivateExpoKey(app config.AppConfig) string {
 // (AWS Secrets Manager) and local development (flat environment variables) workflows.
 func ReadDBKeysMasterKey() string {
 	if secretId := config.GetEnv("AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID"); secretId != "" {
-		b64Secret := providers.FetchSecret(secretId)
+		b64Secret := aws.FetchSecret(secretId)
 		if b64Secret == "" {
 			return ""
 		}
@@ -53,9 +53,9 @@ func readExpoKey(k config.KeysConfig, public bool) string {
 		return readPEMFile(k.PrivatePath)
 	case config.KeysModeAWSSM:
 		if public {
-			return providers.FetchSecret(k.PublicSecretId)
+			return aws.FetchSecret(k.PublicSecretId)
 		}
-		return providers.FetchSecret(k.PrivateSecretId)
+		return aws.FetchSecret(k.PrivateSecretId)
 	case config.KeysModeEnvironment:
 		if public {
 			return decodeB64(k.PublicB64)
@@ -86,7 +86,7 @@ func readExpoKey(k config.KeysConfig, public bool) string {
 // PRIVATE_CLOUDFRONT_KEY_B64, PRIVATE_CLOUDFRONT_KEY_PATH.
 func GetPrivateCloudfrontKey() string {
 	if secretId := config.GetEnv("AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID"); secretId != "" {
-		return providers.FetchSecret(secretId)
+		return aws.FetchSecret(secretId)
 	}
 	if b64 := config.GetEnv("PRIVATE_CLOUDFRONT_KEY_B64"); b64 != "" {
 		return decodeB64(b64)

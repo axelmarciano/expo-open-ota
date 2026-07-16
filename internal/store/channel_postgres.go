@@ -5,7 +5,7 @@ import (
 	"errors"
 	"expo-open-ota/internal/database"
 	"expo-open-ota/internal/database/postgres/pgdb"
-	"expo-open-ota/internal/providers"
+	"expo-open-ota/internal/providers/expo"
 	"expo-open-ota/internal/types"
 	"fmt"
 	"strconv"
@@ -101,7 +101,7 @@ func (s *PostgresChannelStore) GetUpdatesByRunTimeVersionAndBranchName(ctx conte
 	})
 }
 
-func (s *PostgresChannelStore) GetChannelBranchMapping(ctx context.Context, appId string, channelName string) (*providers.ExpoChannelMapping, error) {
+func (s *PostgresChannelStore) GetChannelBranchMapping(ctx context.Context, appId string, channelName string) (*expo.ChannelMapping, error) {
 	pgAppID := ToPgUUID(appId)
 	mapping, err := s.engine.Queries.GetChannelBranchMapping(ctx, pgdb.GetChannelBranchMappingParams{
 		AppID: pgAppID,
@@ -119,7 +119,7 @@ func (s *PostgresChannelStore) GetChannelBranchMapping(ctx context.Context, appI
 		return nil, fmt.Errorf("failed to retrieve channel mapping from database: %w", err)
 	}
 	mappingStr := strconv.FormatInt(mapping.ID, 10)
-	return &providers.ExpoChannelMapping{
+	return &expo.ChannelMapping{
 		Id:         mappingStr,
 		BranchName: mapping.BranchName,
 	}, nil

@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 	"expo-open-ota/internal/bucket"
-	"expo-open-ota/internal/providers"
+	"expo-open-ota/internal/providers/expo"
 	"expo-open-ota/internal/types"
 	"fmt"
 )
@@ -31,11 +31,11 @@ func (s *BucketChannelStore) GetChannelNameByBranchName(ctx context.Context, app
 }
 
 func (s *BucketChannelStore) GetChannels(ctx context.Context, appId string) ([]types.ChannelMapping, error) {
-	allChannels, err := providers.FetchExpoChannels(appId)
+	allChannels, err := expo.FetchChannels(appId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch expo channels: %w", err)
 	}
-	branchesMapping, err := providers.FetchExpoBranchesMapping(appId)
+	branchesMapping, err := expo.FetchBranchesMapping(appId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch expo branches mapping: %w", err)
 	}
@@ -60,6 +60,6 @@ func (s *BucketChannelStore) GetChannels(ctx context.Context, appId string) ([]t
 	return channels, nil
 }
 
-func (s *BucketChannelStore) GetChannelBranchMapping(ctx context.Context, appId string, channelName string) (*providers.ExpoChannelMapping, error) {
-	return providers.FetchExpoChannelMapping(appId, channelName)
+func (s *BucketChannelStore) GetChannelBranchMapping(ctx context.Context, appId string, channelName string) (*expo.ChannelMapping, error) {
+	return expo.FetchChannelMapping(appId, channelName)
 }

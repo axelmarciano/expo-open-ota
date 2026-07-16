@@ -7,7 +7,7 @@ import (
 	"expo-open-ota/internal/branch"
 	bucket2 "expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/database/postgres/pgdb"
-	"expo-open-ota/internal/providers"
+	"expo-open-ota/internal/providers/expo"
 	"expo-open-ota/internal/types"
 	"fmt"
 	"sort"
@@ -41,7 +41,7 @@ func (s *BucketBranchStore) GetBranches(ctx context.Context, appId string) ([]ty
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch expo branches: %w", err)
 	}
-	branchesMapping, err := providers.FetchExpoBranchesMapping(appId)
+	branchesMapping, err := expo.FetchBranchesMapping(appId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch expo branches mapping: %w", err)
 	}
@@ -89,7 +89,7 @@ func (s *BucketBranchStore) UpdateChannelBranchMapping(ctx context.Context, appI
 			}
 		}
 	`
-	branchMapping := providers.BranchMapping{
+	branchMapping := expo.RawBranchMapping{
 		Version: 0,
 		Data: []struct {
 			BranchId           string          `json:"branchId"`
@@ -112,13 +112,13 @@ func (s *BucketBranchStore) UpdateChannelBranchMapping(ctx context.Context, appI
 		"branchMapping": string(branchMappingBytes),
 	}
 
-	token := providers.GetExpoAccessToken(appId)
+	token := expo.GetAccessToken(appId)
 	headers := map[string]string{}
 	if config.IsTestMode() {
 		headers["operationName"] = "UpdateChannelBranchMapping"
 	}
 	resp := struct{}{}
-	return providers.MakeGraphQLRequest(ctx, query, variables, types.Auth{
+	return expo.MakeGraphQLRequest(ctx, query, variables, types.Auth{
 		Token: &token,
 	}, &resp, headers)
 }

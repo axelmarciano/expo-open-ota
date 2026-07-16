@@ -16,7 +16,7 @@ import (
 
 	"expo-open-ota/internal/bucket"
 	cache2 "expo-open-ota/internal/cache"
-	"expo-open-ota/internal/providers"
+	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/update"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -299,7 +299,7 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 		token := parsedUrl.Query().Get("token")
 		assert.NotEmpty(t, token, "Expected non-empty token")
 		claims := jwt.MapClaims{}
-		decoded, err := providers.DecodeAndExtractJWTToken("test_jwt_secret", token, claims)
+		decoded, err := crypto.DecodeAndExtractJWTToken("test_jwt_secret", token, claims)
 		assert.Nil(t, err, "Expected valid JWT token")
 		if !decoded.Valid {
 			assert.Fail(t, "Expected valid JWT token")

@@ -1,4 +1,4 @@
-package providers
+package gcp
 
 import (
 	"context"
@@ -20,7 +20,7 @@ var (
 	initGCSClient sync.Once
 )
 
-func GetGCSClient() (*storage.Client, error) {
+func GetClient() (*storage.Client, error) {
 	initGCSClient.Do(func() {
 		ctx := context.Background()
 		var opts []option.ClientOption
@@ -65,7 +65,7 @@ func loadGoogleCreds() (*googleCreds, error) {
 	return &c, nil
 }
 
-func GCSSignedURL(bucket, key, method, contentType string, expires time.Duration) (string, error) {
+func SignedURL(bucket, key, method, contentType string, expires time.Duration) (string, error) {
 	creds, err := loadGoogleCreds()
 	if err != nil {
 		return "", err
