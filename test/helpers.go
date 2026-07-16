@@ -63,6 +63,20 @@ func testLatestUpdate(appId, branch, runtimeVersion, platform string) (*types.Up
 		GetLatestUpdate(context.Background(), appId, branch, runtimeVersion, platform)
 }
 
+// testUpdate and testUpdateType read an update and its type from the bucket
+// store. That state is bucket-backed but belongs to the control plane, so it
+// lives on the store rather than in internal/update, which assertions would
+// otherwise reach for.
+func testUpdate(appId, branch, runtimeVersion, updateId string) (*types.Update, error) {
+	return store.NewBucketUpdateStore(bucket.GetBucket()).
+		GetUpdate(context.Background(), appId, branch, runtimeVersion, updateId)
+}
+
+func testUpdateType(update types.Update) (types.UpdateType, error) {
+	return store.NewBucketUpdateStore(bucket.GetBucket()).
+		GetUpdateType(context.Background(), update)
+}
+
 func GlobalBeforeEach() {
 	metrics.CleanupMetrics()
 	cache := cache2.GetCache()

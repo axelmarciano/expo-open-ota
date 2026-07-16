@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -38,7 +39,7 @@ func (s *BucketUpdateStore) GetLatestUpdate(ctx context.Context, appId string, b
 		return nil, err
 	}
 	for _, update := range updates {
-		if update2.IsUpdateValid(update) {
+		if s.isUpdateValid(update) {
 			return &update, nil
 		}
 	}
@@ -79,19 +80,49 @@ func sortNewestFirst(updates []types.Update) []types.Update {
 }
 
 func (s *BucketUpdateStore) GetUpdateType(ctx context.Context, update types.Update) (types.UpdateType, error) {
-	return update2.GetUpdateType(update), nil
+	return s.updateType(update), nil
+}
+
+// updateType keys off the "rollback" marker file CreateRollback writes: its
+// presence is this backend's equivalent of the updates.update_type column.
+//
+// The error-free shape is what the listing paths below want: a missing marker
+// and an unreachable bucket are indistinguishable here, and both mean "not a
+// rollback".
+func (s *BucketUpdateStore) updateType(update types.Update) types.UpdateType {
+	file, _ := s.bucket.GetFile(update, "rollback")
+	if file != nil {
+		file.Reader.Close()
+		return types.Rollback
+	}
+	return types.NormalUpdate
 }
 
 func (s *BucketUpdateStore) IsUpdateValid(ctx context.Context, update types.Update) (bool, error) {
-	return update2.IsUpdateValid(update), nil
+	return s.isUpdateValid(update), nil
+}
+
+// isUpdateValid reports whether the ".check" sentinel is present — the bucket
+// equivalent of the checked_at column, written last so an update stays invisible
+// until every file has landed. See PostgresUpdateStore.IsUpdateValid.
+func (s *BucketUpdateStore) isUpdateValid(update types.Update) bool {
+	file, _ := s.bucket.GetFile(update, ".check")
+	if file != nil {
+		file.Reader.Close()
+		return true
+	}
+	return false
 }
 
 func (s *BucketUpdateStore) MarkUpdateAsChecked(ctx context.Context, update types.Update) error {
-	return update2.MarkUpdateAsChecked(update)
+	return s.bucket.UploadFileIntoUpdate(update, ".check", strings.NewReader(".check"))
 }
 
-func (s *BucketUpdateStore) CreateUpdate(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string) (*types.Update, error) {
-	fileUpdateMetadata := map[string]interface{}{
+// updateMetadataReader marshals the update-metadata.json body, the file holding
+// what the updates table keeps in columns. message is omitted when empty — a
+// rollback never carries one.
+func updateMetadataReader(platform, commitHash, message string) (*bytes.Reader, error) {
+	fileUpdateMetadata := map[string]string{
 		"platform":   platform,
 		"commitHash": commitHash,
 	}
@@ -102,7 +133,14 @@ func (s *BucketUpdateStore) CreateUpdate(ctx context.Context, appId string, upda
 	if err != nil {
 		return nil, fmt.Errorf("Error marshalling file update metadata: %w", err)
 	}
-	metadataReader := bytes.NewReader(marshalledMetadata)
+	return bytes.NewReader(marshalledMetadata), nil
+}
+
+func (s *BucketUpdateStore) CreateUpdate(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string) (*types.Update, error) {
+	metadataReader, err := updateMetadataReader(platform, commitHash, message)
+	if err != nil {
+		return nil, err
+	}
 	createdAt := helpers.NormalizeTimestampToDuration(updateId)
 	err = s.bucket.UploadFileIntoUpdate(types.Update{
 		AppId:          appId,
@@ -139,7 +177,7 @@ func (s *BucketUpdateStore) GetUpdateDetails(ctx context.Context, appId string, 
 	numberUpdate, _ := strconv.ParseInt(update.UpdateId, 10, 64)
 	storedMetadata, _ := update2.RetrieveUpdateStoredMetadata(*update)
 	updateUUID := "Rollback to embedded"
-	if update2.GetUpdateType(*update) != types.Rollback {
+	if s.updateType(*update) != types.Rollback {
 		updateUUID = storedMetadata.UpdateUUID
 		if updateUUID == "" {
 			updateUUID = crypto.ConvertSHA256HashToUUID(metadata.ID)
@@ -152,7 +190,7 @@ func (s *BucketUpdateStore) GetUpdateDetails(ctx context.Context, appId string, 
 		CommitHash: storedMetadata.CommitHash,
 		Platform:   storedMetadata.Platform,
 		Message:    storedMetadata.Message,
-		Type:       update2.GetUpdateType(*update),
+		Type:       s.updateType(*update),
 		ExpoConfig: string(expoConfig),
 	}, nil
 }
@@ -166,13 +204,13 @@ func (s *BucketUpdateStore) GetUpdatesByRunTimeVersionAndBranchName(ctx context.
 
 	var updatesResponse []types.UpdateItem
 	for _, update := range updates {
-		isValid := update2.IsUpdateValid(update)
+		isValid := s.isUpdateValid(update)
 		if !isValid {
 			continue
 		}
 		numberUpdate, _ := strconv.ParseInt(update.UpdateId, 10, 64)
 		storedMetadata, _ := update2.RetrieveUpdateStoredMetadata(update)
-		updateType := update2.GetUpdateType(update)
+		updateType := s.updateType(update)
 		if updateType == types.Rollback {
 			updatesResponse = append(updatesResponse, types.UpdateItem{
 				UpdateUUID: "Rollback to embedded",
@@ -210,8 +248,23 @@ func (s *BucketUpdateStore) GetUpdatesByRunTimeVersionAndBranchName(ctx context.
 	return updatesResponse, nil
 }
 
+// GetUpdate reconstructs an update handle from its id without touching the
+// bucket: on this backend an update is a path, and every field is derivable
+// from the id. Note it does not tell the caller whether that path exists —
+// unlike the Postgres store, it never returns a nil update for a well-formed
+// id. Callers needing existence must follow up with IsUpdateValid.
 func (s *BucketUpdateStore) GetUpdate(ctx context.Context, appId string, branchName string, runtimeVersion string, updateId string) (*types.Update, error) {
-	return update2.GetUpdate(appId, branchName, runtimeVersion, updateId)
+	updateIdInt64, err := strconv.ParseInt(updateId, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	return &types.Update{
+		AppId:          appId,
+		Branch:         branchName,
+		RuntimeVersion: runtimeVersion,
+		UpdateId:       updateId,
+		CreatedAt:      helpers.NormalizeTimestampToDuration(updateIdInt64),
+	}, nil
 }
 
 func (s *BucketUpdateStore) RetrieveUpdateStoredMetadata(ctx context.Context, update types.Update) (*types.UpdateStoredMetadata, error) {
@@ -219,11 +272,54 @@ func (s *BucketUpdateStore) RetrieveUpdateStoredMetadata(ctx context.Context, up
 }
 
 func (s *BucketUpdateStore) StoreUpdateUUIDInMetadata(ctx context.Context, update types.Update, updateUUID string) error {
-	return update2.StoreUpdateUUIDInMetadata(update, updateUUID)
+	file, err := s.bucket.GetFile(update, "update-metadata.json")
+	if err != nil {
+		return err
+	}
+	defer file.Reader.Close()
+	var storedMetadata types.UpdateStoredMetadata
+	err = json.NewDecoder(file.Reader).Decode(&storedMetadata)
+	if err != nil {
+		return err
+	}
+	storedMetadata.UpdateUUID = updateUUID
+	updatedMetadata, err := json.Marshal(storedMetadata)
+	if err != nil {
+		return err
+	}
+	return s.bucket.UploadFileIntoUpdate(update, "update-metadata.json", bytes.NewReader(updatedMetadata))
 }
 
+// CreateRollback writes this backend's record of a rollback: the metadata file
+// plus the "rollback" marker updateType keys off. There is no bundle or asset to
+// store — a rollback only says "from this id on, fall back to the embedded
+// update" — so the two files are the whole record.
+//
+// updateId is supplied by the caller rather than minted here so that both
+// backends stamp the id the service generated — the Postgres store already
+// inserts the id it is handed, and minting a second one here made the two
+// backends disagree about who owns update identity.
 func (s *BucketUpdateStore) CreateRollback(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string) (*types.Update, error) {
-	return update2.CreateRollback(appId, updateId, platform, commitHash, runtimeVersion, branchName)
+	update := types.Update{
+		AppId:          appId,
+		UpdateId:       update2.ConvertUpdateTimestampToString(updateId),
+		Branch:         branchName,
+		RuntimeVersion: runtimeVersion,
+		CreatedAt:      helpers.NormalizeTimestampToDuration(updateId),
+	}
+	metadataReader, err := updateMetadataReader(platform, commitHash, "")
+	if err != nil {
+		return nil, err
+	}
+	err = s.bucket.UploadFileIntoUpdate(update, "update-metadata.json", metadataReader)
+	if err != nil {
+		return nil, err
+	}
+	err = s.bucket.UploadFileIntoUpdate(update, "rollback", strings.NewReader(""))
+	if err != nil {
+		return nil, err
+	}
+	return &update, nil
 }
 
 func (s *BucketUpdateStore) GetUpdateByBranchNameAndRuntime(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string) (pgdb.GetUpdateByBranchNameAndRuntimeRow, error) {

@@ -118,10 +118,13 @@ func TestGoodRepublish(t *testing.T) {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
 	assert.Equal(t, body.UpdateId, lastUpdate.UpdateId, "Expected updateId to match the latest update")
-	updateType := update.GetUpdateType(*lastUpdate)
+	updateType, err := testUpdateType(*lastUpdate)
+	if err != nil {
+		t.Fatalf("Error getting update type: %v", err)
+	}
 	assert.Equal(t, updateType, types.NormalUpdate, "Expected update type to be normal")
 
-	previousUpdate, err := update.GetUpdate("test-app-id", "branch-2", "1", "1737455526")
+	previousUpdate, err := testUpdate("test-app-id", "branch-2", "1", "1737455526")
 	if err != nil {
 		t.Fatalf("Error getting previous update: %v", err)
 	}
@@ -182,10 +185,13 @@ func TestGoodRepublishWithoutCommitHash(t *testing.T) {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
 	assert.Equal(t, body.UpdateId, lastUpdate.UpdateId, "Expected updateId to match the latest update")
-	updateType := update.GetUpdateType(*lastUpdate)
+	updateType, err := testUpdateType(*lastUpdate)
+	if err != nil {
+		t.Fatalf("Error getting update type: %v", err)
+	}
 	assert.Equal(t, updateType, types.NormalUpdate, "Expected update type to be normal")
 
-	previousUpdate, err := update.GetUpdate("test-app-id", "branch-2", "1", "1737455526")
+	previousUpdate, err := testUpdate("test-app-id", "branch-2", "1", "1737455526")
 	if err != nil {
 		t.Fatalf("Error getting previous update: %v", err)
 	}

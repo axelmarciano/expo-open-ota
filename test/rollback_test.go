@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"expo-open-ota/internal/types"
-	"expo-open-ota/internal/update"
 	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -78,7 +77,10 @@ func TestGoodRollback(t *testing.T) {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
 	assert.Equal(t, body.UpdateId, lastUpdate.UpdateId, "Expected updateId to match the latest update")
-	updateType := update.GetUpdateType(*lastUpdate)
+	updateType, err := testUpdateType(*lastUpdate)
+	if err != nil {
+		t.Fatalf("Error getting update type: %v", err)
+	}
 	assert.Equal(t, updateType, types.Rollback, "Expected update type to be rollback")
 }
 
@@ -113,7 +115,10 @@ func TestGoodRollbackWithoutCommitHash(t *testing.T) {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
 	assert.Equal(t, body.UpdateId, lastUpdate.UpdateId, "Expected updateId to match the latest update")
-	updateType := update.GetUpdateType(*lastUpdate)
+	updateType, err := testUpdateType(*lastUpdate)
+	if err != nil {
+		t.Fatalf("Error getting update type: %v", err)
+	}
 	assert.Equal(t, updateType, types.Rollback, "Expected update type to be rollback")
 }
 
@@ -219,5 +224,7 @@ func TestRollbackDoesNotPoisonLatestUpdateCache(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, latest)
 	assert.NotEqual(t, staleUpdateId, latest.UpdateId, "lastUpdate cache poisoned with stale update after %d reads", reads)
-	assert.Equal(t, types.Rollback, update.GetUpdateType(*latest), "expected latest update to be a rollback")
+	latestType, err := testUpdateType(*latest)
+	require.NoError(t, err)
+	assert.Equal(t, types.Rollback, latestType, "expected latest update to be a rollback")
 }

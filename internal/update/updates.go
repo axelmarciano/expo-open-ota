@@ -6,63 +6,15 @@ import (
 	"expo-open-ota/internal/bucket"
 	cache2 "expo-open-ota/internal/cache"
 	"expo-open-ota/internal/crypto"
-	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/version"
 	"fmt"
 	"mime"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
-
-func StoreUpdateUUIDInMetadata(update types.Update, updateUUID string) error {
-	resolvedBucket := bucket.GetBucket()
-	file, err := resolvedBucket.GetFile(update, "update-metadata.json")
-	if err != nil {
-		return err
-	}
-	defer file.Reader.Close()
-	var storedMetadata types.UpdateStoredMetadata
-	err = json.NewDecoder(file.Reader).Decode(&storedMetadata)
-	if err != nil {
-		return err
-	}
-	storedMetadata.UpdateUUID = updateUUID
-	updatedMetadata, err := json.Marshal(storedMetadata)
-	if err != nil {
-		return err
-	}
-	reader := strings.NewReader(string(updatedMetadata))
-	err = resolvedBucket.UploadFileIntoUpdate(update, "update-metadata.json", reader)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func MarkUpdateAsChecked(update types.Update) error {
-	resolvedBucket := bucket.GetBucket()
-	reader := strings.NewReader(".check")
-	err := resolvedBucket.UploadFileIntoUpdate(update, ".check", reader)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func IsUpdateValid(Update types.Update) bool {
-	resolvedBucket := bucket.GetBucket()
-	// Search for .check file in the update
-	file, _ := resolvedBucket.GetFile(Update, ".check")
-	if file != nil {
-		file.Reader.Close()
-		return true
-	}
-	return false
-}
 
 func GetUpdateCheckStatus(update types.Update) time.Time {
 	resolvedBucket := bucket.GetBucket()
@@ -128,20 +80,6 @@ func VerifyUploadedUpdate(update types.Update) error {
 	return nil
 }
 
-func GetUpdate(appId string, branch string, runtimeVersion string, updateId string) (*types.Update, error) {
-	updateIdInt64, err := strconv.ParseInt(updateId, 10, 64)
-	if err != nil {
-		return nil, err
-	}
-	return &types.Update{
-		AppId:          appId,
-		Branch:         branch,
-		RuntimeVersion: runtimeVersion,
-		UpdateId:       updateId,
-		CreatedAt:      helpers.NormalizeTimestampToDuration(updateIdInt64),
-	}, nil
-}
-
 func AreUpdatesIdentical(update1, update2 types.Update) (bool, error) {
 	metadata1, errMetadata1 := GetMetadata(update1)
 	if errMetadata1 != nil {
@@ -152,16 +90,6 @@ func AreUpdatesIdentical(update1, update2 types.Update) (bool, error) {
 		return false, errMetadata2
 	}
 	return metadata1.Fingerprint == metadata2.Fingerprint, nil
-}
-
-func GetUpdateType(update types.Update) types.UpdateType {
-	resolvedBucket := bucket.GetBucket()
-	file, _ := resolvedBucket.GetFile(update, "rollback")
-	if file != nil {
-		file.Reader.Close()
-		return types.Rollback
-	}
-	return types.NormalUpdate
 }
 
 func GetExpoConfig(update types.Update) (json.RawMessage, error) {
@@ -457,20 +385,6 @@ func RetrieveUpdateStoredMetadata(update types.Update) (*types.UpdateStoredMetad
 	return &metadata, nil
 }
 
-func createUpdateMetadata(platform, commitHash string) (*strings.Reader, error) {
-	metadata := map[string]string{
-		"platform":   platform,
-		"commitHash": commitHash,
-	}
-
-	jsonData, err := json.Marshal(metadata)
-	if err != nil {
-		return nil, err
-	}
-
-	return strings.NewReader(string(jsonData)), nil
-}
-
 // Originally, this function returned a raw millisecond timestamp without parameters.
 // When deployment clients (like the Expo CLI) send concurrent, parallel requests for
 // both iOS and Android simultaneously, they arrive at the server in the same millisecond.
@@ -503,36 +417,3 @@ func GenerateUpdateTimestamp(platform string) int64 {
 func ConvertUpdateTimestampToString(updateId int64) string {
 	return fmt.Sprintf("%d", updateId)
 }
-
-// CreateRollback writes the bucket backend's record of a rollback: the metadata
-// file plus the "rollback" marker that GetUpdateType keys off.
-//
-// updateId is supplied by the caller rather than minted here so that both
-// backends stamp the id the service generated — the Postgres store already
-// inserts the id it is handed, and minting a second one here made the two
-// backends disagree about who owns update identity.
-func CreateRollback(appId string, updateId int64, platform, commitHash, runtimeVersion, branchName string) (*types.Update, error) {
-	update := types.Update{
-		AppId:          appId,
-		UpdateId:       ConvertUpdateTimestampToString(updateId),
-		Branch:         branchName,
-		RuntimeVersion: runtimeVersion,
-		CreatedAt:      helpers.NormalizeTimestampToDuration(updateId),
-	}
-	resolvedBucket := bucket.GetBucket()
-	reader, err := createUpdateMetadata(platform, commitHash)
-	if err != nil {
-		return nil, err
-	}
-	err = resolvedBucket.UploadFileIntoUpdate(update, "update-metadata.json", reader)
-	if err != nil {
-		return nil, err
-	}
-	emptyReader := strings.NewReader("")
-	err = resolvedBucket.UploadFileIntoUpdate(update, "rollback", emptyReader)
-	if err != nil {
-		return nil, err
-	}
-	return &update, nil
-}
-
