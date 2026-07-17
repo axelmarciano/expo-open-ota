@@ -7,6 +7,7 @@ import (
 	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/keyStore"
+	"expo-open-ota/internal/providers/expo"
 	"expo-open-ota/internal/store"
 	"expo-open-ota/internal/validation"
 	"fmt"
@@ -139,6 +140,13 @@ func (s *AppService) GetAppByID(ctx context.Context, appId string) (config.AppCo
 	if app.Keys.Mode == config.KeysModeLocal {
 		app.Keys.PrivatePath = helpers.MaskKeyPath(app.Keys.PrivatePath)
 		app.Keys.PublicPath = helpers.MaskKeyPath(app.Keys.PublicPath)
+	}
+	if app.Name == "" {
+		// The stateless flat env carries no display name — resolve it from
+		// Expo for the dashboard. Best-effort and cached; "" keeps the
+		// id-as-label fallback. Lives here rather than in the store so the
+		// device-facing OTA path never pays the Expo round-trip.
+		app.Name = expo.FetchAppName(ctx, app.Id)
 	}
 	return app, nil
 }

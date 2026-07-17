@@ -294,6 +294,67 @@ func FetchSelfUsername(appId string) string {
 	return expoAccount.Username
 }
 
+// unknownAppName negative-caches a failed or empty name lookup so callers do
+// not repeat the GraphQL round-trip on every call while Expo is unreachable.
+const unknownAppName = "\x00unknown"
+
+// FetchAppName returns the app's display name as configured on Expo, or ""
+// when it cannot be resolved (missing/invalid token, network failure). Used
+// as a dashboard display fallback in stateless mode, where the flat env
+// carries no name — so best-effort by design: callers fall back to the id.
+func FetchAppName(ctx context.Context, appId string) string {
+	cache := cache2.GetCache()
+	token := GetAccessToken(appId)
+	cacheKey := fmt.Sprintf("expoAppName:%s:%s:%x", version.Version, appId, sha256.Sum256([]byte(token)))
+	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
+		if cachedValue == unknownAppName {
+			return ""
+		}
+		return cachedValue
+	}
+	query := `
+		query FetchAppName($appId: String!) {
+			app {
+				byId(appId: $appId) {
+					id
+					name
+				}
+			}
+		}
+	`
+	variables := map[string]interface{}{
+		"appId": appId,
+	}
+	var resp struct {
+		Data struct {
+			App struct {
+				ById App `json:"byId"`
+			} `json:"app"`
+		} `json:"data"`
+	}
+	headers := map[string]string{}
+	if config.IsTestMode() {
+		headers["operationName"] = "FetchExpoAppName"
+	}
+	if err := MakeGraphQLRequest(ctx, query, variables, types.Auth{
+		Token: &token,
+	}, &resp, headers); err != nil {
+		log.Printf("[Expo] could not resolve app name for %s, falling back to the app id: %v", appId, err)
+		ttl := 300
+		_ = cache.Set(cacheKey, unknownAppName, &ttl)
+		return ""
+	}
+	name := resp.Data.App.ById.Name
+	if name != "" {
+		ttl := 86400
+		_ = cache.Set(cacheKey, name, &ttl)
+	} else {
+		ttl := 300
+		_ = cache.Set(cacheKey, unknownAppName, &ttl)
+	}
+	return name
+}
+
 func ComputeChannelMappingCacheKey(appId, channelName string) string {
 	return fmt.Sprintf("channelMapping:%s:%s:%s", version.Version, appId, channelName)
 }

@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"expo-open-ota/internal/services"
@@ -16,8 +18,14 @@ import (
 func runAuthMiddleware(t *testing.T, configure func(r *http.Request)) *httptest.ResponseRecorder {
 	t.Helper()
 	router := mux.NewRouter()
-	router.Use(NewAuthMiddleware(services.NewDashboardAuthService(), services.NewCliAuthService(nil)))
+	router.Use(NewAuthMiddleware(services.NewDashboardAuthService(nil), services.NewCliAuthService(nil)))
 	router.HandleFunc("/settings", func(w http.ResponseWriter, r *http.Request) {
+		// Surface the principal so tests can assert the middleware propagated
+		// it to the handler, not just that authentication passed.
+		if principal := PrincipalFromContext(r.Context()); principal != nil {
+			w.Header().Set("X-Principal-Email", principal.Email)
+			w.Header().Set("X-Principal-Admin", strconv.FormatBool(principal.IsAdmin))
+		}
 		w.WriteHeader(http.StatusOK)
 	})
 	r := httptest.NewRequest("GET", "/settings", nil)
@@ -29,6 +37,7 @@ func runAuthMiddleware(t *testing.T, configure func(r *http.Request)) *httptest.
 
 func TestAuthMiddleware(t *testing.T) {
 	t.Setenv("JWT_SECRET", "test-secret")
+	t.Setenv("ADMIN_EMAIL", "admin@example.com")
 	t.Setenv("ADMIN_PASSWORD", "test-password")
 
 	t.Run("cli auth rejected on a non-app-scoped route", func(t *testing.T) {
@@ -42,7 +51,7 @@ func TestAuthMiddleware(t *testing.T) {
 	})
 
 	t.Run("valid dashboard session is accepted", func(t *testing.T) {
-		session, err := services.NewDashboardAuthService().LoginWithPassword("test-password")
+		session, err := services.NewDashboardAuthService(nil).LoginWithEmailPassword(context.Background(), "admin@example.com", "test-password")
 		if err != nil {
 			t.Fatalf("login failed: %v", err)
 		}
@@ -51,6 +60,12 @@ func TestAuthMiddleware(t *testing.T) {
 		})
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected 200 with valid session token, got %d", w.Code)
+		}
+		if got := w.Header().Get("X-Principal-Email"); got != "admin@example.com" {
+			t.Fatalf("expected the principal email to reach the handler, got %q", got)
+		}
+		if got := w.Header().Get("X-Principal-Admin"); got != "true" {
+			t.Fatalf("expected the stateless principal to be admin, got %q", got)
 		}
 	})
 

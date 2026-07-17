@@ -286,6 +286,58 @@ WHERE app_id = $1
   AND revoked_at IS NULL
 RETURNING TRUE AS is_valid;
 
+-- name: InsertUser :one
+INSERT INTO users (id, email, password_hash, is_admin)
+VALUES ($1, $2, $3, $4)
+RETURNING id, email, is_admin, created_at;
+
+-- name: GetUserByEmail :one
+SELECT * FROM users
+WHERE email = $1 LIMIT 1;
+
+-- name: GetUserByID :one
+SELECT * FROM users
+WHERE id = $1 LIMIT 1;
+
+-- name: GetUsers :many
+SELECT id, email, is_admin, created_at, last_connected_at FROM users
+ORDER BY created_at ASC;
+
+-- name: TouchUserLastConnectedAt :exec
+UPDATE users
+SET last_connected_at = CURRENT_TIMESTAMP
+WHERE id = $1;
+
+-- name: DeleteUserByID :execresult
+-- Locks the admin rows first so concurrent deletes/demotions serialize:
+-- deleting the last remaining admin matches no row instead of leaving the
+-- dashboard without any admin.
+WITH admins AS (
+    SELECT id FROM users WHERE is_admin ORDER BY id FOR UPDATE
+)
+DELETE FROM users
+WHERE id = $1
+  AND (id NOT IN (SELECT id FROM admins) OR (SELECT COUNT(*) FROM admins) > 1);
+
+-- name: UpdateUserPasswordByID :execresult
+UPDATE users
+SET password_hash = $2, updated_at = CURRENT_TIMESTAMP
+WHERE id = $1;
+
+-- name: UpdateUserIsAdminByID :execresult
+-- Same admin-row lock as DeleteUserByID: demoting the last remaining admin
+-- matches no row. Promotions ($2 true) always pass the guard but still take
+-- the lock, so they serialize with concurrent demotions.
+WITH admins AS (
+    SELECT id FROM users WHERE is_admin ORDER BY id FOR UPDATE
+)
+UPDATE users
+SET is_admin = $2, updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+  AND ($2::boolean
+       OR id NOT IN (SELECT id FROM admins)
+       OR (SELECT COUNT(*) FROM admins) > 1);
+
 -- name: MigrateLegacyApp :exec
 INSERT INTO apps (
     id, 

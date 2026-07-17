@@ -68,3 +68,13 @@ type Update struct {
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	CheckedAt        pgtype.Timestamptz `json:"checked_at"`
 }
+
+type User struct {
+	ID              pgtype.UUID        `json:"id"`
+	Email           string             `json:"email"`
+	PasswordHash    string             `json:"password_hash"`
+	IsAdmin         bool               `json:"is_admin"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	LastConnectedAt pgtype.Timestamptz `json:"last_connected_at"`
+}

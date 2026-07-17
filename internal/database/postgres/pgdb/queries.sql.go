@@ -49,6 +49,19 @@ func (q *Queries) DeleteChannelByName(ctx context.Context, arg DeleteChannelByNa
 	return q.db.Exec(ctx, deleteChannelByName, arg.Name, arg.AppID)
 }
 
+const deleteUserByID = `-- name: DeleteUserByID :execresult
+WITH admins AS (
+    SELECT id FROM users WHERE is_admin ORDER BY id FOR UPDATE
+)
+DELETE FROM users
+WHERE id = $1
+  AND (id NOT IN (SELECT id FROM admins) OR (SELECT COUNT(*) FROM admins) > 1)
+`
+
+func (q *Queries) DeleteUserByID(ctx context.Context, id pgtype.UUID) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, deleteUserByID, id)
+}
+
 const getApiKeysMetadataByAppID = `-- name: GetApiKeysMetadataByAppID :many
 SELECT id, name, hint, created_at, last_used_at
 FROM api_keys
@@ -673,6 +686,85 @@ func (q *Queries) GetUpdatesMetadataByBranchName(ctx context.Context, arg GetUpd
 	return items, nil
 }
 
+const getUserByEmail = `-- name: GetUserByEmail :one
+SELECT id, email, password_hash, is_admin, created_at, updated_at, last_connected_at FROM users
+WHERE email = $1 LIMIT 1
+`
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByEmail, email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.IsAdmin,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastConnectedAt,
+	)
+	return i, err
+}
+
+const getUserByID = `-- name: GetUserByID :one
+SELECT id, email, password_hash, is_admin, created_at, updated_at, last_connected_at FROM users
+WHERE id = $1 LIMIT 1
+`
+
+func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByID, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.IsAdmin,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastConnectedAt,
+	)
+	return i, err
+}
+
+const getUsers = `-- name: GetUsers :many
+SELECT id, email, is_admin, created_at, last_connected_at FROM users
+ORDER BY created_at ASC
+`
+
+type GetUsersRow struct {
+	ID              pgtype.UUID        `json:"id"`
+	Email           string             `json:"email"`
+	IsAdmin         bool               `json:"is_admin"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	LastConnectedAt pgtype.Timestamptz `json:"last_connected_at"`
+}
+
+func (q *Queries) GetUsers(ctx context.Context) ([]GetUsersRow, error) {
+	rows, err := q.db.Query(ctx, getUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetUsersRow
+	for rows.Next() {
+		var i GetUsersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.IsAdmin,
+			&i.CreatedAt,
+			&i.LastConnectedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertApiKey = `-- name: InsertApiKey :exec
 INSERT INTO api_keys (app_id, name, hint, hashed_key)
 VALUES ($1, $2, $3, $4)
@@ -870,6 +962,43 @@ func (q *Queries) InsertUpdate(ctx context.Context, arg InsertUpdateParams) (Ins
 		&i.AppID,
 		&i.BranchName,
 		&i.RuntimeVersion,
+	)
+	return i, err
+}
+
+const insertUser = `-- name: InsertUser :one
+INSERT INTO users (id, email, password_hash, is_admin)
+VALUES ($1, $2, $3, $4)
+RETURNING id, email, is_admin, created_at
+`
+
+type InsertUserParams struct {
+	ID           pgtype.UUID `json:"id"`
+	Email        string      `json:"email"`
+	PasswordHash string      `json:"password_hash"`
+	IsAdmin      bool        `json:"is_admin"`
+}
+
+type InsertUserRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	Email     string             `json:"email"`
+	IsAdmin   bool               `json:"is_admin"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) (InsertUserRow, error) {
+	row := q.db.QueryRow(ctx, insertUser,
+		arg.ID,
+		arg.Email,
+		arg.PasswordHash,
+		arg.IsAdmin,
+	)
+	var i InsertUserRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.IsAdmin,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -1146,6 +1275,17 @@ func (q *Queries) StoreUpdateUUID(ctx context.Context, arg StoreUpdateUUIDParams
 	)
 }
 
+const touchUserLastConnectedAt = `-- name: TouchUserLastConnectedAt :exec
+UPDATE users
+SET last_connected_at = CURRENT_TIMESTAMP
+WHERE id = $1
+`
+
+func (q *Queries) TouchUserLastConnectedAt(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, touchUserLastConnectedAt, id)
+	return err
+}
+
 const updateAppNameByID = `-- name: UpdateAppNameByID :execresult
 UPDATE apps 
 SET name = $2, updated_at = CURRENT_TIMESTAMP
@@ -1182,6 +1322,42 @@ type UpdateChannelBranchMappingParams struct {
 // only references branches(id), so without it any tenant's branch id satisfies the FK.
 func (q *Queries) UpdateChannelBranchMapping(ctx context.Context, arg UpdateChannelBranchMappingParams) (pgconn.CommandTag, error) {
 	return q.db.Exec(ctx, updateChannelBranchMapping, arg.BranchID, arg.AppID, arg.ID)
+}
+
+const updateUserIsAdminByID = `-- name: UpdateUserIsAdminByID :execresult
+WITH admins AS (
+    SELECT id FROM users WHERE is_admin ORDER BY id FOR UPDATE
+)
+UPDATE users
+SET is_admin = $2, updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+  AND ($2::boolean
+       OR id NOT IN (SELECT id FROM admins)
+       OR (SELECT COUNT(*) FROM admins) > 1)
+`
+
+type UpdateUserIsAdminByIDParams struct {
+	ID      pgtype.UUID `json:"id"`
+	IsAdmin bool        `json:"is_admin"`
+}
+
+func (q *Queries) UpdateUserIsAdminByID(ctx context.Context, arg UpdateUserIsAdminByIDParams) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, updateUserIsAdminByID, arg.ID, arg.IsAdmin)
+}
+
+const updateUserPasswordByID = `-- name: UpdateUserPasswordByID :execresult
+UPDATE users
+SET password_hash = $2, updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+`
+
+type UpdateUserPasswordByIDParams struct {
+	ID           pgtype.UUID `json:"id"`
+	PasswordHash string      `json:"password_hash"`
+}
+
+func (q *Queries) UpdateUserPasswordByID(ctx context.Context, arg UpdateUserPasswordByIDParams) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, updateUserPasswordByID, arg.ID, arg.PasswordHash)
 }
 
 const validateAndTouchAuth = `-- name: ValidateAndTouchAuth :one

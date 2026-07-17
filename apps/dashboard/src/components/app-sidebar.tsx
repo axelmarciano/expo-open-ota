@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import {
   Box,
+  CircleUser,
   HardDriveDownload,
   Info,
   KeyRound,
@@ -9,12 +10,14 @@ import {
   Plus,
   Radio,
   Settings,
+  Users,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { Combobox } from '@/components/Combobox';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
 import { CreateAppModal } from '@/components/app-creation-modal';
 import { useSettings } from '@/lib/SettingsContext';
+import { useCurrentUser } from '@/lib/CurrentUserContext';
 
 const NavLink = ({
   to,
@@ -53,6 +56,7 @@ const SectionLabel = ({ children }: { children: React.ReactNode }) => (
 
 export function AppSidebar() {
   const { CONTROL_PLANE_ENABLED } = useSettings();
+  const { isAdmin } = useCurrentUser();
   const { apps, selectedAppId, setSelectedAppId, refreshApps, isLoading } = useSelectedApp();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
@@ -74,7 +78,8 @@ export function AppSidebar() {
         <div className="px-3 pt-3">
           {/* Always rendered, even with a single app: the selector is what tells
               you which app every view below is scoped to. Creating apps only
-              exists on the control plane, so the action is gated on it. */}
+              exists on the control plane and is an admin action, so the action
+              is gated on both. */}
           <Combobox
             className="h-10 w-full rounded-lg"
             label="Select app"
@@ -85,7 +90,7 @@ export function AppSidebar() {
             }}
             loading={isLoading}
             action={
-              CONTROL_PLANE_ENABLED
+              CONTROL_PLANE_ENABLED && isAdmin
                 ? {
                     label: 'New application',
                     icon: <Plus className="mr-2 h-4 w-4" />,
@@ -97,30 +102,45 @@ export function AppSidebar() {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3">
-          <SectionLabel>Application</SectionLabel>
-          <div className="space-y-0.5">
-            <NavLink to="/" icon={HardDriveDownload}>
-              Updates
-            </NavLink>
-            <NavLink to="/channels" icon={Box}>
-              Channels
-            </NavLink>
-            <NavLink to="/app-info" icon={Info}>
-              App info
-            </NavLink>
-            {CONTROL_PLANE_ENABLED && (
-              <NavLink to="/tokens" icon={KeyRound}>
-                API tokens
-              </NavLink>
-            )}
-          </div>
+          {/* App-scoped pages are meaningless without a selected app (fresh
+              control-plane install with no app yet) — hide the whole section
+              until one is selected. */}
+          {selectedAppId && (
+            <>
+              <SectionLabel>Application</SectionLabel>
+              <div className="space-y-0.5">
+                <NavLink to="/" icon={HardDriveDownload}>
+                  Updates
+                </NavLink>
+                <NavLink to="/channels" icon={Box}>
+                  Channels
+                </NavLink>
+                <NavLink to="/app-info" icon={Info}>
+                  App info
+                </NavLink>
+                {CONTROL_PLANE_ENABLED && (
+                  <NavLink to="/tokens" icon={KeyRound}>
+                    API tokens
+                  </NavLink>
+                )}
+              </div>
 
-          <div className="mx-3 mt-5 border-t" />
+              <div className="mx-3 mt-5 border-t" />
+            </>
+          )}
 
           <SectionLabel>Server</SectionLabel>
           <div className="space-y-0.5">
             <NavLink to="/settings" icon={Settings}>
               Settings
+            </NavLink>
+            {CONTROL_PLANE_ENABLED && isAdmin && (
+              <NavLink to="/users" icon={Users}>
+                Users
+              </NavLink>
+            )}
+            <NavLink to="/account" icon={CircleUser}>
+              My account
             </NavLink>
           </div>
         </nav>
@@ -135,7 +155,7 @@ export function AppSidebar() {
         </div>
       </aside>
 
-      {CONTROL_PLANE_ENABLED && (
+      {CONTROL_PLANE_ENABLED && isAdmin && (
         <CreateAppModal
           isOpen={isCreateModalOpen}
           onClose={() => setIsCreateModalOpen(false)}

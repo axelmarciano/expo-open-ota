@@ -12,9 +12,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PageHeader } from '@/components/PageHeader';
 import { DeleteDialog } from '@/components/ui/delete-dialog';
+import { AdminOnlyNote } from '@/components/ui/admin-only-note';
 import { TimestampCell } from '@/components/ui/timestamp-cell';
 import { Trash2, Plus } from 'lucide-react';
 import { useSettings } from '@/lib/SettingsContext';
+import { useCurrentUser } from '@/lib/CurrentUserContext';
 
 interface TableColumnConfig {
   header: string;
@@ -25,6 +27,7 @@ interface TableColumnConfig {
 
 export const Channels = () => {
   const { CONTROL_PLANE_ENABLED } = useSettings();
+  const { isAdmin } = useCurrentUser();
   const { selectedAppId } = useSelectedApp();
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['channels', selectedAppId],
@@ -172,13 +175,18 @@ export const Channels = () => {
       {
         header: 'Branch',
         accessorKey: 'branchId',
-        cell: ({ row }) => (
-          <SelectBranch
-            currentBranch={row.original.branchId || ''}
-            loading={isLoading || loading}
-            onChange={onBranchChange(row.original)}
-          />
-        ),
+        // Remapping a live channel is an admin action (the server enforces
+        // it) — everyone else sees the mapping read-only.
+        cell: ({ row }) =>
+          isAdmin ? (
+            <SelectBranch
+              currentBranch={row.original.branchId || ''}
+              loading={isLoading || loading}
+              onChange={onBranchChange(row.original)}
+            />
+          ) : (
+            <span className="text-muted-foreground">{row.original.branchName || '—'}</span>
+          ),
       },
       ...(CONTROL_PLANE_ENABLED
         ? [
@@ -187,6 +195,11 @@ export const Channels = () => {
               accessorKey: 'createdAt',
               cell: ({ row }) => <TimestampCell dateString={row.original.createdAt} />,
             } satisfies TableColumnConfig,
+          ]
+        : []),
+      // Deleting a channel is an admin action (the server enforces it).
+      ...(CONTROL_PLANE_ENABLED && isAdmin
+        ? [
             {
               header: '',
               id: 'actions',
@@ -207,7 +220,7 @@ export const Channels = () => {
           ]
         : []),
     ];
-  }, [CONTROL_PLANE_ENABLED, isLoading, loading, onBranchChange]);
+  }, [CONTROL_PLANE_ENABLED, isAdmin, isLoading, loading, onBranchChange]);
 
   return (
     <div className="w-full">
@@ -236,7 +249,13 @@ export const Channels = () => {
       {!!error && <ApiError error={error} />}
 
       <div className="space-y-4">
-        {CONTROL_PLANE_ENABLED && (
+        {CONTROL_PLANE_ENABLED && !isAdmin && (
+          <AdminOnlyNote>
+            You are signed in with a member account, which is read-only — ask an admin to create or
+            delete channels or change which branch a channel serves.
+          </AdminOnlyNote>
+        )}
+        {CONTROL_PLANE_ENABLED && isAdmin && (
           <Card>
             <CardContent className="p-5">
               <form
@@ -289,7 +308,7 @@ export const Channels = () => {
         />
       </div>
 
-      {CONTROL_PLANE_ENABLED && (
+      {CONTROL_PLANE_ENABLED && isAdmin && (
         <DeleteDialog
           isOpen={!!channelToDelete}
           onClose={() => setChannelToDelete(null)}

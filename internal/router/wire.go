@@ -29,6 +29,8 @@ type AppContainer struct {
 	UpdateHandler        *dashhandlers.UpdateHandler
 	UploadHandler        *handlers.UploadHandler
 	RepublishHandler     *handlers.RepublishHandler
+	UsersHandler         *dashhandlers.UsersHandler
+	UserRepo             services.UserRepository
 }
 
 // logLegacyAppIdFallback states, once at boot, which app receives manifest and
@@ -51,6 +53,9 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	var branchRepo services.BranchRepository
 	var channelRepo services.ChannelRepository
 	var updateRepo services.UpdateRepository
+	// Stays nil in stateless mode: user accounts only exist on the control
+	// plane, the flat-env dashboard authenticates against ADMIN_EMAIL/ADMIN_PASSWORD.
+	var userRepo services.UserRepository
 
 	cleanup := func() {}
 	dbUrl := config.GetDBURL()
@@ -77,6 +82,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 
 		authRepo = store.NewPostgresAuthStore(dbEngine)
 		appRepo = store.NewPostgresAppStore(dbEngine)
+		userRepo = store.NewPostgresUserStore(dbEngine)
 		branchRepo = store.NewPostgresBranchStore(dbEngine)
 		channelRepo = store.NewPostgresChannelStore(dbEngine)
 		updateRepo = store.NewPostgresUpdateStore(dbEngine)
@@ -94,8 +100,9 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 
 	logLegacyAppIdFallback()
 
-	dashboardAuthService := services.NewDashboardAuthService()
+	dashboardAuthService := services.NewDashboardAuthService(userRepo)
 	cliAuthService := services.NewCliAuthService(authRepo)
+	userService := services.NewUserService(userRepo)
 	appService := services.NewAppService(appRepo)
 	branchService := services.NewBranchService(branchRepo, channelRepo, updateRepo, resolvedBucket)
 	channelService := services.NewChannelService(branchRepo, channelRepo)
@@ -118,5 +125,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		SettingsHandler:      dashhandlers.NewSettingsHandler(appService),
 		UpdateHandler:        dashhandlers.NewUpdateHandler(updateService),
 		UploadHandler:        handlers.NewUploadHandler(cliAuthService, deploymentService),
+		UsersHandler:         dashhandlers.NewUsersHandler(userService),
+		UserRepo:             userRepo,
 	}, cleanup
 }

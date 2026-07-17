@@ -11,7 +11,9 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast.ts';
 import { ResourceCreateForm } from '@/components/ui/resource-create-form';
 import { DeleteDialog } from '@/components/ui/delete-dialog';
+import { AdminOnlyNote } from '@/components/ui/admin-only-note';
 import { useSettings } from '@/lib/SettingsContext';
+import { useCurrentUser } from '@/lib/CurrentUserContext';
 
 interface TableColumnConfig {
   header: string;
@@ -24,6 +26,8 @@ interface TableColumnConfig {
 
 export const BranchesTable = () => {
   const { CONTROL_PLANE_ENABLED } = useSettings();
+  // Member accounts are read-only — every mutation is admin-only server-side.
+  const { isAdmin } = useCurrentUser();
   const [, setSearchParams] = useSearchParams();
   const { selectedAppId } = useSelectedApp();
   const queryClient = useQueryClient();
@@ -128,7 +132,7 @@ export const BranchesTable = () => {
           return <Badge variant="outline">{releaseChannel}</Badge>;
         },
       },
-      ...(CONTROL_PLANE_ENABLED
+      ...(CONTROL_PLANE_ENABLED && isAdmin
         ? [
             {
               header: '',
@@ -155,13 +159,19 @@ export const BranchesTable = () => {
           ]
         : []),
     ];
-  }, [CONTROL_PLANE_ENABLED]);
+  }, [CONTROL_PLANE_ENABLED, isAdmin]);
 
   return (
     <div className="w-full flex-1 space-y-4">
       {!!error && <ApiError error={error} />}
 
-      {CONTROL_PLANE_ENABLED && (
+      {CONTROL_PLANE_ENABLED && !isAdmin && (
+        <AdminOnlyNote>
+          You are signed in with a member account, which is read-only — ask an admin to create or
+          delete branches.
+        </AdminOnlyNote>
+      )}
+      {CONTROL_PLANE_ENABLED && isAdmin && (
         <div className="flex justify-end">
           <ResourceCreateForm
             id="branch-name"
@@ -185,7 +195,7 @@ export const BranchesTable = () => {
         onRowClick={row => setSearchParams({ branch: row.branchName })}
       />
 
-      {CONTROL_PLANE_ENABLED && (
+      {CONTROL_PLANE_ENABLED && isAdmin && (
         <DeleteDialog
           isOpen={!!branchToDelete}
           onClose={() => setBranchToDelete(null)}
