@@ -302,7 +302,7 @@ const unknownAppName = "\x00unknown"
 // when it cannot be resolved (missing/invalid token, network failure). Used
 // as a dashboard display fallback in stateless mode, where the flat env
 // carries no name — so best-effort by design: callers fall back to the id.
-func FetchAppName(appId string) string {
+func FetchAppName(ctx context.Context, appId string) string {
 	cache := cache2.GetCache()
 	token := GetAccessToken(appId)
 	cacheKey := fmt.Sprintf("expoAppName:%s:%s:%x", version.Version, appId, sha256.Sum256([]byte(token)))
@@ -336,7 +336,6 @@ func FetchAppName(appId string) string {
 	if config.IsTestMode() {
 		headers["operationName"] = "FetchExpoAppName"
 	}
-	ctx := context.Background()
 	if err := MakeGraphQLRequest(ctx, query, variables, types.Auth{
 		Token: &token,
 	}, &resp, headers); err != nil {

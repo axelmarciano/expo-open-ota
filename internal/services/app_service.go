@@ -146,7 +146,7 @@ func (s *AppService) GetAppByID(ctx context.Context, appId string) (config.AppCo
 		// Expo for the dashboard. Best-effort and cached; "" keeps the
 		// id-as-label fallback. Lives here rather than in the store so the
 		// device-facing OTA path never pays the Expo round-trip.
-		app.Name = expo.FetchAppName(app.Id)
+		app.Name = expo.FetchAppName(ctx, app.Id)
 	}
 	return app, nil
 }

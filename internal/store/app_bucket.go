@@ -26,7 +26,7 @@ func (s *BucketAppStore) GetApps(ctx context.Context) ([]config.AppDescriptor, e
 	// Expo instead — best-effort and cached; "" keeps the id-as-label fallback.
 	for i := range apps {
 		if apps[i].Name == "" {
-			apps[i].Name = expo.FetchAppName(apps[i].Id)
+			apps[i].Name = expo.FetchAppName(ctx, apps[i].Id)
 		}
 	}
 	return apps, nil
