@@ -37,9 +37,11 @@ func NewRouter(container *AppContainer) *mux.Router {
 	r := mux.NewRouter()
 	r.Use(middleware.LoggingMiddleware)
 
-	r.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
-		metrics.PrometheusHandler().ServeHTTP(w, r)
-	}).Methods(http.MethodGet)
+	if config.GetEnv("PROMETHEUS_ENABLED") == "true" {
+		r.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+			metrics.PrometheusHandler().ServeHTTP(w, r)
+		}).Methods(http.MethodGet)
+	}
 
 	r.HandleFunc("/hc", HealthCheck).Methods(http.MethodGet)
 
