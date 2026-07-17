@@ -10,6 +10,8 @@ import (
 func TestValidatePasswordPolicyAccepted(t *testing.T) {
 	assert.NoError(t, ValidatePasswordPolicy("Sup3rSecret!"))
 	assert.NoError(t, ValidatePasswordPolicy("aB3!aB3!"))
+	// Multibyte runes count once each, and accented letters keep their case class.
+	assert.NoError(t, ValidatePasswordPolicy("Änapé-Sec3t"))
 }
 
 func TestValidatePasswordPolicyRejected(t *testing.T) {
@@ -19,6 +21,8 @@ func TestValidatePasswordPolicyRejected(t *testing.T) {
 		missing  string
 	}{
 		{"too short", "aB3!x", "at least 8 characters"},
+		// 8 UTF-8 bytes but only 4 characters — a byte count would let it through.
+		{"multibyte shorter than it looks", "Ää１!", "at least 8 characters"},
 		{"no uppercase", "sup3rsecret!", "an uppercase letter"},
 		{"no lowercase", "SUP3RSECRET!", "a lowercase letter"},
 		{"no digit", "SuperSecret!", "a digit"},

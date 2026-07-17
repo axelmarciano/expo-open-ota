@@ -43,6 +43,30 @@ func TestResolveSeedAdminCredentialsRejectsMalformedEmail(t *testing.T) {
 	}
 }
 
+// ParseAddress accepts "Admin <admin@example.com>", but storing that string
+// would leave a seeded admin that can never match a login lookup.
+func TestResolveSeedAdminCredentialsRejectsMailboxFormEmail(t *testing.T) {
+	t.Setenv("ADMIN_EMAIL", "Admin <admin@example.com>")
+	t.Setenv("ADMIN_PASSWORD", "Sup3rSecret!")
+	_, _, err := resolveSeedAdminCredentials()
+	if err == nil {
+		t.Fatal("expected an error for a mailbox-form ADMIN_EMAIL")
+	}
+}
+
+// The first admin is held to the same password policy as every dashboard user.
+func TestResolveSeedAdminCredentialsEnforcesPasswordPolicy(t *testing.T) {
+	t.Setenv("ADMIN_EMAIL", "admin@example.com")
+	t.Setenv("ADMIN_PASSWORD", "weak")
+	_, _, err := resolveSeedAdminCredentials()
+	if err == nil {
+		t.Fatal("expected an error for a weak ADMIN_PASSWORD")
+	}
+	if !strings.Contains(err.Error(), "password policy") {
+		t.Fatalf("error should point the operator at the password policy, got: %v", err)
+	}
+}
+
 func TestResolveSeedAdminCredentialsNormalizesEmail(t *testing.T) {
 	t.Setenv("ADMIN_EMAIL", "  Admin@Example.COM ")
 	t.Setenv("ADMIN_PASSWORD", "Sup3rSecret!")

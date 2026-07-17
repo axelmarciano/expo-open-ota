@@ -87,7 +87,10 @@ func (s *UserService) CreateUser(ctx context.Context, email string, password str
 		return store.User{}, err
 	}
 	normalizedEmail := store.NormalizeEmail(email)
-	if _, err := mail.ParseAddress(normalizedEmail); err != nil {
+	// The addr comparison rejects mailbox forms like "Jane <jane@acme.dev>":
+	// ParseAddress accepts them, but the stored string would never match a
+	// login lookup.
+	if addr, err := mail.ParseAddress(normalizedEmail); err != nil || addr.Address != normalizedEmail {
 		return store.User{}, &ValidationError{Reason: errors.New("invalid email address")}
 	}
 	if err := crypto.ValidatePasswordPolicy(password); err != nil {

@@ -29,8 +29,16 @@ func resolveSeedAdminCredentials() (email string, password string, err error) {
 			"they create the first admin user of the dashboard. Set them and restart the server " +
 			"(they can be removed once this migration has run)")
 	}
-	if _, err := mail.ParseAddress(email); err != nil {
-		return "", "", fmt.Errorf("ADMIN_EMAIL %q is not a valid email address: %w", email, err)
+	// The addr comparison rejects mailbox forms like "Admin <admin@acme.dev>":
+	// ParseAddress accepts them, but the stored string would never match a
+	// login lookup and the seeded admin could not sign in.
+	if addr, err := mail.ParseAddress(email); err != nil || addr.Address != email {
+		return "", "", fmt.Errorf("ADMIN_EMAIL %q is not a plain email address — use the bare form, e.g. admin@example.com", email)
+	}
+	// The first admin is a dashboard user like any other — hold its bootstrap
+	// password to the same policy users face in the UI.
+	if err := crypto.ValidatePasswordPolicy(password); err != nil {
+		return "", "", fmt.Errorf("ADMIN_PASSWORD seeds the first dashboard admin and must meet the password policy: %w", err)
 	}
 	return email, password, nil
 }

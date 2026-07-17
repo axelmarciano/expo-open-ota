@@ -17,7 +17,9 @@ export const PASSWORD_RULES: PasswordRule[] = [
   {
     id: 'length',
     label: `At least ${PASSWORD_MIN_LENGTH} characters`,
-    test: password => password.length >= PASSWORD_MIN_LENGTH,
+    // Counted in code points to match the server's rune count — an emoji or
+    // accented letter is one character on both sides.
+    test: password => [...password].length >= PASSWORD_MIN_LENGTH,
   },
   {
     id: 'uppercase',

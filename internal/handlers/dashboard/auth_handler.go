@@ -42,6 +42,11 @@ func (ah *AuthHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 			handlers.RenderError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		// A database outage is not a credentials problem either.
+		if errors.Is(err, services.ErrAuthUnavailable) {
+			handlers.RenderError(w, http.StatusInternalServerError, "Could not verify the credentials — try again later")
+			return
+		}
 		handlers.RenderError(w, http.StatusUnauthorized, "Invalid credentials")
 		return
 	}
@@ -64,6 +69,12 @@ func (ah *AuthHandler) RefreshTokenHandler(w http.ResponseWriter, r *http.Reques
 	}
 	session, err := ah.dashboardAuthService.RefreshSession(r.Context(), refreshToken)
 	if err != nil {
+		// A database outage must not read as an expired session — the client
+		// would drop a perfectly valid refresh token and force a re-login.
+		if errors.Is(err, services.ErrAuthUnavailable) {
+			handlers.RenderError(w, http.StatusInternalServerError, "Error refreshing token")
+			return
+		}
 		handlers.RenderError(w, http.StatusUnauthorized, "Error refreshing token")
 		return
 	}

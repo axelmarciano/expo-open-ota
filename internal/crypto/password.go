@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -34,7 +35,9 @@ func ValidatePasswordPolicy(password string) error {
 	}
 
 	var missing []string
-	if len(password) < PasswordPolicyMinLength {
+	// Count runes, not bytes: "Ääää" is 8 bytes but only 4 characters, and the
+	// dashboard mirror counts characters too.
+	if utf8.RuneCountInString(password) < PasswordPolicyMinLength {
 		missing = append(missing, fmt.Sprintf("at least %d characters", PasswordPolicyMinLength))
 	}
 	if !hasUpper {

@@ -134,6 +134,11 @@ func TestCreateUserValidations(t *testing.T) {
 	_, err := service.CreateUser(context.Background(), "not-an-email", "Sup3rSecret!", false)
 	assert.ErrorContains(t, err, "invalid email address")
 
+	// Mailbox forms parse, but would be stored verbatim and never match a
+	// login lookup — refused.
+	_, err = service.CreateUser(context.Background(), "Jane <jane@example.com>", "Sup3rSecret!", false)
+	assert.ErrorContains(t, err, "invalid email address")
+
 	_, err = service.CreateUser(context.Background(), "user@example.com", "weak", false)
 	assert.ErrorContains(t, err, "password does not meet the policy")
 
@@ -253,6 +258,13 @@ func TestDashboardAuthServiceWithUserRepo(t *testing.T) {
 	_, err = userService.CreateUser(ctx, "second-admin@example.com", "Sup3rSecret!", true)
 	require.NoError(t, err)
 	require.NoError(t, repo.DeleteUserByID(ctx, user.Id))
+	_, err = authService.RefreshSession(ctx, session.RefreshToken)
+	assert.Error(t, err)
+
+	// Even if the address is later reused by a new account, the old refresh
+	// token stays dead: it is bound to the deleted user's id, not the email.
+	_, err = userService.CreateUser(ctx, "admin@example.com", "Sup3rSecret!", true)
+	require.NoError(t, err)
 	_, err = authService.RefreshSession(ctx, session.RefreshToken)
 	assert.Error(t, err)
 }

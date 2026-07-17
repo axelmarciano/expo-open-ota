@@ -134,30 +134,60 @@ func resolveStatelessPrincipal(email string, password *string) (*DashboardPrinci
 // bcrypt comparison and response timing cannot enumerate accounts.
 const unknownUserPasswordHash = "$2a$10$RTxsxJsH5d9yZcM.fDe/kOv28rciQYAnNBOrK0frmWJPZGH1pTzhO"
 
-func (a *DashboardAuthService) resolvePrincipal(ctx context.Context, email string, password *string) (*DashboardPrincipal, error) {
-	if a.userRepo == nil {
-		return resolveStatelessPrincipal(email, password)
-	}
-	user, err := a.userRepo.GetUserByEmail(ctx, email)
-	if err != nil {
-		if password != nil {
-			crypto.VerifyPassword(unknownUserPasswordHash, *password)
-		}
-		return nil, errors.New("invalid credentials")
-	}
-	if password != nil && !crypto.VerifyPassword(user.PasswordHash, *password) {
-		return nil, errors.New("invalid credentials")
-	}
-	// Both a password login and a refresh prove the account is actively using
-	// the dashboard. Best-effort: a failed touch must not fail the sign-in.
+// ErrAuthUnavailable marks login/refresh failures caused by the account store
+// being unreachable — an infrastructure problem the handlers must surface as
+// a 500, never as invalid credentials.
+var ErrAuthUnavailable = errors.New("could not verify the account against the database")
+
+// principalForUser records the connection and builds the session principal.
+// Both a password login and a refresh prove the account is actively using the
+// dashboard. Best-effort: a failed touch must not fail the sign-in.
+func (a *DashboardAuthService) principalForUser(ctx context.Context, user store.User) *DashboardPrincipal {
 	if err := a.userRepo.TouchUserLastConnected(ctx, user.Id); err != nil {
 		log.Printf("failed to record last connection for user %s: %v", user.Id, err)
 	}
-	return &DashboardPrincipal{UserId: user.Id, Email: user.Email, IsAdmin: user.IsAdmin}, nil
+	return &DashboardPrincipal{UserId: user.Id, Email: user.Email, IsAdmin: user.IsAdmin}
+}
+
+func (a *DashboardAuthService) resolveLoginPrincipal(ctx context.Context, email string, password string) (*DashboardPrincipal, error) {
+	if a.userRepo == nil {
+		return resolveStatelessPrincipal(email, &password)
+	}
+	user, err := a.userRepo.GetUserByEmail(ctx, email)
+	if err != nil {
+		if notFoundErr := (*store.ErrResourceNotFound)(nil); errors.As(err, &notFoundErr) {
+			// Unknown account: burn the same bcrypt cost as a real comparison
+			// so response timing cannot enumerate which emails exist.
+			crypto.VerifyPassword(unknownUserPasswordHash, password)
+			return nil, errors.New("invalid credentials")
+		}
+		return nil, fmt.Errorf("%w: %v", ErrAuthUnavailable, err)
+	}
+	if !crypto.VerifyPassword(user.PasswordHash, password) {
+		return nil, errors.New("invalid credentials")
+	}
+	return a.principalForUser(ctx, user), nil
+}
+
+// resolveRefreshPrincipal re-resolves the account behind a refresh token by
+// its immutable user id — never by email: a deleted account whose address is
+// later reused must not let the old refresh token resurrect into the new one.
+func (a *DashboardAuthService) resolveRefreshPrincipal(ctx context.Context, userId string) (*DashboardPrincipal, error) {
+	if userId == "" {
+		return nil, errors.New("invalid token")
+	}
+	user, err := a.userRepo.GetUserByID(ctx, userId)
+	if err != nil {
+		if notFoundErr := (*store.ErrResourceNotFound)(nil); errors.As(err, &notFoundErr) {
+			return nil, errors.New("invalid credentials")
+		}
+		return nil, fmt.Errorf("%w: %v", ErrAuthUnavailable, err)
+	}
+	return a.principalForUser(ctx, user), nil
 }
 
 func (a *DashboardAuthService) LoginWithEmailPassword(ctx context.Context, email string, password string) (*DashboardSession, error) {
-	principal, err := a.resolvePrincipal(ctx, email, &password)
+	principal, err := a.resolveLoginPrincipal(ctx, email, password)
 	if err != nil {
 		return nil, err
 	}
@@ -208,8 +238,14 @@ func (a *DashboardAuthService) RefreshSession(ctx context.Context, tokenString s
 	if claims["sub"] != dashboardSubject {
 		return nil, errors.New("invalid token subject")
 	}
-	email, _ := claims["email"].(string)
-	principal, err := a.resolvePrincipal(ctx, email, nil)
+	var principal *DashboardPrincipal
+	if a.userRepo == nil {
+		email, _ := claims["email"].(string)
+		principal, err = resolveStatelessPrincipal(email, nil)
+	} else {
+		userId, _ := claims["userId"].(string)
+		principal, err = a.resolveRefreshPrincipal(ctx, userId)
+	}
 	if err != nil {
 		return nil, err
 	}
