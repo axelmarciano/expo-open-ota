@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="apps/docs/static/img/social_card.png" alt="Expo Open OTA" />
-  <img src="apps/docs/static/img/dashboard_screenshot.png" alt="Expo Open OTA - Dashboard" />
+  <img src=".github/img/social_card.png" alt="Expo Open OTA" />
+  <img src=".github/img/dashboard_screenshot.png" alt="Expo Open OTA - Dashboard" />
 </p>
 
 
-<h3 align="center">Self-hosted OTA updates for Expo — multi-cloud, production-ready.</h3>
+<h3 align="center">Self-hosted OTA updates for Expo — multi-cloud, multi-app, production-ready.</h3>
 
 <p align="center">
   An open-source Go server implementing the <a href="https://docs.expo.dev/technical-specs/expo-updates-1/">Expo Updates protocol</a>.<br/>
@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://axelmarciano.github.io/expo-open-ota/">Documentation</a> · <a href="https://github.com/axelmarciano/expo-open-ota/issues">Issues</a> · <a href="mailto:expoopenota@gmail.com">Contact</a>
+  <a href="https://mercure-technologies.gitbook.io/expo-open-ota">Documentation</a> · <a href="https://github.com/axelmarciano/expo-open-ota/issues">Issues</a> · <a href="mailto:expoopenota@gmail.com">Contact</a>
 </p>
 
 ---
@@ -23,24 +23,40 @@
 - **Own your infrastructure** — Store updates on your cloud, behind your VPN, with your security policies.
 - **No vendor lock-in** — Works with AWS, GCP, and any S3-compatible provider. Switch anytime.
 
+## Two modes
+
+| | Stateless mode | Control plane mode |
+|---|---|---|
+| **Apps per server** | One | Many |
+| **Database** | None | PostgreSQL |
+| **App management** | Environment variables | Dashboard UI + per-app API keys |
+| **Expo account** | Required (channels & publishing rights) | Not required |
+
+Start stateless, switch later: setting `DB_URL` migrates your app — keys, branches, and update history included — into the control plane automatically. See the [documentation](https://mercure-technologies.gitbook.io/expo-open-ota) for both modes.
+
 ## Features
 
 | Feature | Description |
 |---------|-------------|
+| **Multi-app support** | Host several Expo apps on a single server with the control plane |
 | **Multi-cloud storage** | AWS S3, Google Cloud Storage, S3-compatible (Cloudflare R2, MinIO, DigitalOcean Spaces), local file system |
 | **Fast asset delivery** | CloudFront CDN, GCS signed URLs, or direct serving — your choice |
 | **One-command publishing** | `npx eoas publish` from your CI/CD pipeline |
-| **Secure key management** | AWS Secrets Manager, environment variables, or local key files |
-| **Dashboard** | Built-in web UI for monitoring updates, branches, and runtime versions |
-| **Prometheus metrics** | Production observability out of the box |
-| **No database required** | Zero external dependencies beyond your storage provider |
+| **Secure key management** | AWS Secrets Manager, environment variables, local key files, or sealed in the database (AES-GCM) |
+| **Dashboard** | Built-in web UI for managing apps, updates, branches, and runtime versions |
+| **Prometheus metrics** | Production observability out of the box, per-app labels included |
+| **Stateless mode** | Run without any database — zero external dependencies beyond your storage provider |
 | **Helm chart** | Ready for Kubernetes deployments |
 
 ## Quick Start
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/MGW3k1?referralCode=OEHlEK&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
-And follow the [Quick Start guide](https://axelmarciano.github.io/expo-open-ota/docs/getting-started/quick-start) to get up and running in minutes.
+And follow the [Getting Started guide](https://mercure-technologies.gitbook.io/expo-open-ota/stateless-mode/getting-started) to get up and running in minutes.
+
+## Migrating from v2?
+
+v3 changes the bucket layout (updates are now scoped per app id) and identifies apps by the `expo-app-id` header. Your installed clients keep working without a rebuild — follow the [v2 → v3 migration guide](https://mercure-technologies.gitbook.io/expo-open-ota/migrate-from-v2-to-v3).
 
 ## Storage Options
 

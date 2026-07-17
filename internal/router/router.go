@@ -2,17 +2,17 @@ package infrastructure
 
 import (
 	"expo-open-ota/config"
-	"expo-open-ota/internal/dashboard"
-	"expo-open-ota/internal/handlers"
+	dashutils "expo-open-ota/internal/dashboard"
 	"expo-open-ota/internal/metrics"
 	"expo-open-ota/internal/middleware"
 	"fmt"
-	"github.com/gorilla/mux"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/gorilla/mux"
 )
 
 func HealthCheck(w http.ResponseWriter, r *http.Request) {
@@ -33,30 +33,36 @@ func getDashboardPath() string {
 	return filepath.Join(exeDir, "apps", "dashboard", "dist")
 }
 
-func NewRouter() *mux.Router {
+func NewRouter(container *AppContainer) *mux.Router {
 	r := mux.NewRouter()
 	r.Use(middleware.LoggingMiddleware)
 
-	r.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
-		metrics.PrometheusHandler().ServeHTTP(w, r)
-	}).Methods(http.MethodGet)
+	if config.GetEnv("PROMETHEUS_ENABLED") == "true" {
+		r.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+			metrics.PrometheusHandler().ServeHTTP(w, r)
+		}).Methods(http.MethodGet)
+	}
 
 	r.HandleFunc("/hc", HealthCheck).Methods(http.MethodGet)
-	r.HandleFunc("/manifest", handlers.ManifestHandler).Methods(http.MethodGet)
-	r.HandleFunc("/assets", handlers.AssetsHandler).Methods(http.MethodGet)
-	r.HandleFunc("/requestUploadUrl/{BRANCH}", handlers.RequestUploadUrlHandler).Methods(http.MethodPost)
-	r.HandleFunc("/uploadLocalFile", handlers.RequestUploadLocalFileHandler).Methods(http.MethodPut)
-	r.HandleFunc("/markUpdateAsUploaded/{BRANCH}", handlers.MarkUpdateAsUploadedHandler).Methods(http.MethodPost)
-	r.HandleFunc("/rollback/{BRANCH}", handlers.RollbackHandler).Methods(http.MethodPost)
-	r.HandleFunc("/republish/{BRANCH}", handlers.RepublishHandler).Methods(http.MethodPost)
+
+	appSubrouter := r.PathPrefix("/{APP_ID}").Subrouter()
+	appSubrouter.Use(middleware.AppResolverMiddleware(container.AppRepo))
+	appSubrouter.HandleFunc("/requestUploadUrl/{BRANCH}", container.UploadHandler.RequestUploadUrlHandler).Methods(http.MethodPost)
+	appSubrouter.HandleFunc("/uploadLocalFile", container.UploadHandler.RequestUploadLocalFileHandler).Methods(http.MethodPut)
+	appSubrouter.HandleFunc("/markUpdateAsUploaded/{BRANCH}", container.UploadHandler.MarkUpdateAsUploadedHandler).Methods(http.MethodPost)
+	appSubrouter.HandleFunc("/rollback/{BRANCH}", container.RollbackHandler.HandleRollback).Methods(http.MethodPost)
+	appSubrouter.HandleFunc("/republish/{BRANCH}", container.RepublishHandler.HandleRepublish).Methods(http.MethodPost)
+
+	r.HandleFunc("/manifest", container.ExpoProtocolHandler.HandleManifest).Methods(http.MethodGet)
+	r.HandleFunc("/assets", container.ExpoProtocolHandler.HandleAssets).Methods(http.MethodGet)
 
 	corsSubrouter := r.PathPrefix("/auth").Subrouter()
-	corsSubrouter.HandleFunc("/login", handlers.LoginHandler).Methods(http.MethodPost)
-	corsSubrouter.HandleFunc("/refreshToken", handlers.RefreshTokenHandler).Methods(http.MethodPost)
+	corsSubrouter.HandleFunc("/login", container.AuthHandler.LoginHandler).Methods(http.MethodPost)
+	corsSubrouter.HandleFunc("/refreshToken", container.AuthHandler.RefreshTokenHandler).Methods(http.MethodPost)
 
 	dashboardPath := getDashboardPath()
 
-	if dashboard.IsDashboardEnabled() {
+	if dashutils.IsDashboardEnabled() {
 		r.PathPrefix("/dashboard").Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Get env.js
 			if r.URL.Path == "/dashboard/env.js" {
@@ -95,13 +101,37 @@ func NewRouter() *mux.Router {
 	}
 
 	authSubrouter := r.PathPrefix("/api").Subrouter()
-	authSubrouter.Use(middleware.AuthMiddleware)
-	authSubrouter.HandleFunc("/settings", handlers.GetSettingsHandler).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/branches", handlers.GetBranchesHandler).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/channels", handlers.GetChannelsHandler).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersions", handlers.GetRuntimeVersionsHandler).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates", handlers.GetUpdatesHandler).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates/{UPDATE_ID}", handlers.GetUpdateDetails).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/branch/{BRANCH}/updateChannelBranchMapping", handlers.UpdateChannelBranchMappingHandler).Methods(http.MethodPost)
+	authSubrouter.Use(middleware.NewAuthMiddleware(container.DashboardAuthService, container.CliAuthService))
+	authSubrouter.HandleFunc("/settings", container.SettingsHandler.GetSettingsHandler).Methods(http.MethodGet)
+
+	// Apps management router
+	authSubrouter.HandleFunc("/apps", container.AppHandler.CreateAppHandler).Methods(http.MethodPost)
+	authSubrouter.HandleFunc("/apps/{APP_ID}", container.AppHandler.DeleteAppHandler).Methods(http.MethodDelete)
+	authSubrouter.HandleFunc("/apps/{APP_ID}", container.AppHandler.UpdateAppHandler).Methods(http.MethodPatch)
+	authSubrouter.HandleFunc("/apps", container.AppHandler.GetAppsHandler).Methods(http.MethodGet)
+	authSubrouter.HandleFunc("/apps/{APP_ID}/certificate", container.AppHandler.DownloadAppCertificateHandler).Methods(http.MethodGet)
+
+	// App-scoped dashboard routes: Auth first, then AppResolver validates the
+	// id and short-circuits unknown apps with 404 before handlers run. Without
+	// the resolver, an unknown id falls through to bucket lookups that return
+	// empty lists — the client sees 200 with [] instead of a proper "no such
+	// app" signal.
+	appAuthSubrouter := authSubrouter.PathPrefix("/apps/{APP_ID}").Subrouter()
+	appAuthSubrouter.StrictSlash(true)
+	appAuthSubrouter.Use(middleware.AppResolverMiddleware(container.AppRepo))
+	appAuthSubrouter.HandleFunc("/", container.AppHandler.GetAppHandler).Methods(http.MethodGet)
+	appAuthSubrouter.HandleFunc("/branches", container.BranchHandler.CreateBranchHandler).Methods(http.MethodPost)
+	appAuthSubrouter.HandleFunc("/branches/{BRANCH}", container.BranchHandler.DeleteBranchHandler).Methods(http.MethodDelete)
+	appAuthSubrouter.HandleFunc("/branches", container.BranchHandler.GetBranchesHandler).Methods(http.MethodGet)
+	appAuthSubrouter.HandleFunc("/channels", container.ChannelHandler.CreateChannelHandler).Methods(http.MethodPost)
+	appAuthSubrouter.HandleFunc("/channels/{CHANNEL}", container.ChannelHandler.DeleteChannelHandler).Methods(http.MethodDelete)
+	appAuthSubrouter.HandleFunc("/channels", container.ChannelHandler.GetChannelsHandler).Methods(http.MethodGet)
+	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersions", container.BranchHandler.GetRuntimeVersionsHandler).Methods(http.MethodGet)
+	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates", container.UpdateHandler.GetUpdatesHandler).Methods(http.MethodGet)
+	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates/{UPDATE_ID}", container.UpdateHandler.GetUpdateDetailsHandler).Methods(http.MethodGet)
+	appAuthSubrouter.HandleFunc("/branch/{BRANCH_ID}/updateChannelBranchMapping", container.BranchHandler.UpdateChannelBranchMappingHandler).Methods(http.MethodPost)
+	appAuthSubrouter.HandleFunc("/apiKeys", container.ApiKeyHandler.CreateApiKeyHandler).Methods(http.MethodPost)
+	appAuthSubrouter.HandleFunc("/apiKeys", container.ApiKeyHandler.GetApiKeysHandler).Methods(http.MethodGet)
+	appAuthSubrouter.HandleFunc("/apiKeys/{API_KEY_ID}/revoke", container.ApiKeyHandler.RevokeApiKeyHandler).Methods(http.MethodDelete)
 	return r
 }

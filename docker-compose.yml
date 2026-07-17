@@ -26,9 +26,21 @@ services:
     volumes:
       - .:/app
       - ~/.aws:/root/.aws:ro
+      - ./updates:/updates
     env_file:
       - .env
     command: reflex -r '\.go' -s -- sh -c "ls -l cmd/api && go run cmd/api/main.go"
+
+  postgres:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret}
+      POSTGRES_DB: ${POSTGRES_DB:-expo_ota_dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
 
   ota-server-test:
     build:
@@ -39,3 +51,6 @@ services:
       - ~/.aws:/root/.aws:ro
     command: go test -v ./...
     profiles: ["test"]
+
+volumes:
+  postgres_data:

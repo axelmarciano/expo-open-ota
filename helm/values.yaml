@@ -32,6 +32,19 @@ useGenericCDN: "false"
 cacheMode: "redis"
 useDashboard: "false"
 useRedisTLS: "false"
+# Set to "true" to run the server as a Control Plane (DB mode): apps live in
+# Postgres and are created/managed from the dashboard instead of the single
+# flat-env app. Requires DB_URL and exactly one control-plane master key (see
+# the env vars below). When "false" the server is single-app (stateless) and
+# the flat EXPO_APP_ID / EXPO_ACCESS_TOKEN / key vars are used.
+# See https://github.com/axelmarciano/expo-open-ota/blob/main/apps/docs/docs/advanced/multi-app.mdx
+controlPlane: "false"
+# Where the DB keys master key comes from when controlPlane="true": "environment"
+# renders DB_KEYS_MASTER_KEY_B64, "aws-secrets-manager" renders
+# AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID. Independent of keysStorageType, which only
+# describes the stateless app's own signing keys and is not rendered at all in
+# control-plane mode. Ignored when controlPlane="false".
+dbKeysMasterKeySource: "environment"
 
 environment:
   - name: "USE_DASHBOARD"
@@ -145,6 +158,10 @@ environment:
     required:
       - key: "storageMode"
         is: "s3"
+  - name: "BUCKET_KEY_PREFIX"
+    value: ""
+    required: false
+  # TODO: remove S3_KEY_PREFIX once users have migrated to BUCKET_KEY_PREFIX
   - name: "S3_KEY_PREFIX"
     value: ""
     required: false
@@ -182,40 +199,60 @@ environment:
         is: "true"
       - key: "keysStorageType"
         is: "aws-secrets-manager"
+  # Per-app identity and signing keys for the single-app stateless mode. In
+  # control-plane mode (controlPlane="true") apps live in the database and are
+  # managed from the dashboard, so none of these flat vars are rendered — each
+  # ANDs its existing key-mode condition with `controlPlane=false`.
   - name: "KEYS_STORAGE_TYPE"
     key: "keysStorageType"
-    required: true
     computed: true
+    required:
+      - key: "controlPlane"
+        is: "false"
   - name: "AWSSM_EXPO_PUBLIC_KEY_SECRET_ID"
     value: ""
     required:
+      - key: "controlPlane"
+        is: "false"
       - key: "keysStorageType"
         is: "aws-secrets-manager"
   - name: "AWSSM_EXPO_PRIVATE_KEY_SECRET_ID"
     value: ""
     required:
+      - key: "controlPlane"
+        is: "false"
       - key: "keysStorageType"
         is: "aws-secrets-manager"
   - name: "PUBLIC_LOCAL_EXPO_KEY_PATH"
     value: ""
     required:
+      - key: "controlPlane"
+        is: "false"
       - key: "keysStorageType"
         is: "local"
   - name: "PRIVATE_LOCAL_EXPO_KEY_PATH"
     value: ""
     required:
+      - key: "controlPlane"
+        is: "false"
       - key: "keysStorageType"
         is: "local"
   - name: "PUBLIC_EXPO_KEY_B64"
     value: ""
     required:
+      - key: "controlPlane"
+        is: "false"
       - key: "keysStorageType"
         is: "environment"
   - name: "PRIVATE_EXPO_KEY_B64"
     value: ""
     required:
+      - key: "controlPlane"
+        is: "false"
       - key: "keysStorageType"
         is: "environment"
+  # CloudFront key is a server-wide signing key — it is NOT per app — so it
+  # stays required whenever CloudFront is enabled.
   - name: "PRIVATE_CLOUDFRONT_KEY_B64"
     value: ""
     required:
@@ -226,10 +263,48 @@ environment:
     required: true
   - name: "EXPO_ACCESS_TOKEN"
     value: ""
-    required: true
+    required:
+      - key: "controlPlane"
+        is: "false"
   - name: "EXPO_APP_ID"
     value: ""
-    required: true
+    required:
+      - key: "controlPlane"
+        is: "false"
+  # Control Plane (DB mode). Rendered only when controlPlane="true". Set DB_URL
+  # and the master key, whose source is picked by dbKeysMasterKeySource. The
+  # master key seals per-app signing keys at rest — generate it with
+  # `openssl rand -base64 32`.
+  - name: "DB_URL"
+    value: ""
+    required:
+      - key: "controlPlane"
+        is: "true"
+  - name: "DB_KEYS_MASTER_KEY_B64"
+    value: ""
+    required:
+      - key: "controlPlane"
+        is: "true"
+      - key: "dbKeysMasterKeySource"
+        is: "environment"
+  - name: "AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID"
+    value: ""
+    required:
+      - key: "controlPlane"
+        is: "true"
+      - key: "dbKeysMasterKeySource"
+        is: "aws-secrets-manager"
+  # Optional Postgres pool tuning (sensible defaults apply when unset).
+  - name: "DB_MAX_CONNS"
+    value: ""
+    required:
+      - key: "controlPlane"
+        is: "true"
+  - name: "DB_MIN_CONNS"
+    value: ""
+    required:
+      - key: "controlPlane"
+        is: "true"
   - name: "JWT_SECRET"
     value: ""
     required: true

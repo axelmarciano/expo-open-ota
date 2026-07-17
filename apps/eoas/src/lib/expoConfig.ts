@@ -150,6 +150,30 @@ export function getExpoConfigUpdateUrl(config: ExpoConfig): string | undefined {
   return config.updates?.url;
 }
 
+// getExpoAppId reads the app id without treating its absence as fatal. A config
+// with no 'expo-app-id' is the shape every v1 project has, so a caller that
+// diagnoses or migrates such a project needs to see the absence rather than be
+// exited on. Commands that cannot proceed without an id use requireExpoAppId.
+export function getExpoAppId(config: ExpoConfig): string | undefined {
+  return (config.updates as { requestHeaders?: Record<string, string> } | undefined)
+    ?.requestHeaders?.['expo-app-id'];
+}
+
+export function requireExpoAppId(config: ExpoConfig): string {
+  const appId = getExpoAppId(config);
+  if (!appId) {
+    Log.error("Your Expo config is missing the 'expo-app-id' entry in updates.requestHeaders.");
+    Log.error(
+      "This usually means you're running eoas v2+ against a v1-style single-app config or your config is missing the 'expo-app-id' entry."
+    );
+    Log.error(
+      "Fix: run 'npx eoas init' to migrate, or pin to the previous CLI via 'npx eoas@1 ...'."
+    );
+    process.exit(1);
+  }
+  return appId;
+}
+
 export async function createOrModifyExpoConfigAsync(
   projectDir: string,
   exp: Partial<ExpoConfig>
@@ -277,7 +301,7 @@ export async function resolveServerUrl(config: ExpoConfig): Promise<string> {
   try {
     const parsedUrl = new URL(updateUrl);
     baseUrl = parsedUrl.origin;
-  } catch (e) {
+  } catch {
     throw new Error('Invalid update URL.');
   }
   return baseUrl;

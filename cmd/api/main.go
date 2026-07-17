@@ -1,17 +1,17 @@
 package main
 
 import (
+	"context"
 	"expo-open-ota/config"
+	"expo-open-ota/internal/bucketmigration"
 	"expo-open-ota/internal/metrics"
-	"expo-open-ota/internal/migration"
 	infrastructure "expo-open-ota/internal/router"
-	"github.com/gorilla/handlers"
 	"log"
 	"net/http"
-)
 
-import (
-	_ "expo-open-ota/internal/migrations"
+	"github.com/gorilla/handlers"
+
+	_ "expo-open-ota/internal/bucketmigrations"
 )
 
 func init() {
@@ -20,12 +20,15 @@ func init() {
 }
 
 func main() {
-	migration.RunMigrationsWithLock()
-	router := infrastructure.NewRouter()
+	bucketmigration.RunMigrationsWithLock()
+
+	container, cleanup := infrastructure.InitDependencies(context.Background())
+	defer cleanup()
+	router := infrastructure.NewRouter(container)
 	log.Println("Server is running on port " + config.GetPort())
 	corsOptions := handlers.CORS(
 		handlers.AllowedHeaders([]string{"Authorization", "Content-Type"}),
-		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
+		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}),
 		handlers.AllowedOrigins([]string{"*"}),
 		handlers.AllowCredentials(),
 	)

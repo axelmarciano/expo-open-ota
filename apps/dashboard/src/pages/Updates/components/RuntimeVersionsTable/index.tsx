@@ -13,12 +13,16 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge.tsx';
+import { useSelectedApp } from '@/lib/SelectedAppContext';
+import { TimestampCell } from '@/components/ui/timestamp-cell';
 
 export const RuntimeVersionsTable = ({ branch }: { branch: string }) => {
   const [, setSearchParams] = useSearchParams();
+  const { selectedAppId } = useSelectedApp();
   const { data, isLoading, error } = useQuery({
-    queryKey: ['runtimeVersions'],
+    queryKey: ['runtimeVersions', selectedAppId, branch],
     queryFn: () => api.getRuntimeVersions(branch),
+    enabled: !!selectedAppId,
   });
 
   return (
@@ -62,40 +66,16 @@ export const RuntimeVersionsTable = ({ branch }: { branch: string }) => {
           {
             header: 'Created at',
             accessorKey: 'createdAt',
-            cell: ({ row }) => {
-              const date = new Date(row.original.createdAt);
-              return (
-                <Badge variant="outline">
-                  {date.toLocaleDateString('en-GB', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                    hour: 'numeric',
-                    minute: 'numeric',
-                    second: 'numeric',
-                  })}
-                </Badge>
-              );
-            },
+            cell: ({ row }) => (
+              <TimestampCell dateString={row.original.createdAt} showSeconds />
+            ),
           },
           {
             header: 'Last update',
             accessorKey: 'lastUpdatedAt',
-            cell: ({ row }) => {
-              const date = new Date(row.original.lastUpdatedAt);
-              return (
-                <Badge variant="outline">
-                  {date.toLocaleDateString('en-GB', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                    hour: 'numeric',
-                    minute: 'numeric',
-                    second: 'numeric',
-                  })}
-                </Badge>
-              );
-            },
+            cell: ({ row }) => (
+              <TimestampCell dateString={row.original.lastUpdatedAt} showSeconds />
+            ),
           },
           {
             header: '# Updates',

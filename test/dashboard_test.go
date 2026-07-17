@@ -2,10 +2,10 @@ package test
 
 import (
 	"encoding/json"
-	"expo-open-ota/internal/auth"
-	"expo-open-ota/internal/bucket"
-	"expo-open-ota/internal/handlers"
+	"expo-open-ota/config"
 	infrastructure "expo-open-ota/internal/router"
+	"expo-open-ota/internal/services"
+	"expo-open-ota/internal/types"
 	"github.com/jarcoal/httpmock"
 	"github.com/stretchr/testify/assert"
 	"net/http"
@@ -20,7 +20,7 @@ func TestLoginDashboardNotEnabled(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
 	os.Setenv("USE_DASHBOARD", "false")
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/auth/login", nil)
 	router.ServeHTTP(respRec, req)
@@ -31,7 +31,7 @@ func TestLoginDashboardNotEnabled(t *testing.T) {
 func TestLoginInvalidPassword(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	formData := url.Values{}
 	formData.Set("password", "wrongpassword")
@@ -45,7 +45,7 @@ func TestShouldRejectLoginIfAdminPasswordNotSet(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
 	os.Setenv("ADMIN_PASSWORD", "")
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	formData := url.Values{}
 	formData.Set("password", "admin")
@@ -58,7 +58,7 @@ func TestShouldRejectLoginIfAdminPasswordNotSet(t *testing.T) {
 func TestLoginValidPassword(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	formData := url.Values{}
 	formData.Set("password", "admin")
@@ -69,15 +69,15 @@ func TestLoginValidPassword(t *testing.T) {
 	// Retrieve token & refreshToken from response
 	body := respRec.Body.String()
 
-	var response auth.AuthResponse
+	var response services.DashboardSession
 	err := json.Unmarshal([]byte(body), &response)
 	assert.Nil(t, err)
 	assert.NotEmpty(t, response.Token)
 	assert.NotEmpty(t, response.RefreshToken)
 }
 
-func login() auth.AuthResponse {
-	router := infrastructure.NewRouter()
+func login() services.DashboardSession {
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	formData := url.Values{}
 	formData.Set("password", "admin")
@@ -85,7 +85,7 @@ func login() auth.AuthResponse {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	router.ServeHTTP(respRec, req)
 	body := respRec.Body.String()
-	var response auth.AuthResponse
+	var response services.DashboardSession
 	_ = json.Unmarshal([]byte(body), &response)
 	return response
 }
@@ -93,7 +93,7 @@ func login() auth.AuthResponse {
 func TestRefreshToken(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	formData := url.Values{}
 	formData.Set("refreshToken", login().RefreshToken)
@@ -102,7 +102,7 @@ func TestRefreshToken(t *testing.T) {
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusOK, respRec.Code)
 	body := respRec.Body.String()
-	var response auth.AuthResponse
+	var response services.DashboardSession
 	err := json.Unmarshal([]byte(body), &response)
 	assert.Nil(t, err)
 	assert.NotEmpty(t, response.Token)
@@ -112,7 +112,7 @@ func TestRefreshToken(t *testing.T) {
 func TestSettings(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/settings", nil)
 	req.Header.Set("Authorization", "Bearer "+login().Token)
@@ -129,7 +129,7 @@ func TestSettings(t *testing.T) {
 	responseBody = strings.ReplaceAll(responseBody, projectRoot+"/keys/public-key-test.pem", "{PROJECT_ROOT}/test/keys/public-key-test.pem")
 	responseBody = strings.ReplaceAll(responseBody, projectRoot+"/keys/private-key-test.pem", "{PROJECT_ROOT}/test/keys/private-key-test.pem")
 
-	expectedSnapshot := `{"BASE_URL":"http://localhost:3000","EXPO_APP_ID":"EXPO_APP_ID","EXPO_ACCESS_TOKEN":"***EXPO_","CACHE_MODE":"","REDIS_HOST":"","REDIS_PORT":"","REDIS_SENTINEL_ADDRS":"","REDIS_SENTINEL_MASTER_NAME":"","STORAGE_MODE":"local","S3_BUCKET_NAME":"","S3_CDN_PREFIX":"","LOCAL_BUCKET_BASE_PATH":"{PROJECT_ROOT}/test/test-updates","KEYS_STORAGE_TYPE":"local","AWSSM_EXPO_PUBLIC_KEY_SECRET_ID":"","AWSSM_EXPO_PRIVATE_KEY_SECRET_ID":"","PUBLIC_EXPO_KEY_B64":"","PUBLIC_LOCAL_EXPO_KEY_PATH":"{PROJECT_ROOT}/test/keys/public-key-test.pem","PRIVATE_LOCAL_EXPO_KEY_PATH":"{PROJECT_ROOT}/test/keys/private-key-test.pem","AWS_REGION":"eu-west-3","AWS_BASE_ENDPOINT":"","AWS_S3_FORCE_PATH_STYLE":"","AWS_ACCESS_KEY_ID":"***","CLOUDFRONT_DOMAIN":"","CLOUDFRONT_KEY_PAIR_ID":"***","CLOUDFRONT_PRIVATE_KEY_B64":"***","AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID":"","PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH":"","PROMETHEUS_ENABLED":""}`
+	expectedSnapshot := `{"BASE_URL":"http://localhost:3000","CONTROL_PLANE_ENABLED":false,"CACHE_MODE":"","REDIS_HOST":"","REDIS_PORT":"","REDIS_SENTINEL_ADDRS":"","REDIS_SENTINEL_MASTER_NAME":"","STORAGE_MODE":"local","S3_BUCKET_NAME":"","S3_CDN_PREFIX":"","LOCAL_BUCKET_BASE_PATH":"{PROJECT_ROOT}/test/test-updates","AWS_REGION":"eu-west-3","AWS_BASE_ENDPOINT":"","AWS_S3_FORCE_PATH_STYLE":"","AWS_ACCESS_KEY_ID":"***","CLOUDFRONT_DOMAIN":"","CLOUDFRONT_KEY_PAIR_ID":"***","PRIVATE_CLOUDFRONT_KEY_B64":"***","AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID":"","PRIVATE_CLOUDFRONT_KEY_PATH":"","PROMETHEUS_ENABLED":"","APPS":[{"id":"test-app-id"}]}`
 
 	assert.Equal(t, expectedSnapshot, responseBody)
 }
@@ -137,7 +137,7 @@ func TestSettings(t *testing.T) {
 func TestSettingsWithoutAuth(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/settings", nil)
 	router.ServeHTTP(respRec, req)
@@ -147,39 +147,200 @@ func TestSettingsWithoutAuth(t *testing.T) {
 func TestBranches(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
 		func(req *http.Request) (*http.Response, error) {
 			return MockExpoBranchesMappingResponse([]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}, {"id": "branch-2", "name": "branch-2"}}, []map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}})
 		})
-	req, _ := http.NewRequest("GET", "/api/branches", nil)
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branches", nil)
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusOK, respRec.Code)
 
-	var response []handlers.BranchMapping
+	var response []types.BranchMapping
 	err := json.Unmarshal(respRec.Body.Bytes(), &response)
 	assert.Nil(t, err)
-	assert.Equal(t, `[{"branchName":"branch-1","branchId":"branch-1","releaseChannel":"staging"},{"branchName":"branch-2","branchId":"branch-2","releaseChannel":null},{"branchName":"branch-3","branchId":null,"releaseChannel":null},{"branchName":"branch-4","branchId":null,"releaseChannel":null}]`, strings.TrimSpace(string(respRec.Body.Bytes())))
+	assert.Equal(t, `[{"branchName":"branch-1","branchId":"branch-1","releaseChannel":"staging","createdAt":null},{"branchName":"branch-2","branchId":"branch-2","releaseChannel":null,"createdAt":null},{"branchName":"branch-3","branchId":null,"releaseChannel":null,"createdAt":null},{"branchName":"branch-4","branchId":null,"releaseChannel":null,"createdAt":null}]`, strings.TrimSpace(string(respRec.Body.Bytes())))
 }
 
 func TestBranchesWithoutAuth(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/branches", nil)
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branches", nil)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
+}
+
+// The dashboard /api/apps/{APP_ID}/... routes must run AppResolverMiddleware
+// so unknown app ids return 404 — without it handlers fall through to
+// bucket lookups and can answer 200 with [] for a nonexistent app.
+func TestDashboardUnknownAppIdReturns404(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	router := infrastructure.NewRouter(testContainer())
+	respRec := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/apps/does-not-exist/branches", nil)
+	req.Header.Set("Authorization", "Bearer "+login().Token)
+	router.ServeHTTP(respRec, req)
+	assert.Equal(t, http.StatusNotFound, respRec.Code)
+}
+
+// AuthMiddleware must reject a syntactically valid but cryptographically bogus
+// JWT. The "no header" path is covered by TestSettingsWithoutAuth et al; this
+// closes the gap where a malicious caller sends garbage in the Bearer slot.
+func TestDashboardRejectsInvalidBearerToken(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	router := infrastructure.NewRouter(testContainer())
+	respRec := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/settings", nil)
+	req.Header.Set("Authorization", "Bearer not.a.real.jwt")
+	router.ServeHTTP(respRec, req)
+	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
+}
+
+// Use-Cli-Auth relays the caller's Expo credentials on app-scoped routes;
+// on app-agnostic routes (here /api/settings) there is no APP_ID to validate
+// against, so the middleware must short-circuit with 401 instead of falling
+// through to an Expo call it cannot make.
+func TestDashboardUseExpoAuthRejectedOnAppAgnosticRoute(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	router := infrastructure.NewRouter(testContainer())
+	respRec := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/settings", nil)
+	req.Header.Set("Use-Cli-Auth", "true")
+	req.Header.Set("Authorization", "Bearer expo_test_token")
+	router.ServeHTTP(respRec, req)
+	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
+}
+
+// Use-Cli-Auth with a bearer the Expo API rejects must surface as a 401
+// from the middleware. Exercises the ValidateExpoAuth failure branch for
+// the dashboard-relayed Expo session path.
+func TestDashboardUseExpoAuthRejectsInvalidExpoToken(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
+		func(req *http.Request) (*http.Response, error) {
+			// Only FetchExpoUserAccountInformations runs before the reject —
+			// branch mapping never fires because auth short-circuits first.
+			if req.Header.Get("operationName") == "FetchExpoUserAccountInformations" {
+				if req.Header.Get("Authorization") == "Bearer bogus_expo_token" {
+					return httpmock.NewStringResponse(http.StatusUnauthorized, `{"errors":[{"message":"Unauthorized"}]}`), nil
+				}
+				return MockExpoAccountResponse(map[string]interface{}{
+					"id":       "123",
+					"username": "test_username",
+					"email":    "test@example.com",
+				})
+			}
+			return httpmock.NewStringResponse(404, "Unknown operation"), nil
+		})
+
+	router := infrastructure.NewRouter(testContainer())
+	respRec := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branches", nil)
+	req.Header.Set("Use-Cli-Auth", "true")
+	req.Header.Set("Authorization", "Bearer bogus_expo_token")
+	router.ServeHTTP(respRec, req)
+	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
+}
+
+// TestDashboardUseExpoAuthCrossAppAttackRejected — the promise of
+// Use-Cli-Auth is that a caller can only reach an app whose stored
+// EXPO_ACCESS_TOKEN resolves to the same Expo user as their session.
+// If two tenants coexist on the server, a caller with a valid Expo
+// token for tenant A must NOT be able to read tenant B via
+// /api/apps/{B}/... The middleware enforces this by calling Expo with
+// BOTH tokens and comparing the returned usernames — a mismatch is
+// a 401, no 500, no fall-through to the handler.
+func TestDashboardUseExpoAuthCrossAppAttackRejected(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+
+	// Two apps owned by different Expo users, seeded after the router build
+	// below (see note there).
+	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
+		func(req *http.Request) (*http.Response, error) {
+			if req.Header.Get("operationName") != "FetchExpoUserAccountInformations" {
+				return httpmock.NewStringResponse(404, "Unknown operation"), nil
+			}
+			// Map each bearer to a distinct username so usernames differ
+			// across apps — that is what makes the match check fail.
+			switch req.Header.Get("Authorization") {
+			case "Bearer token-app-1", "Bearer expo_session_of_user_1":
+				return MockExpoAccountResponse(map[string]interface{}{"id": "1", "username": "user-1"})
+			case "Bearer token-app-2":
+				return MockExpoAccountResponse(map[string]interface{}{"id": "2", "username": "user-2"})
+			}
+			return httpmock.NewStringResponse(http.StatusUnauthorized, `{"errors":[]}`), nil
+		})
+
+	router := infrastructure.NewRouter(testContainer())
+	// Seed the two tenants AFTER the container build: InitDependencies re-runs
+	// config.LoadAppsFromFlatEnv (flat-env single app), which would otherwise clobber this
+	// injection. The bucket app store reads the registry live, so the resolver
+	// middleware sees app-1/app-2 at request time. app-1's token resolves to
+	// "user-1"; app-2's to "user-2" — distinct usernames are what make the
+	// cross-app match check fail.
+	config.SetAppsForTest([]config.AppConfig{
+		{Id: "app-1", AccessToken: "token-app-1", Keys: config.KeysConfig{Mode: config.KeysModeLocal, PublicPath: "/a", PrivatePath: "/b"}},
+		{Id: "app-2", AccessToken: "token-app-2", Keys: config.KeysConfig{Mode: config.KeysModeLocal, PublicPath: "/a", PrivatePath: "/b"}},
+	})
+	respRec := httptest.NewRecorder()
+	// Caller holds an Expo session valid for user-1, but hits /api/apps/app-2/…
+	req, _ := http.NewRequest("GET", "/api/apps/app-2/branches", nil)
+	req.Header.Set("Use-Cli-Auth", "true")
+	req.Header.Set("Authorization", "Bearer expo_session_of_user_1")
+	router.ServeHTTP(respRec, req)
+	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
+}
+
+// Use-Cli-Auth happy path: caller's Expo token resolves to the same username
+// as the app's EXPO_ACCESS_TOKEN (ValidateExpoAuth's match check) so the
+// middleware lets the request through to the handler.
+func TestDashboardUseExpoAuthHappyPath(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
+		func(req *http.Request) (*http.Response, error) {
+			op := req.Header.Get("operationName")
+			if op == "FetchExpoUserAccountInformations" {
+				// Both the caller's token and the app's EXPO_ACCESS_TOKEN
+				// resolve to "test_username" — that's what makes the
+				// match in ValidateExpoAuth succeed.
+				return MockExpoAccountResponse(map[string]interface{}{
+					"id":       "123",
+					"username": "test_username",
+					"email":    "test@example.com",
+				})
+			}
+			// Handler-level call once auth passes.
+			return MockExpoBranchesMappingResponse(
+				[]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}},
+				[]map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}},
+			)
+		})
+
+	router := infrastructure.NewRouter(testContainer())
+	respRec := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branches", nil)
+	req.Header.Set("Use-Cli-Auth", "true")
+	req.Header.Set("Authorization", "Bearer expo_test_token")
+	router.ServeHTTP(respRec, req)
+	assert.Equal(t, http.StatusOK, respRec.Code)
 }
 
 func TestRuntimeVersionsWithoutAuth(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/branch/branch-1/runtimeVersions", nil)
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branch/branch-1/runtimeVersions", nil)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
 }
@@ -187,17 +348,17 @@ func TestRuntimeVersionsWithoutAuth(t *testing.T) {
 func TestRuntimeVersions(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
 		func(req *http.Request) (*http.Response, error) {
 			return MockExpoBranchesMappingResponse([]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}, {"id": "branch-2", "name": "branch-2"}}, []map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}})
 		})
-	req, _ := http.NewRequest("GET", "/api/branch/branch-1/runtimeVersions", nil)
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branch/branch-1/runtimeVersions", nil)
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusOK, respRec.Code)
-	var response []bucket.RuntimeVersionWithStats
+	var response []types.RuntimeVersionWithStats
 	err := json.Unmarshal(respRec.Body.Bytes(), &response)
 	assert.Nil(t, err)
 	assert.Equal(t, "[{\"runtimeVersion\":\"1\",\"lastUpdatedAt\":\"1970-01-20T09:02:50Z\",\"createdAt\":\"1970-01-20T09:02:50Z\",\"numberOfUpdates\":1}]", strings.TrimSpace(string(respRec.Body.Bytes())))
@@ -206,17 +367,17 @@ func TestRuntimeVersions(t *testing.T) {
 func TestRuntimeVersionsOnlyCountsValidUpdates(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
 		func(req *http.Request) (*http.Response, error) {
 			return MockExpoBranchesMappingResponse([]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}, {"id": "branch-2", "name": "branch-2"}}, []map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}})
 		})
-	req, _ := http.NewRequest("GET", "/api/branch/branch-4/runtimeVersions", nil)
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branch/branch-4/runtimeVersions", nil)
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusOK, respRec.Code)
-	var response []bucket.RuntimeVersionWithStats
+	var response []types.RuntimeVersionWithStats
 	err := json.Unmarshal(respRec.Body.Bytes(), &response)
 	assert.Nil(t, err)
 	assert.Equal(t, "[{\"runtimeVersion\":\"1\",\"lastUpdatedAt\":\"1970-01-20T09:02:50Z\",\"createdAt\":\"1970-01-20T09:02:50Z\",\"numberOfUpdates\":1}]", strings.TrimSpace(string(respRec.Body.Bytes())))
@@ -225,9 +386,9 @@ func TestRuntimeVersionsOnlyCountsValidUpdates(t *testing.T) {
 func TestUpdatesWithoutAuth(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/branch/branch-1/runtimeVersion/1/updates", nil)
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branch/branch-1/runtimeVersion/1/updates", nil)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
 }
@@ -235,13 +396,13 @@ func TestUpdatesWithoutAuth(t *testing.T) {
 func TestUpdatesRegularBranch1(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
 		func(req *http.Request) (*http.Response, error) {
 			return MockExpoBranchesMappingResponse([]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}, {"id": "branch-2", "name": "branch-2"}}, []map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}})
 		})
-	req, _ := http.NewRequest("GET", "/api/branch/branch-1/runtimeVersion/1/updates", nil)
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branch/branch-1/runtimeVersion/1/updates", nil)
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusOK, respRec.Code)
@@ -251,13 +412,13 @@ func TestUpdatesRegularBranch1(t *testing.T) {
 func TestUpdatesMultiBranch2(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
 		func(req *http.Request) (*http.Response, error) {
 			return MockExpoBranchesMappingResponse([]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}, {"id": "branch-2", "name": "branch-2"}}, []map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}})
 		})
-	req, _ := http.NewRequest("GET", "/api/branch/branch-2/runtimeVersion/1/updates", nil)
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branch/branch-2/runtimeVersion/1/updates", nil)
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusOK, respRec.Code)
@@ -267,13 +428,13 @@ func TestUpdatesMultiBranch2(t *testing.T) {
 func TestUpdatesSomeNotValidBranch4(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
-	router := infrastructure.NewRouter()
+	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
 	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
 		func(req *http.Request) (*http.Response, error) {
 			return MockExpoBranchesMappingResponse([]map[string]interface{}{{"id": "branch-1", "name": "branch-1"}, {"id": "branch-2", "name": "branch-2"}}, []map[string]interface{}{{"id": "staging", "name": "staging", "branchMapping": "{\"data\":[{\"branchId\":\"branch-1\",\"branchMappingLogic\":\"true\"}],\"version\":0}"}})
 		})
-	req, _ := http.NewRequest("GET", "/api/branch/branch-4/runtimeVersion/1/updates", nil)
+	req, _ := http.NewRequest("GET", "/api/apps/test-app-id/branch/branch-4/runtimeVersion/1/updates", nil)
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusOK, respRec.Code)
