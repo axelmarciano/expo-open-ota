@@ -1,16 +1,3 @@
-> [!IMPORTANT]
-> ## 🚀 v3 is coming
-> The next major version of Expo Open OTA is in release candidate. Key features:
-> - **Control plane mode** — run the server on PostgreSQL, manage everything from the dashboard, no Expo account required
-> - **Multi-app support** — host several Expo apps on a single server
-> - **Per-app API keys** — publish from CI without sharing your Expo access token
-> - **Secure key management** — signing keys sealed in the database with AES-GCM
-> - **Per-app Prometheus metrics** and a redesigned dashboard
->
-> 📖 Check out the **[new documentation](https://mercure-technologies.gitbook.io/expo-open-ota)**, including the [v2 → v3 migration guide](https://mercure-technologies.gitbook.io/expo-open-ota/migrate-from-v2-to-v3) — your installed clients will keep working without a rebuild.
->
-> v2 remains the current stable release (`docker pull ghcr.io/axelmarciano/expo-open-ota:latest`, `npm i eoas`). Contributions: please target the `release/v3` branch.
-
 <p align="center">
   <img src=".github/img/social_card.png" alt="Expo Open OTA" />
   <img src=".github/img/dashboard_screenshot.png" alt="Expo Open OTA - Dashboard" />
