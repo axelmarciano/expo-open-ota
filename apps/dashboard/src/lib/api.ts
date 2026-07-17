@@ -76,6 +76,36 @@ export type CreateApiKeyResponse = {
   apiKey: string;
 };
 
+// Mirror of the server's SettingsEnv payload (/api/settings). Field names are
+// the raw env-var spellings on purpose — the server is the source of truth.
+export type ServerSettings = {
+  BASE_URL: string;
+  CONTROL_PLANE_ENABLED: boolean;
+  CACHE_MODE: string;
+  REDIS_HOST: string;
+  REDIS_PORT: string;
+  REDIS_SENTINEL_ADDRS: string;
+  REDIS_SENTINEL_MASTER_NAME: string;
+  STORAGE_MODE: string;
+  S3_BUCKET_NAME: string;
+  S3_CDN_PREFIX: string;
+  GCS_BUCKET_NAME: string;
+  LOCAL_BUCKET_BASE_PATH: string;
+  AWS_REGION: string;
+  AWS_BASE_ENDPOINT: string;
+  AWS_S3_FORCE_PATH_STYLE: string;
+  AWS_ACCESS_KEY_ID: string;
+  CLOUDFRONT_DOMAIN: string;
+  CLOUDFRONT_KEY_PAIR_ID: string;
+  PRIVATE_CLOUDFRONT_KEY_B64: string;
+  AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID: string;
+  PRIVATE_CLOUDFRONT_KEY_PATH: string;
+  PROMETHEUS_ENABLED: string;
+  CDN_TYPE: '' | 'cloudfront' | 'gcs-direct' | 's3-cdn-prefix';
+  EXPO_ACCOUNT_USERNAME: string;
+  APPS: { id: string; name?: string }[];
+};
+
 // All per-app routes (branches, channels, runtime versions, updates,
 // updateChannelBranchMapping) are scoped under /api/apps/{appId} on the
 // server. The dashboard keeps the currently-selected app id on the ApiClient
@@ -87,7 +117,7 @@ export class ApiClient {
   private appId: string | null = null;
 
   constructor() {
-    // @ts-ignore using window.env for vite
+    // @ts-expect-error window.env is injected at runtime by /env.js
     this.baseUrl = window?.env?.VITE_OTA_API_URL || import.meta.env.VITE_OTA_API_URL;
     if (!this.baseUrl) {
       throw new Error('Missing VITE_OTA_API_URL environment variable');
@@ -364,28 +394,7 @@ export class ApiClient {
     );
   }
   public async getSettings() {
-    return this.request<{
-      BASE_URL: string;
-      CONTROL_PLANE_ENABLED: boolean;
-      CACHE_MODE: string;
-      REDIS_HOST: string;
-      REDIS_PORT: string;
-      STORAGE_MODE: string;
-      S3_BUCKET_NAME: string;
-      LOCAL_BUCKET_BASE_PATH: string;
-      AWS_REGION: string;
-      AWS_BASE_ENDPOINT: string;
-      AWS_S3_FORCE_PATH_STYLE: string;
-      AWS_ACCESS_KEY_ID: string;
-      S3_CDN_PREFIX: string;
-      CLOUDFRONT_DOMAIN: string;
-      CLOUDFRONT_KEY_PAIR_ID: string;
-      CLOUDFRONT_PRIVATE_KEY_B64: string;
-      AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID: string;
-      PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH: string;
-      PROMETHEUS_ENABLED: string;
-      APPS: { id: string; name?: string }[];
-    }>(`/api/settings`, {
+    return this.request<ServerSettings>(`/api/settings`, {
       method: 'GET',
     });
   }

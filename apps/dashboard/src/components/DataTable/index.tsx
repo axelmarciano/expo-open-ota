@@ -25,14 +25,16 @@ interface DataTableProps<TData, TValue> {
   loading?: boolean;
   onRowClick?: (row: TData) => void;
   defaultSorting?: SortingState;
+  emptyMessage?: string;
 }
 
 export function DataTable<TData, TValue>({
   columns,
   data,
   loading,
-  onRowClick = (_row) => {},
+  onRowClick,
   defaultSorting = [],
+  emptyMessage = 'No results.',
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>(defaultSorting);
 
@@ -48,7 +50,7 @@ export function DataTable<TData, TValue>({
   });
 
   return (
-    <div className="rounded-md border w-full">
+    <div className="w-full overflow-hidden rounded-xl border shadow-card">
       <Table className="w-full">
         <TableHeader className="w-full">
           {table.getHeaderGroups().map(headerGroup => (
@@ -94,8 +96,11 @@ export function DataTable<TData, TValue>({
             ))}
           {table.getRowModel().rows?.length
             ? table.getRowModel().rows.map(row => (
-                <TableRow key={row.id} data-state={row.getIsSelected() && 'selected'}
-                          onClick={() => onRowClick(row.original)}
+                <TableRow
+                  key={row.id}
+                  data-state={row.getIsSelected() && 'selected'}
+                  className={onRowClick ? 'cursor-pointer' : undefined}
+                  onClick={() => onRowClick?.(row.original)}
                 >
                   {row.getVisibleCells().map(cell => (
                     <TableCell key={cell.id}>
@@ -107,8 +112,10 @@ export function DataTable<TData, TValue>({
             : null}
           {!loading && !table.getRowModel().rows?.length && (
             <TableRow>
-              <TableCell colSpan={columns.length} className="h-24 text-center">
-                No results.
+              <TableCell
+                colSpan={columns.length}
+                className="h-24 text-center text-muted-foreground">
+                {emptyMessage}
               </TableCell>
             </TableRow>
           )}

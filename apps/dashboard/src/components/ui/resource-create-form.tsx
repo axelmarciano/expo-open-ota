@@ -2,8 +2,6 @@ import React from 'react';
 import { Plus, LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent } from '@/components/ui/card';
 
 type ResourceCreateFormProps = {
   onSubmit: (e: React.FormEvent) => void | Promise<void>;
@@ -17,6 +15,8 @@ type ResourceCreateFormProps = {
   icon?: LucideIcon;
 };
 
+// Compact inline creation row meant to sit right above the table it feeds —
+// the placeholder carries the hint, the label is kept for screen readers.
 export const ResourceCreateForm = ({
   onSubmit,
   inputValue,
@@ -27,7 +27,7 @@ export const ResourceCreateForm = ({
   id = 'resource-name',
   buttonText = 'Create',
   icon: Icon = Plus,
-} : ResourceCreateFormProps) => {
+}: ResourceCreateFormProps) => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputValue.trim() || isSubmitting) return;
@@ -35,31 +35,19 @@ export const ResourceCreateForm = ({
   };
 
   return (
-    <Card>
-      <CardContent className="p-4">
-        <form onSubmit={handleSubmit} className="flex gap-3 items-end max-w-xl">
-          <div className="flex-1 space-y-1">
-            <Label htmlFor={id} className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              {label}
-            </Label>
-            <Input
-              id={id}
-              placeholder={placeholder}
-              value={inputValue}
-              onChange={(e) => onInputChange(e.target.value)}
-              disabled={isSubmitting}
-              className="bg-muted/30 focus-visible:bg-background"
-            />
-          </div>
-          <Button 
-            type="submit" 
-            disabled={isSubmitting || !inputValue.trim()} 
-            className="shrink-0"
-          >
-            <Icon className="mr-1" /> {isSubmitting ? 'Processing...' : buttonText}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+    <form onSubmit={handleSubmit} className="flex items-center gap-2">
+      <Input
+        id={id}
+        aria-label={label}
+        placeholder={placeholder}
+        value={inputValue}
+        onChange={e => onInputChange(e.target.value)}
+        disabled={isSubmitting}
+        className="w-64"
+      />
+      <Button type="submit" disabled={isSubmitting || !inputValue.trim()} className="shrink-0">
+        <Icon className="h-4 w-4" /> {isSubmitting ? 'Creating…' : buttonText}
+      </Button>
+    </form>
   );
 };

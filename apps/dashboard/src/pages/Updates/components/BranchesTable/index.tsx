@@ -2,11 +2,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiProblemError, BranchRecord } from '@/lib/api.ts';
 import { ApiError } from '@/components/APIError';
 import { DataTable } from '@/components/DataTable';
-import { Box, GitBranch, Plus, Trash2 } from 'lucide-react';
+import { GitBranch, Plus, Trash2 } from 'lucide-react';
 import { useSearchParams } from 'react-router';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
 import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast.ts';
 import { ResourceCreateForm } from '@/components/ui/resource-create-form';
 import { DeleteDialog } from '@/components/ui/delete-dialog';
@@ -30,7 +31,7 @@ export const BranchesTable = () => {
 
   const [newBranchName, setNewBranchName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
-  
+
   const [branchToDelete, setBranchToDelete] = useState<BranchRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -51,7 +52,7 @@ export const BranchesTable = () => {
       queryClient.invalidateQueries({ queryKey: ['branches', selectedAppId] });
       toast({
         title: 'Branch created',
-        description: `Branch "${newBranchName.trim()}" initialized successfully.`,
+        description: `"${newBranchName.trim()}" is ready to receive updates.`,
       });
     } catch (error) {
       let errorTitle = 'Error creating branch';
@@ -80,12 +81,12 @@ export const BranchesTable = () => {
       queryClient.invalidateQueries({ queryKey: ['branches', selectedAppId] });
       toast({
         title: 'Branch deleted',
-        description: `Branch "${branchToDelete.branchName}" and all associated update items dropped successfully.`,
+        description: `"${branchToDelete.branchName}" and its updates were removed.`,
       });
       setBranchToDelete(null);
     } catch (error) {
       let errorTitle = 'Deletion failed';
-      let errorMessage = 'Failed to destroy selected tracking branch.';
+      let errorMessage = 'Could not delete the branch.';
       if (error instanceof ApiProblemError) {
         errorTitle = error.title;
         errorMessage = error.detail;
@@ -105,35 +106,26 @@ export const BranchesTable = () => {
   const tableColumns = useMemo<TableColumnConfig[]>(() => {
     return [
       {
-        header: 'Branch name',
+        header: 'Branch',
         accessorKey: 'branchName',
-        cell: ({ row }) => {
-          return (
-            <button
-              className="flex flex-row gap-2 items-center cursor-pointer w-full"
-              onClick={() => {
-                setSearchParams({ branch: row.original.branchName });
-              }}>
-              <GitBranch className="w-4" />
-              <span className="underline">{row.original.branchName}</span>
-            </button>
-          );
-        },
+        cell: ({ row }) => (
+          <span className="flex items-center gap-2.5">
+            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground">
+              <GitBranch className="h-3.5 w-3.5" />
+            </span>
+            <span className="font-medium">{row.original.branchName}</span>
+          </span>
+        ),
       },
       {
         header: 'Release channel',
-        size: 10,
-        maxSize: 10,
         accessorKey: 'releaseChannel',
         cell: ({ row }) => {
           const releaseChannel = row.original.releaseChannel;
-          if (!releaseChannel) return <span>N/A</span>;
-          return (
-            <div className="flex flex-row gap-2 items-center">
-              <Box className="w-4" />
-              <span>{row.original.releaseChannel}</span>
-            </div>
-          );
+          if (!releaseChannel) {
+            return <span className="text-muted-foreground/60">Not mapped</span>;
+          }
+          return <Badge variant="outline">{releaseChannel}</Badge>;
         },
       },
       ...(CONTROL_PLANE_ENABLED
@@ -143,13 +135,16 @@ export const BranchesTable = () => {
               id: 'actions',
               cell: ({ row }) => {
                 return (
-                  <div className="text-right pr-2">
+                  <div className="text-right">
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => setBranchToDelete(row.original)}
-                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                      title="Purge Branch"
+                      onClick={e => {
+                        e.stopPropagation();
+                        setBranchToDelete(row.original);
+                      }}
+                      className="h-8 w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      title="Delete branch"
                     >
                       <Trash2 />
                     </Button>
@@ -160,30 +155,34 @@ export const BranchesTable = () => {
           ]
         : []),
     ];
-  }, [CONTROL_PLANE_ENABLED, setSearchParams]);
+  }, [CONTROL_PLANE_ENABLED]);
 
   return (
-    <div className="w-full flex-1 space-y-6">
+    <div className="w-full flex-1 space-y-4">
       {!!error && <ApiError error={error} />}
-      
+
       {CONTROL_PLANE_ENABLED && (
-        <ResourceCreateForm
-          id="branch-name"
-          label="New Release Branch Name"
-          placeholder="e.g., main, feature-v3"
-          inputValue={newBranchName}
-          onInputChange={setNewBranchName}
-          onSubmit={() => handleCreateBranch({ preventDefault: () => {} } as React.FormEvent)}
-          isSubmitting={isCreating}
-          buttonText="Provision Branch"
-          icon={Plus}
-        />
+        <div className="flex justify-end">
+          <ResourceCreateForm
+            id="branch-name"
+            label="New branch name"
+            placeholder="New branch name, e.g. main"
+            inputValue={newBranchName}
+            onInputChange={setNewBranchName}
+            onSubmit={() => handleCreateBranch({ preventDefault: () => {} } as React.FormEvent)}
+            isSubmitting={isCreating}
+            buttonText="Create branch"
+            icon={Plus}
+          />
+        </div>
       )}
 
       <DataTable
         loading={isLoading}
         columns={tableColumns}
         data={data ?? []}
+        emptyMessage="No branches yet. Publish an update or create a branch to get started."
+        onRowClick={row => setSearchParams({ branch: row.branchName })}
       />
 
       {CONTROL_PLANE_ENABLED && (
@@ -192,11 +191,11 @@ export const BranchesTable = () => {
           onClose={() => setBranchToDelete(null)}
           onConfirm={handleExecuteDeletion}
           isDeleting={isDeleting}
-          title="Delete Target Branch"
+          title="Delete branch"
           resourceName={branchToDelete?.branchName}
-          descriptionText="Warning: This operation executes a cascading delete. All nested compiled OTA update bundles assigned to this branch reference will be permanently destroyed on the server."
-          confirmButtonText="Delete Branch"
-          isDeletingButtonText="Deleting..."
+          descriptionText="Every update published to this branch will be permanently deleted. Apps pointing at a channel mapped to this branch will stop receiving updates."
+          confirmButtonText="Delete branch"
+          isDeletingButtonText="Deleting…"
         />
       )}
     </div>

@@ -2,15 +2,6 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api.ts';
 import { ApiError } from '@/components/APIError';
 import { DataTable } from '@/components/DataTable';
-import { GitBranch, Milestone, Rss } from 'lucide-react';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge.tsx';
 import apple from '@/assets/apple.svg';
 import android from '@/assets/android.svg';
@@ -18,6 +9,7 @@ import { UpdateDetailsRef, UpdateDetailsSheet } from '@/components/UpdateDetails
 import { useRef } from 'react';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
 import { TimestampCell } from '@/components/ui/timestamp-cell';
+import { UpdatesBreadcrumb } from '@/pages/Updates/components/UpdatesBreadcrumb';
 
 export const UpdatesTable = ({
   branch,
@@ -36,65 +28,38 @@ export const UpdatesTable = ({
 
   return (
     <div className="w-full flex-1">
-      <Breadcrumb className="mb-2">
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/dashboard" className="flex items-center gap-2 underline">
-              <GitBranch className="w-4" />
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{branch}</BreadcrumbPage>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink
-              href={`/dashboard?branch=${branch}`}
-              className="flex items-center gap-2 underline">
-              <Milestone className="w-4" />
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{runtimeVersion}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+      <UpdatesBreadcrumb branch={branch} runtimeVersion={runtimeVersion} />
       {!!error && <ApiError error={error} />}
       <UpdateDetailsSheet ref={sheetRef} branch={branch} runtimeVersion={runtimeVersion} />
       <DataTable
         loading={isLoading}
         columns={[
           {
-            header: 'ID',
+            header: 'Update',
             accessorKey: 'updateId',
-            cell: value => {
-              return (
-                <span className="flex flex-row gap-2 items-center w-full">
-                  <Rss className="w-4" />
-                  {value.row.original.updateId}
-                </span>
-              );
-            },
+            cell: ({ row }) => (
+              <span className="font-medium">{row.original.updateId}</span>
+            ),
           },
           {
             header: 'UUID',
             accessorKey: 'updateUUID',
-            cell: value => {
-              return value.row.original.updateUUID;
-            },
+            cell: ({ row }) => (
+              <span className="font-mono text-xs text-muted-foreground">
+                {row.original.updateUUID}
+              </span>
+            ),
           },
           {
             header: 'Platform',
             accessorKey: 'platform',
-            cell: value => {
-              const isIos = value.row.original.platform === 'ios';
-              const isAndroid = value.row.original.platform === 'android';
+            cell: ({ row }) => {
+              const isIos = row.original.platform === 'ios';
+              const isAndroid = row.original.platform === 'android';
               return (
-                <div className="flex flex-row items-center gap-2">
-                  {isIos && <img src={apple} className="w-4" alt="apple" />}
-                  {isAndroid && <img src={android} className="w-4" alt="android" />}
+                <div className="flex items-center gap-2">
+                  {isIos && <img src={apple} className="w-4" alt="iOS" />}
+                  {isAndroid && <img src={android} className="w-4" alt="Android" />}
                 </div>
               );
             },
@@ -102,30 +67,30 @@ export const UpdatesTable = ({
           {
             header: 'Message',
             accessorKey: 'message',
-            cell: value => {
-              const msg = value.row.original.message;
+            cell: ({ row }) => {
+              const msg = row.original.message;
               return msg ? (
-                <span className="text-sm text-muted-foreground truncate max-w-[200px] block">
+                <span className="block max-w-[200px] truncate text-sm text-muted-foreground">
                   {msg}
                 </span>
               ) : (
-                <span className="text-sm text-muted-foreground">-</span>
+                <span className="text-sm text-muted-foreground/60">—</span>
               );
             },
           },
           {
             header: 'Commit',
             accessorKey: 'commitHash',
-            cell: value => {
+            cell: ({ row }) => {
               return (
-                <Badge variant="secondary" className="text-xs font-mono">
-                  {value.row.original.commitHash.slice(0, 7)}
+                <Badge variant="outline" className="font-mono text-xs">
+                  {row.original.commitHash.slice(0, 7)}
                 </Badge>
               );
             },
           },
           {
-            header: 'Published at',
+            header: 'Published',
             accessorKey: 'createdAt',
             cell: ({ row }) => (
               <TimestampCell dateString={row.original.createdAt} showSeconds />
@@ -134,6 +99,7 @@ export const UpdatesTable = ({
         ]}
         data={data ?? []}
         defaultSorting={[{ id: 'createdAt', desc: true }]}
+        emptyMessage="No updates published for this runtime version yet."
         onRowClick={row => {
           sheetRef?.current?.openSheet(row);
         }}

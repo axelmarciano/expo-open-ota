@@ -3,8 +3,10 @@ package handlers
 import (
 	"encoding/json"
 	"expo-open-ota/config"
+	"expo-open-ota/internal/cdn"
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/helpers"
+	"expo-open-ota/internal/providers/expo"
 	"expo-open-ota/internal/services"
 	"net/http"
 )
@@ -30,6 +32,7 @@ type SettingsEnv struct {
 	STORAGE_MODE                           string `json:"STORAGE_MODE"`
 	S3_BUCKET_NAME                         string `json:"S3_BUCKET_NAME"`
 	S3_CDN_PREFIX                          string `json:"S3_CDN_PREFIX"`
+	GCS_BUCKET_NAME                        string `json:"GCS_BUCKET_NAME"`
 	LOCAL_BUCKET_BASE_PATH                 string `json:"LOCAL_BUCKET_BASE_PATH"`
 	AWS_REGION                             string `json:"AWS_REGION"`
 	AWS_BASE_ENDPOINT                      string `json:"AWS_BASE_ENDPOINT"`
@@ -41,6 +44,15 @@ type SettingsEnv struct {
 	AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID string `json:"AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID"`
 	PRIVATE_CLOUDFRONT_KEY_PATH            string `json:"PRIVATE_CLOUDFRONT_KEY_PATH"`
 	PROMETHEUS_ENABLED                     string `json:"PROMETHEUS_ENABLED"`
+	// CDN_TYPE is the CDN the server actually resolved at boot ("cloudfront",
+	// "gcs-direct", "s3-cdn-prefix" or "" when assets are served directly),
+	// so the dashboard can display the effective setup instead of making the
+	// user re-derive it from raw variables.
+	CDN_TYPE string `json:"CDN_TYPE"`
+	// EXPO_ACCOUNT_USERNAME is the Expo account behind the configured access
+	// token. Only resolved in stateless mode (single app, single token) and
+	// best-effort: empty when the token is missing or invalid.
+	EXPO_ACCOUNT_USERNAME string `json:"EXPO_ACCOUNT_USERNAME"`
 	// Apps lists the configured apps — the single flat-env app in stateless
 	// mode, or every app in the database in control-plane mode. Each entry
 	// carries just the id and optional display name — tokens and keys are
@@ -48,11 +60,28 @@ type SettingsEnv struct {
 	Apps []config.AppDescriptor `json:"APPS"`
 }
 
+func resolvedCDNType() string {
+	switch cdn.GetCDN().(type) {
+	case *cdn.CloudfrontCDN:
+		return "cloudfront"
+	case *cdn.GCSDirectCDN:
+		return "gcs-direct"
+	case *cdn.GenericCDN:
+		return "s3-cdn-prefix"
+	default:
+		return ""
+	}
+}
+
 func (h *SettingsHandler) GetSettingsHandler(w http.ResponseWriter, r *http.Request) {
 	apps, err := h.appService.GetApps(r.Context())
 	if err != nil {
 		handlers.RenderError(w, http.StatusInternalServerError, "An internal error occurred while fetching app settings")
 		return
+	}
+	expoAccountUsername := ""
+	if !config.IsDBMode() && len(apps) > 0 {
+		expoAccountUsername = expo.FetchSelfUsername(apps[0].Id)
 	}
 	marshaledResponse, _ := json.Marshal(SettingsEnv{
 		BASE_URL:                               config.GetEnv("BASE_URL"),
@@ -65,6 +94,7 @@ func (h *SettingsHandler) GetSettingsHandler(w http.ResponseWriter, r *http.Requ
 		STORAGE_MODE:                           config.GetEnv("STORAGE_MODE"),
 		S3_BUCKET_NAME:                         config.GetEnv("S3_BUCKET_NAME"),
 		S3_CDN_PREFIX:                          config.GetEnv("S3_CDN_PREFIX"),
+		GCS_BUCKET_NAME:                        config.GetEnv("GCS_BUCKET_NAME"),
 		LOCAL_BUCKET_BASE_PATH:                 config.GetEnv("LOCAL_BUCKET_BASE_PATH"),
 		AWS_REGION:                             config.GetEnv("AWS_REGION"),
 		AWS_BASE_ENDPOINT:                      config.GetEnv("AWS_BASE_ENDPOINT"),
@@ -76,6 +106,8 @@ func (h *SettingsHandler) GetSettingsHandler(w http.ResponseWriter, r *http.Requ
 		AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID: config.GetEnv("AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID"),
 		PRIVATE_CLOUDFRONT_KEY_PATH:            config.GetEnv("PRIVATE_CLOUDFRONT_KEY_PATH"),
 		PROMETHEUS_ENABLED:                     config.GetEnv("PROMETHEUS_ENABLED"),
+		CDN_TYPE:                               resolvedCDNType(),
+		EXPO_ACCOUNT_USERNAME:                  expoAccountUsername,
 		Apps:                                   apps,
 	})
 	w.Header().Set("Content-Type", "application/json")
