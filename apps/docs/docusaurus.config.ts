@@ -73,6 +73,14 @@ const config: Config = {
   ],
 
   themeConfig: {
+    announcementBar: {
+      id: 'v3-release-candidate',
+      content:
+        '🚀 <b>v3 is coming</b> — control plane mode, multi-app support, per-app API keys. Check out the <a target="_blank" rel="noopener noreferrer" href="https://mercure-technologies.gitbook.io/expo-open-ota">new documentation</a> and the <a target="_blank" rel="noopener noreferrer" href="https://mercure-technologies.gitbook.io/expo-open-ota/migrate-from-v2-to-v3">v2 → v3 migration guide</a>.',
+      backgroundColor: '#240046',
+      textColor: '#ffffff',
+      isCloseable: false,
+    },
     // Replace with your project's social card
     image: './static/img/social_card.png',
     navbar: {
