@@ -36,9 +36,14 @@ func resolveSeedAdminCredentials() (email string, password string, err error) {
 		return "", "", fmt.Errorf("ADMIN_EMAIL %q is not a plain email address — use the bare form, e.g. admin@example.com", email)
 	}
 	// The first admin is a dashboard user like any other — hold its bootstrap
-	// password to the same policy users face in the UI.
+	// password to the same policy users face in the UI, and spell the whole
+	// policy out: the operator reading this log has no checklist in front of
+	// them.
 	if err := crypto.ValidatePasswordPolicy(password); err != nil {
-		return "", "", fmt.Errorf("ADMIN_PASSWORD seeds the first dashboard admin and must meet the password policy: %w", err)
+		return "", "", fmt.Errorf(
+			"ADMIN_PASSWORD seeds the first dashboard admin and must meet the dashboard password policy (%s): %w. "+
+				"Set a compliant ADMIN_PASSWORD and restart the server — it can be changed from the dashboard afterwards",
+			crypto.PasswordPolicyDescription, err)
 	}
 	return email, password, nil
 }

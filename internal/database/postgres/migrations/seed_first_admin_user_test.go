@@ -54,7 +54,9 @@ func TestResolveSeedAdminCredentialsRejectsMailboxFormEmail(t *testing.T) {
 	}
 }
 
-// The first admin is held to the same password policy as every dashboard user.
+// The first admin is held to the same password policy as every dashboard
+// user, and the failure must spell the whole policy out — the operator
+// reading the migration log has no UI checklist.
 func TestResolveSeedAdminCredentialsEnforcesPasswordPolicy(t *testing.T) {
 	t.Setenv("ADMIN_EMAIL", "admin@example.com")
 	t.Setenv("ADMIN_PASSWORD", "weak")
@@ -62,8 +64,14 @@ func TestResolveSeedAdminCredentialsEnforcesPasswordPolicy(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error for a weak ADMIN_PASSWORD")
 	}
-	if !strings.Contains(err.Error(), "password policy") {
-		t.Fatalf("error should point the operator at the password policy, got: %v", err)
+	for _, expected := range []string{
+		"ADMIN_PASSWORD",
+		"at least 8 characters, an uppercase letter, a lowercase letter, a digit and a special character",
+		"Set a compliant ADMIN_PASSWORD and restart",
+	} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("error should state the full password policy, missing %q in: %v", expected, err)
+		}
 	}
 }
 

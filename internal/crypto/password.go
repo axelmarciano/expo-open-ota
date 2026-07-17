@@ -15,6 +15,14 @@ import (
 // feedback before the server is ever hit — keep both in sync.
 const PasswordPolicyMinLength = 8
 
+// PasswordPolicyDescription spells out every rule at once, for messages that
+// must state the full policy up front — e.g. the seed migration's fail-fast,
+// where the operator has no UI checklist to look at.
+var PasswordPolicyDescription = fmt.Sprintf(
+	"at least %d characters, an uppercase letter, a lowercase letter, a digit and a special character",
+	PasswordPolicyMinLength,
+)
+
 // ValidatePasswordPolicy rejects passwords that miss any of the policy rules:
 // minimum length, one uppercase letter, one lowercase letter, one digit and
 // one special (non-alphanumeric) character. The error lists every failing
