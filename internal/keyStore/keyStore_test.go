@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"expo-open-ota/config"
 	"expo-open-ota/internal/crypto"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -150,4 +152,65 @@ func TestDatabaseKeys_MissingMasterKeyReturnsEmpty(t *testing.T) {
 	app := dbKeysApp(appId, sealedPub, sealedPriv)
 	assert.Empty(t, GetPrivateExpoKey(app))
 	assert.Empty(t, GetPublicExpoKey(app))
+}
+
+// --- CloudFront key resolution ---
+
+// The CloudFront key follows KEYS_STORAGE_TYPE when it is set (stateless
+// mode), and falls back to trying every source in order when it is unset
+// (control plane, where the variable does not exist).
+
+func setCloudfrontEnv(t *testing.T, mode, secretId, b64, path string) {
+	t.Helper()
+	t.Setenv("KEYS_STORAGE_TYPE", mode)
+	t.Setenv("AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID", secretId)
+	t.Setenv("PRIVATE_CLOUDFRONT_KEY_B64", b64)
+	t.Setenv("PRIVATE_CLOUDFRONT_KEY_PATH", path)
+}
+
+func writeTempPEM(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "cloudfront.pem")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestCloudfrontKey_LocalModeReadsFileAndIgnoresB64(t *testing.T) {
+	path := writeTempPEM(t, app1PEM)
+	// b64 of a DIFFERENT key is also set — the configured mode must win.
+	setCloudfrontEnv(t, "local", "", app2PEMB64, path)
+
+	assert.Equal(t, app1PEM, GetPrivateCloudfrontKey(),
+		"KEYS_STORAGE_TYPE=local must read the file, not the b64 leftover")
+}
+
+func TestCloudfrontKey_EnvironmentModeReadsB64AndIgnoresFile(t *testing.T) {
+	path := writeTempPEM(t, app1PEM)
+	setCloudfrontEnv(t, "environment", "", app2PEMB64, path)
+
+	assert.Equal(t, app2PEM, GetPrivateCloudfrontKey(),
+		"KEYS_STORAGE_TYPE=environment must decode the b64, not read the file")
+}
+
+func TestCloudfrontKey_ModeSelectedSourceEmptyDoesNotFallBack(t *testing.T) {
+	// local mode with no PATH: the b64 leftover must NOT silently win —
+	// that was the old behavior this resolution replaces.
+	setCloudfrontEnv(t, "local", "", app2PEMB64, "")
+
+	assert.Empty(t, GetPrivateCloudfrontKey(),
+		"an empty mode-selected source must disable the key, not fall back")
+}
+
+func TestCloudfrontKey_UnsetModeTriesSourcesInOrder(t *testing.T) {
+	path := writeTempPEM(t, app1PEM)
+
+	// b64 outranks path when both are set.
+	setCloudfrontEnv(t, "", "", app2PEMB64, path)
+	assert.Equal(t, app2PEM, GetPrivateCloudfrontKey())
+
+	// path is used when it is the only source.
+	setCloudfrontEnv(t, "", "", "", path)
+	assert.Equal(t, app1PEM, GetPrivateCloudfrontKey())
 }

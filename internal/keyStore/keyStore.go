@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sync"
 )
 
 // GetPublicExpoKey returns the PEM-encoded Expo public signing key for the
@@ -104,20 +105,62 @@ func readExpoKey(app config.AppConfig, public bool) string {
 }
 
 // GetPrivateCloudfrontKey is deployment-global (one CDN per server) so it
-// stays on plain env vars and is not part of the per-app config. Supported
-// sources, in priority order: AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID,
-// PRIVATE_CLOUDFRONT_KEY_B64, PRIVATE_CLOUDFRONT_KEY_PATH.
+// stays on plain env vars and is not part of the per-app config.
+//
+// When KEYS_STORAGE_TYPE is set it selects the CloudFront key source, the same
+// way it selects the Expo key source in stateless mode:
+// aws-secrets-manager → AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID,
+// environment → PRIVATE_CLOUDFRONT_KEY_B64, local → PRIVATE_CLOUDFRONT_KEY_PATH.
+// A source set for a different mode is deliberately ignored (with a one-time
+// warning) instead of silently winning over the configured mode.
+//
+// When KEYS_STORAGE_TYPE is unset — a control plane, where per-app keys live in
+// the database and the variable has no meaning — the sources are tried in
+// order: AWSSM, then B64, then PATH.
 func GetPrivateCloudfrontKey() string {
-	if secretId := config.GetEnv("AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID"); secretId != "" {
+	secretId := config.GetEnv("AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID")
+	b64 := config.GetEnv("PRIVATE_CLOUDFRONT_KEY_B64")
+	path := config.GetEnv("PRIVATE_CLOUDFRONT_KEY_PATH")
+	mode := config.GetEnv("KEYS_STORAGE_TYPE")
+	switch mode {
+	case "aws-secrets-manager":
+		warnCloudfrontSourceMismatch(mode, secretId == "", b64 != "" || path != "")
+		if secretId == "" {
+			return ""
+		}
+		return aws.FetchSecret(secretId)
+	case "environment":
+		warnCloudfrontSourceMismatch(mode, b64 == "", secretId != "" || path != "")
+		return decodeB64(b64)
+	case "local":
+		warnCloudfrontSourceMismatch(mode, path == "", secretId != "" || b64 != "")
+		return readPEMFile(path)
+	}
+	if secretId != "" {
 		return aws.FetchSecret(secretId)
 	}
-	if b64 := config.GetEnv("PRIVATE_CLOUDFRONT_KEY_B64"); b64 != "" {
+	if b64 != "" {
 		return decodeB64(b64)
 	}
-	if path := config.GetEnv("PRIVATE_CLOUDFRONT_KEY_PATH"); path != "" {
+	if path != "" {
 		return readPEMFile(path)
 	}
 	return ""
+}
+
+var cloudfrontSourceMismatchOnce sync.Once
+
+// warnCloudfrontSourceMismatch logs once when KEYS_STORAGE_TYPE selects an
+// empty CloudFront key source while another source is set — the exact
+// misconfiguration that used to be silently masked by the old
+// first-source-wins behavior, and that now disables the CDN.
+func warnCloudfrontSourceMismatch(mode string, selectedEmpty, otherSet bool) {
+	if !selectedEmpty || !otherSet {
+		return
+	}
+	cloudfrontSourceMismatchOnce.Do(func() {
+		log.Printf("KEYS_STORAGE_TYPE=%s selects an empty CloudFront private key source while another CloudFront key variable is set; the other variable is ignored and the CloudFront CDN stays disabled", mode)
+	})
 }
 
 func readPEMFile(path string) string {

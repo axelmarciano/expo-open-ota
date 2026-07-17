@@ -33,9 +33,9 @@ type SettingsEnv struct {
 	AWS_ACCESS_KEY_ID                      string `json:"AWS_ACCESS_KEY_ID"`
 	CLOUDFRONT_DOMAIN                      string `json:"CLOUDFRONT_DOMAIN"`
 	CLOUDFRONT_KEY_PAIR_ID                 string `json:"CLOUDFRONT_KEY_PAIR_ID"`
-	CLOUDFRONT_PRIVATE_KEY_B64             string `json:"CLOUDFRONT_PRIVATE_KEY_B64"`
+	PRIVATE_CLOUDFRONT_KEY_B64             string `json:"PRIVATE_CLOUDFRONT_KEY_B64"`
 	AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID string `json:"AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID"`
-	PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH      string `json:"PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH"`
+	PRIVATE_CLOUDFRONT_KEY_PATH            string `json:"PRIVATE_CLOUDFRONT_KEY_PATH"`
 	PROMETHEUS_ENABLED                     string `json:"PROMETHEUS_ENABLED"`
 	// Apps lists the configured apps — the single flat-env app in stateless
 	// mode, or every app in the database in control-plane mode. Each entry
@@ -64,9 +64,9 @@ func (h *SettingsHandler) GetSettingsHandler(w http.ResponseWriter, r *http.Requ
 		AWS_ACCESS_KEY_ID:                      helpers.MaskSecret(config.GetEnv("AWS_ACCESS_KEY_ID")),
 		CLOUDFRONT_DOMAIN:                      config.GetEnv("CLOUDFRONT_DOMAIN"),
 		CLOUDFRONT_KEY_PAIR_ID:                 helpers.MaskSecret(config.GetEnv("CLOUDFRONT_KEY_PAIR_ID")),
-		CLOUDFRONT_PRIVATE_KEY_B64:             helpers.MaskSecret(config.GetEnv("CLOUDFRONT_PRIVATE_KEY_B64")),
+		PRIVATE_CLOUDFRONT_KEY_B64:             helpers.MaskSecret(config.GetEnv("PRIVATE_CLOUDFRONT_KEY_B64")),
 		AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID: config.GetEnv("AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID"),
-		PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH:      config.GetEnv("PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH"),
+		PRIVATE_CLOUDFRONT_KEY_PATH:            config.GetEnv("PRIVATE_CLOUDFRONT_KEY_PATH"),
 		PROMETHEUS_ENABLED:                     config.GetEnv("PROMETHEUS_ENABLED"),
 		Apps:                                   apps,
 	})
