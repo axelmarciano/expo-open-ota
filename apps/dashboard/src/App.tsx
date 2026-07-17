@@ -11,7 +11,10 @@ import { Channels } from '@/pages/Channels';
 import { SelectedAppProvider } from '@/lib/SelectedAppContext';
 import { AppInfo } from '@/pages/AppInfo';
 import { ApiTokens } from '@/pages/ApiTokens';
+import { Users } from '@/pages/Users';
+import { Account } from '@/pages/Account';
 import { SettingsProvider } from '@/lib/SettingsContext';
+import { CurrentUserProvider } from '@/lib/CurrentUserContext';
 
 function withLayout(children: ReactNode) {
   return <Layout>{children}</Layout>;
@@ -37,16 +40,20 @@ export const App = () => {
           element={
             isLoggedIn ? (
               <SettingsProvider>
-                <SelectedAppProvider>
-                  <Routes>
-                    <Route path="/" element={withLayout(<Updates />)} />
-                    <Route path="/settings" element={withLayout(<Settings />)} />
-                    <Route path="/channels" element={withLayout(<Channels />)} />
-                    <Route path="/app-info" element={withLayout(<AppInfo />)} />
-                    <Route path="/tokens" element={withLayout(<ApiTokens />)} />
-                    <Route path="/logout" element={withLayout(<Logout />)} />
-                  </Routes>
-                </SelectedAppProvider>
+                <CurrentUserProvider>
+                  <SelectedAppProvider>
+                    <Routes>
+                      <Route path="/" element={withLayout(<Updates />)} />
+                      <Route path="/settings" element={withLayout(<Settings />)} />
+                      <Route path="/channels" element={withLayout(<Channels />)} />
+                      <Route path="/app-info" element={withLayout(<AppInfo />)} />
+                      <Route path="/tokens" element={withLayout(<ApiTokens />)} />
+                      <Route path="/users" element={withLayout(<Users />)} />
+                      <Route path="/account" element={withLayout(<Account />)} />
+                      <Route path="/logout" element={withLayout(<Logout />)} />
+                    </Routes>
+                  </SelectedAppProvider>
+                </CurrentUserProvider>
               </SettingsProvider>
             ) : null
           }

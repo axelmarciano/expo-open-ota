@@ -475,6 +475,7 @@ func SetValidConfiguration() {
 	os.Setenv("CLOUDFRONT_DOMAIN", "")
 	os.Setenv("CLOUDFRONT_KEY_PAIR_ID", "")
 	os.Setenv("USE_DASHBOARD", "true")
+	os.Setenv("ADMIN_EMAIL", "admin@expo-open-ota.dev")
 	os.Setenv("ADMIN_PASSWORD", "admin")
 
 	// v2 single-app flat-env config: a test-app-id entry pointing at the

@@ -28,16 +28,30 @@ func TestLoginDashboardNotEnabled(t *testing.T) {
 
 }
 
+func loginRequest(email string, password string) *http.Request {
+	formData := url.Values{}
+	formData.Set("email", email)
+	formData.Set("password", password)
+	req, _ := http.NewRequest("POST", "/auth/login", strings.NewReader(formData.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return req
+}
+
 func TestLoginInvalidPassword(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
 	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
-	formData := url.Values{}
-	formData.Set("password", "wrongpassword")
-	req, _ := http.NewRequest("POST", "/auth/login", strings.NewReader(formData.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	router.ServeHTTP(respRec, req)
+	router.ServeHTTP(respRec, loginRequest("admin@expo-open-ota.dev", "wrongpassword"))
+	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
+}
+
+func TestLoginInvalidEmail(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	router := infrastructure.NewRouter(testContainer())
+	respRec := httptest.NewRecorder()
+	router.ServeHTTP(respRec, loginRequest("someone-else@expo-open-ota.dev", "admin"))
 	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
 }
 
@@ -47,24 +61,30 @@ func TestShouldRejectLoginIfAdminPasswordNotSet(t *testing.T) {
 	os.Setenv("ADMIN_PASSWORD", "")
 	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
-	formData := url.Values{}
-	formData.Set("password", "admin")
-	req, _ := http.NewRequest("POST", "/auth/login", strings.NewReader(formData.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	router.ServeHTTP(respRec, req)
+	router.ServeHTTP(respRec, loginRequest("admin@expo-open-ota.dev", "admin"))
 	assert.Equal(t, http.StatusUnauthorized, respRec.Code)
 }
 
-func TestLoginValidPassword(t *testing.T) {
+// A missing ADMIN_EMAIL is an operator misconfiguration: stateless-mode login
+// must answer with the explicit "set ADMIN_EMAIL" instruction, not a 401.
+func TestShouldExplainLoginIfAdminEmailNotSet(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("ADMIN_EMAIL", "")
+	router := infrastructure.NewRouter(testContainer())
+	respRec := httptest.NewRecorder()
+	router.ServeHTTP(respRec, loginRequest("admin@expo-open-ota.dev", "admin"))
+	assert.Equal(t, http.StatusInternalServerError, respRec.Code)
+	assert.Contains(t, respRec.Body.String(), "ADMIN_EMAIL is not set")
+}
+
+func TestLoginValidCredentials(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
 	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
-	formData := url.Values{}
-	formData.Set("password", "admin")
-	req, _ := http.NewRequest("POST", "/auth/login", strings.NewReader(formData.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	router.ServeHTTP(respRec, req)
+	// Email matching is case-insensitive.
+	router.ServeHTTP(respRec, loginRequest("Admin@Expo-Open-OTA.dev", "admin"))
 	assert.Equal(t, http.StatusOK, respRec.Code)
 	// Retrieve token & refreshToken from response
 	body := respRec.Body.String()
@@ -79,15 +99,40 @@ func TestLoginValidPassword(t *testing.T) {
 func login() services.DashboardSession {
 	router := infrastructure.NewRouter(testContainer())
 	respRec := httptest.NewRecorder()
-	formData := url.Values{}
-	formData.Set("password", "admin")
-	req, _ := http.NewRequest("POST", "/auth/login", strings.NewReader(formData.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	router.ServeHTTP(respRec, req)
+	router.ServeHTTP(respRec, loginRequest("admin@expo-open-ota.dev", "admin"))
 	body := respRec.Body.String()
 	var response services.DashboardSession
 	_ = json.Unmarshal([]byte(body), &response)
 	return response
+}
+
+// In stateless mode /api/me synthesizes the account from ADMIN_EMAIL: no id,
+// always admin.
+func TestGetMeStateless(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	router := infrastructure.NewRouter(testContainer())
+	respRec := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/me", nil)
+	req.Header.Set("Authorization", "Bearer "+login().Token)
+	router.ServeHTTP(respRec, req)
+	assert.Equal(t, http.StatusOK, respRec.Code)
+	assert.Equal(t, `{"id":"","email":"admin@expo-open-ota.dev","isAdmin":true}`, strings.TrimSpace(respRec.Body.String()))
+}
+
+// User management is a control-plane feature: in stateless mode the routes
+// exist but answer an explicit 400, and the single env account is admin so the
+// admin gate itself passes.
+func TestUsersRoutesRejectedInStatelessMode(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	router := infrastructure.NewRouter(testContainer())
+	respRec := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/users", nil)
+	req.Header.Set("Authorization", "Bearer "+login().Token)
+	router.ServeHTTP(respRec, req)
+	assert.Equal(t, http.StatusBadRequest, respRec.Code)
+	assert.Contains(t, respRec.Body.String(), "stateless mode")
 }
 
 func TestRefreshToken(t *testing.T) {
@@ -132,6 +177,38 @@ func TestSettings(t *testing.T) {
 	expectedSnapshot := `{"BASE_URL":"http://localhost:3000","CONTROL_PLANE_ENABLED":false,"CACHE_MODE":"","REDIS_HOST":"","REDIS_PORT":"","REDIS_SENTINEL_ADDRS":"","REDIS_SENTINEL_MASTER_NAME":"","STORAGE_MODE":"local","S3_BUCKET_NAME":"","S3_CDN_PREFIX":"","GCS_BUCKET_NAME":"","LOCAL_BUCKET_BASE_PATH":"{PROJECT_ROOT}/test/test-updates","AWS_REGION":"eu-west-3","AWS_BASE_ENDPOINT":"","AWS_S3_FORCE_PATH_STYLE":"","AWS_ACCESS_KEY_ID":"***","CLOUDFRONT_DOMAIN":"","CLOUDFRONT_KEY_PAIR_ID":"***","PRIVATE_CLOUDFRONT_KEY_B64":"***","AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID":"","PRIVATE_CLOUDFRONT_KEY_PATH":"","PROMETHEUS_ENABLED":"","CDN_TYPE":"","EXPO_ACCOUNT_USERNAME":"","APPS":[{"id":"test-app-id"}]}`
 
 	assert.Equal(t, expectedSnapshot, responseBody)
+}
+
+// In stateless mode the flat env carries no display name, so the dashboard
+// would label everything with the raw EXPO_APP_ID. The bucket store resolves
+// the name from Expo (best-effort); TestSettings covers the failure path,
+// where the name stays empty and clients fall back to the id.
+func TestGetAppsStatelessResolvesNameFromExpo(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	httpmock.RegisterResponder("POST", "https://api.expo.dev/graphql",
+		func(req *http.Request) (*http.Response, error) {
+			if req.Header.Get("operationName") == "FetchExpoAppName" {
+				return httpmock.NewJsonResponse(http.StatusOK, map[string]interface{}{
+					"data": map[string]interface{}{
+						"app": map[string]interface{}{
+							"byId": map[string]interface{}{
+								"id":   "test-app-id",
+								"name": "My Expo App",
+							},
+						},
+					},
+				})
+			}
+			return httpmock.NewStringResponse(404, "Unknown operation"), nil
+		})
+	router := infrastructure.NewRouter(testContainer())
+	respRec := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/apps", nil)
+	req.Header.Set("Authorization", "Bearer "+login().Token)
+	router.ServeHTTP(respRec, req)
+	assert.Equal(t, http.StatusOK, respRec.Code)
+	assert.Equal(t, `[{"id":"test-app-id","name":"My Expo App"}]`, strings.TrimSpace(respRec.Body.String()))
 }
 
 func TestSettingsWithoutAuth(t *testing.T) {

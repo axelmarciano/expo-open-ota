@@ -20,6 +20,22 @@ export class ApiProblemError extends Error {
   }
 }
 
+// Turns any thrown error into a toast-ready title/description pair: an
+// ApiProblemError carries the server's actionable message, anything else
+// falls back to the given title.
+export const describeApiError = (
+  error: unknown,
+  fallbackTitle: string
+): { title: string; description: string } => {
+  if (error instanceof ApiProblemError) {
+    return { title: error.title, description: error.detail };
+  }
+  return {
+    title: fallbackTitle,
+    description: error instanceof Error ? error.message : 'An unexpected error occurred.',
+  };
+};
+
 export type KeysMode = 'local' | 'aws-secrets-manager' | 'environment' | 'database';
 
 export type KeysConfig = {
@@ -74,6 +90,17 @@ export type ApiKeyRecord = {
 
 export type CreateApiKeyResponse = {
   apiKey: string;
+};
+
+// A dashboard user account. `id` is empty in stateless mode, where the only
+// account comes from ADMIN_EMAIL and is not a database row. `lastConnectedAt`
+// is absent until the account's first successful sign-in.
+export type UserRecord = {
+  id: string;
+  email: string;
+  isAdmin: boolean;
+  createdAt?: string;
+  lastConnectedAt?: string;
 };
 
 // Mirror of the server's SettingsEnv payload (/api/settings). Field names are
@@ -207,13 +234,56 @@ export class ApiClient {
     }
   }
 
-  public async login(password: string) {
+  public async login(email: string, password: string) {
     const form = new URLSearchParams();
+    form.append('email', email);
     form.append('password', password);
     return this.request<{ token: string; refreshToken: string }>(`/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: form.toString(),
+    });
+  }
+
+  public async getMe() {
+    return this.request<UserRecord>(`/api/me`, {
+      method: 'GET',
+    });
+  }
+
+  public async changeMyPassword(payload: { currentPassword: string; newPassword: string }) {
+    return this.request<void>(`/api/me/password`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async getUsers() {
+    return this.request<UserRecord[]>(`/api/users`, {
+      method: 'GET',
+    });
+  }
+
+  public async createUser(payload: { email: string; password: string; isAdmin: boolean }) {
+    return this.request<UserRecord>(`/api/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async updateUserAdmin(userId: string, isAdmin: boolean) {
+    return this.request<void>(`/api/users/${encodeURIComponent(userId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isAdmin }),
+    });
+  }
+
+  public async deleteUser(userId: string) {
+    return this.request<void>(`/api/users/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
     });
   }
 

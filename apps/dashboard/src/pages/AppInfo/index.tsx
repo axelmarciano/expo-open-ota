@@ -9,10 +9,15 @@ import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/PageHeader';
 import { DeleteDialog } from '@/components/ui/delete-dialog';
 import { KeystoreCard } from './components/KeystoreCard';
+import { AdminOnlyNote } from '@/components/ui/admin-only-note';
 import { useSettings } from '@/lib/SettingsContext';
+import { useCurrentUser } from '@/lib/CurrentUserContext';
 
 export const AppInfo = () => {
   const { CONTROL_PLANE_ENABLED } = useSettings();
+  // Renaming and deleting an app are admin actions (the server enforces it) —
+  // hide the controls from everyone else.
+  const { isAdmin } = useCurrentUser();
   const { selectedAppId, refreshApps } = useSelectedApp();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -174,7 +179,7 @@ export const AppInfo = () => {
           ) : (
             <span className="flex items-center gap-2">
               {appData?.name || selectedAppId}
-              {CONTROL_PLANE_ENABLED && (
+              {CONTROL_PLANE_ENABLED && isAdmin && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -195,7 +200,8 @@ export const AppInfo = () => {
           </span>
         }
         actions={
-          isDownloadAvailable ? (
+          // Key material: the server only serves it to admins.
+          isDownloadAvailable && isAdmin ? (
             <Button variant="outline" size="sm" onClick={handleDownloadCertificate}>
               <Download className="h-4 w-4" />
               Download certificate
@@ -205,9 +211,16 @@ export const AppInfo = () => {
       />
 
       <div className="max-w-2xl space-y-6">
+        {CONTROL_PLANE_ENABLED && !isAdmin && (
+          <AdminOnlyNote>
+            You are signed in with a member account, which is read-only — only admins can rename or
+            delete the app and download its signing certificate.
+          </AdminOnlyNote>
+        )}
+
         <KeystoreCard isLoading={appDetailsQuery.isLoading} appData={appData} />
 
-        {CONTROL_PLANE_ENABLED && (
+        {CONTROL_PLANE_ENABLED && isAdmin && (
           <div className="overflow-hidden rounded-xl border border-destructive/30">
             <div className="flex flex-wrap items-center justify-between gap-4 p-5">
               <div>
@@ -228,7 +241,7 @@ export const AppInfo = () => {
         )}
       </div>
 
-      {CONTROL_PLANE_ENABLED && (
+      {CONTROL_PLANE_ENABLED && isAdmin && (
         <DeleteDialog
           isOpen={showDeleteAppDialog}
           onClose={() => setShowDeleteAppDialog(false)}

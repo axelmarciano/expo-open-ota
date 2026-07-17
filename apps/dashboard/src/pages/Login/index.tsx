@@ -9,11 +9,14 @@ import { Form, FormControl, FormField, FormItem, FormMessage } from '@/component
 import { useCallback } from 'react';
 import { setTokens } from '@/lib/auth.ts';
 import { useNavigate } from 'react-router';
-import { api } from '@/lib/api.ts';
+import { api, ApiProblemError } from '@/lib/api.ts';
 
 const FormSchema = z.object({
+  email: z.string().email({
+    message: 'Enter a valid email address',
+  }),
   password: z.string().min(1, {
-    message: 'Enter your admin password',
+    message: 'Enter your password',
   }),
 });
 
@@ -21,6 +24,7 @@ export const Login = () => {
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
     defaultValues: {
+      email: '',
       password: '',
     },
   });
@@ -29,13 +33,21 @@ export const Login = () => {
   const onSubmit = useCallback(
     async (data: z.infer<typeof FormSchema>) => {
       try {
-        const response = await api.login(data.password);
+        const response = await api.login(data.email, data.password);
         setTokens(response.token, response.refreshToken);
         navigate('/');
-      } catch {
+      } catch (error) {
+        // Only an actual 401 means wrong credentials. A misconfigured server
+        // (e.g. ADMIN_EMAIL not set in stateless mode) answers with an
+        // actionable detail, and a fetch that never reached the server must
+        // not masquerade as a credentials problem.
+        let message = 'Could not reach the server — check that it is running.';
+        if (error instanceof ApiProblemError) {
+          message = error.status === 401 ? 'Invalid email or password' : error.detail;
+        }
         form.setError('password', {
           type: 'server',
-          message: 'That password is incorrect',
+          message,
         });
       }
     },
@@ -62,16 +74,36 @@ export const Login = () => {
             <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-5">
               <FormField
                 control={form.control}
+                name="email"
+                render={({ field, fieldState }) => {
+                  return (
+                    <FormItem className="space-y-1.5">
+                      <Label htmlFor="login-email">Email</Label>
+                      <FormControl>
+                        <Input
+                          id="login-email"
+                          type="email"
+                          autoFocus
+                          autoComplete="username"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage>{fieldState.error?.message}</FormMessage>
+                    </FormItem>
+                  );
+                }}
+              />
+              <FormField
+                control={form.control}
                 name="password"
                 render={({ field, fieldState }) => {
                   return (
                     <FormItem className="space-y-1.5">
-                      <Label htmlFor="admin-password">Admin password</Label>
+                      <Label htmlFor="login-password">Password</Label>
                       <FormControl>
                         <Input
-                          id="admin-password"
+                          id="login-password"
                           type="password"
-                          autoFocus
                           autoComplete="current-password"
                           {...field}
                         />

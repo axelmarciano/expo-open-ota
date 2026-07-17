@@ -1,0 +1,179 @@
+package services
+
+import (
+	"context"
+	"errors"
+	"expo-open-ota/internal/crypto"
+	"expo-open-ota/internal/store"
+	"net/mail"
+
+	"github.com/google/uuid"
+)
+
+// UserRepository is the users table. It has no bucket implementation on
+// purpose: user accounts only exist on the control plane, stateless mode
+// authenticates against ADMIN_EMAIL/ADMIN_PASSWORD and never touches a store.
+type UserRepository interface {
+	InsertUser(ctx context.Context, params store.InsertUserParameters) (store.User, error)
+	GetUserByEmail(ctx context.Context, email string) (store.User, error)
+	GetUserByID(ctx context.Context, id string) (store.User, error)
+	GetUsers(ctx context.Context) ([]store.User, error)
+	DeleteUserByID(ctx context.Context, id string) error
+	UpdateUserPassword(ctx context.Context, id string, passwordHash string) error
+	UpdateUserIsAdmin(ctx context.Context, id string, isAdmin bool) error
+	TouchUserLastConnected(ctx context.Context, id string) error
+	CountAdmins(ctx context.Context) (int64, error)
+}
+
+// Business-rule violations, mapped to explicit 4xx responses by the handlers.
+var (
+	ErrUsersRequireControlPlane = errors.New("user accounts are managed in the database: this deployment runs in stateless mode, where the only account comes from ADMIN_EMAIL and ADMIN_PASSWORD")
+	ErrCannotChangeOwnAdminFlag = errors.New("you cannot change your own admin status")
+	ErrCannotDeleteOwnAccount   = errors.New("you cannot delete your own account")
+	ErrLastAdmin                = errors.New("there must always be at least one admin")
+	ErrInvalidCurrentPassword   = errors.New("the current password is incorrect")
+)
+
+// ValidationError wraps a user-input validation failure (email format,
+// password policy) so handlers answer 400 with the actionable message instead
+// of an opaque 500.
+type ValidationError struct {
+	Reason error
+}
+
+func (e *ValidationError) Error() string { return e.Reason.Error() }
+func (e *ValidationError) Unwrap() error { return e.Reason }
+
+// UserService owns dashboard user accounts and the two invariants around the
+// admin flag: nobody can change their own, and the last admin can neither be
+// demoted nor deleted — so the dashboard can never lock itself out.
+type UserService struct {
+	userRepo UserRepository
+}
+
+// NewUserService accepts a nil repository (stateless mode); every method then
+// answers ErrUsersRequireControlPlane.
+func NewUserService(userRepo UserRepository) *UserService {
+	return &UserService{
+		userRepo: userRepo,
+	}
+}
+
+func (s *UserService) requireControlPlane() error {
+	if s.userRepo == nil {
+		return ErrUsersRequireControlPlane
+	}
+	return nil
+}
+
+func (s *UserService) GetUsers(ctx context.Context) ([]store.User, error) {
+	if err := s.requireControlPlane(); err != nil {
+		return nil, err
+	}
+	return s.userRepo.GetUsers(ctx)
+}
+
+func (s *UserService) GetUserByID(ctx context.Context, id string) (store.User, error) {
+	if err := s.requireControlPlane(); err != nil {
+		return store.User{}, err
+	}
+	return s.userRepo.GetUserByID(ctx, id)
+}
+
+func (s *UserService) CreateUser(ctx context.Context, email string, password string, isAdmin bool) (store.User, error) {
+	if err := s.requireControlPlane(); err != nil {
+		return store.User{}, err
+	}
+	normalizedEmail := store.NormalizeEmail(email)
+	if _, err := mail.ParseAddress(normalizedEmail); err != nil {
+		return store.User{}, &ValidationError{Reason: errors.New("invalid email address")}
+	}
+	if err := crypto.ValidatePasswordPolicy(password); err != nil {
+		return store.User{}, &ValidationError{Reason: err}
+	}
+	passwordHash, err := crypto.HashPassword(password)
+	if err != nil {
+		return store.User{}, err
+	}
+	return s.userRepo.InsertUser(ctx, store.InsertUserParameters{
+		ID:           uuid.New().String(),
+		Email:        normalizedEmail,
+		PasswordHash: passwordHash,
+		IsAdmin:      isAdmin,
+	})
+}
+
+func (s *UserService) DeleteUser(ctx context.Context, actorUserId string, targetUserId string) error {
+	if err := s.requireControlPlane(); err != nil {
+		return err
+	}
+	if actorUserId == targetUserId {
+		return ErrCannotDeleteOwnAccount
+	}
+	target, err := s.userRepo.GetUserByID(ctx, targetUserId)
+	if err != nil {
+		return err
+	}
+	// The self-delete guard above already keeps an admin actor alive through
+	// the delete, but the actor's own flag may have been revoked concurrently —
+	// count instead of assuming.
+	if target.IsAdmin {
+		adminCount, err := s.userRepo.CountAdmins(ctx)
+		if err != nil {
+			return err
+		}
+		if adminCount <= 1 {
+			return ErrLastAdmin
+		}
+	}
+	return s.userRepo.DeleteUserByID(ctx, targetUserId)
+}
+
+func (s *UserService) SetUserAdmin(ctx context.Context, actorUserId string, targetUserId string, isAdmin bool) error {
+	if err := s.requireControlPlane(); err != nil {
+		return err
+	}
+	// Covers "you cannot remove your own admin flag": granting yourself a flag
+	// you already hold is the only other case, and it is a no-op anyway.
+	if actorUserId == targetUserId {
+		return ErrCannotChangeOwnAdminFlag
+	}
+	target, err := s.userRepo.GetUserByID(ctx, targetUserId)
+	if err != nil {
+		return err
+	}
+	if target.IsAdmin && !isAdmin {
+		adminCount, err := s.userRepo.CountAdmins(ctx)
+		if err != nil {
+			return err
+		}
+		if adminCount <= 1 {
+			return ErrLastAdmin
+		}
+	}
+	return s.userRepo.UpdateUserIsAdmin(ctx, targetUserId, isAdmin)
+}
+
+// ChangePassword re-checks the current password even though the caller holds a
+// valid session: a stolen or forgotten-open session must not be enough to take
+// the account over by rotating its password.
+func (s *UserService) ChangePassword(ctx context.Context, userId string, currentPassword string, newPassword string) error {
+	if err := s.requireControlPlane(); err != nil {
+		return err
+	}
+	user, err := s.userRepo.GetUserByID(ctx, userId)
+	if err != nil {
+		return err
+	}
+	if !crypto.VerifyPassword(user.PasswordHash, currentPassword) {
+		return ErrInvalidCurrentPassword
+	}
+	if err := crypto.ValidatePasswordPolicy(newPassword); err != nil {
+		return &ValidationError{Reason: err}
+	}
+	passwordHash, err := crypto.HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	return s.userRepo.UpdateUserPassword(ctx, userId, passwordHash)
+}

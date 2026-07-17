@@ -51,6 +51,11 @@ environment:
     key: "useDashboard"
     required: true
     computed: true
+  - name: "ADMIN_EMAIL"
+    value: ""
+    required:
+      - key: "useDashboard"
+        is: "true"
   - name: "ADMIN_PASSWORD"
     value: ""
     required:

@@ -104,12 +104,30 @@ func NewRouter(container *AppContainer) *mux.Router {
 	authSubrouter.Use(middleware.NewAuthMiddleware(container.DashboardAuthService, container.CliAuthService))
 	authSubrouter.HandleFunc("/settings", container.SettingsHandler.GetSettingsHandler).Methods(http.MethodGet)
 
+	// adminOnly makes member accounts read-only: every dashboard mutation —
+	// users, apps, branches, channels, mappings, API tokens — plus the signing
+	// certificate download is admin-only. Members keep the GET routes, /api/me
+	// and their own password change. It wraps individual routes rather than a
+	// subrouter because admin and non-admin routes share path prefixes.
+	adminOnly := middleware.NewAdminMiddleware(container.UserRepo)
+
+	// Current account
+	authSubrouter.HandleFunc("/me", container.UsersHandler.GetMeHandler).Methods(http.MethodGet)
+	authSubrouter.HandleFunc("/me/password", container.UsersHandler.ChangeMyPasswordHandler).Methods(http.MethodPut)
+
+	// Users management router (control-plane only, admin only)
+	authSubrouter.Handle("/users", adminOnly(http.HandlerFunc(container.UsersHandler.GetUsersHandler))).Methods(http.MethodGet)
+	authSubrouter.Handle("/users", adminOnly(http.HandlerFunc(container.UsersHandler.CreateUserHandler))).Methods(http.MethodPost)
+	authSubrouter.Handle("/users/{USER_ID}", adminOnly(http.HandlerFunc(container.UsersHandler.UpdateUserAdminHandler))).Methods(http.MethodPatch)
+	authSubrouter.Handle("/users/{USER_ID}", adminOnly(http.HandlerFunc(container.UsersHandler.DeleteUserHandler))).Methods(http.MethodDelete)
+
 	// Apps management router
-	authSubrouter.HandleFunc("/apps", container.AppHandler.CreateAppHandler).Methods(http.MethodPost)
-	authSubrouter.HandleFunc("/apps/{APP_ID}", container.AppHandler.DeleteAppHandler).Methods(http.MethodDelete)
-	authSubrouter.HandleFunc("/apps/{APP_ID}", container.AppHandler.UpdateAppHandler).Methods(http.MethodPatch)
+	authSubrouter.Handle("/apps", adminOnly(http.HandlerFunc(container.AppHandler.CreateAppHandler))).Methods(http.MethodPost)
+	authSubrouter.Handle("/apps/{APP_ID}", adminOnly(http.HandlerFunc(container.AppHandler.DeleteAppHandler))).Methods(http.MethodDelete)
+	authSubrouter.Handle("/apps/{APP_ID}", adminOnly(http.HandlerFunc(container.AppHandler.UpdateAppHandler))).Methods(http.MethodPatch)
 	authSubrouter.HandleFunc("/apps", container.AppHandler.GetAppsHandler).Methods(http.MethodGet)
-	authSubrouter.HandleFunc("/apps/{APP_ID}/certificate", container.AppHandler.DownloadAppCertificateHandler).Methods(http.MethodGet)
+	// The signing certificate is key material — admin eyes only.
+	authSubrouter.Handle("/apps/{APP_ID}/certificate", adminOnly(http.HandlerFunc(container.AppHandler.DownloadAppCertificateHandler))).Methods(http.MethodGet)
 
 	// App-scoped dashboard routes: Auth first, then AppResolver validates the
 	// id and short-circuits unknown apps with 404 before handlers run. Without
@@ -120,18 +138,20 @@ func NewRouter(container *AppContainer) *mux.Router {
 	appAuthSubrouter.StrictSlash(true)
 	appAuthSubrouter.Use(middleware.AppResolverMiddleware(container.AppRepo))
 	appAuthSubrouter.HandleFunc("/", container.AppHandler.GetAppHandler).Methods(http.MethodGet)
-	appAuthSubrouter.HandleFunc("/branches", container.BranchHandler.CreateBranchHandler).Methods(http.MethodPost)
-	appAuthSubrouter.HandleFunc("/branches/{BRANCH}", container.BranchHandler.DeleteBranchHandler).Methods(http.MethodDelete)
+	appAuthSubrouter.Handle("/branches", adminOnly(http.HandlerFunc(container.BranchHandler.CreateBranchHandler))).Methods(http.MethodPost)
+	appAuthSubrouter.Handle("/branches/{BRANCH}", adminOnly(http.HandlerFunc(container.BranchHandler.DeleteBranchHandler))).Methods(http.MethodDelete)
 	appAuthSubrouter.HandleFunc("/branches", container.BranchHandler.GetBranchesHandler).Methods(http.MethodGet)
-	appAuthSubrouter.HandleFunc("/channels", container.ChannelHandler.CreateChannelHandler).Methods(http.MethodPost)
-	appAuthSubrouter.HandleFunc("/channels/{CHANNEL}", container.ChannelHandler.DeleteChannelHandler).Methods(http.MethodDelete)
+	appAuthSubrouter.Handle("/channels", adminOnly(http.HandlerFunc(container.ChannelHandler.CreateChannelHandler))).Methods(http.MethodPost)
+	appAuthSubrouter.Handle("/channels/{CHANNEL}", adminOnly(http.HandlerFunc(container.ChannelHandler.DeleteChannelHandler))).Methods(http.MethodDelete)
 	appAuthSubrouter.HandleFunc("/channels", container.ChannelHandler.GetChannelsHandler).Methods(http.MethodGet)
 	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersions", container.BranchHandler.GetRuntimeVersionsHandler).Methods(http.MethodGet)
 	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates", container.UpdateHandler.GetUpdatesHandler).Methods(http.MethodGet)
 	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates/{UPDATE_ID}", container.UpdateHandler.GetUpdateDetailsHandler).Methods(http.MethodGet)
-	appAuthSubrouter.HandleFunc("/branch/{BRANCH_ID}/updateChannelBranchMapping", container.BranchHandler.UpdateChannelBranchMappingHandler).Methods(http.MethodPost)
-	appAuthSubrouter.HandleFunc("/apiKeys", container.ApiKeyHandler.CreateApiKeyHandler).Methods(http.MethodPost)
+	appAuthSubrouter.Handle("/branch/{BRANCH_ID}/updateChannelBranchMapping", adminOnly(http.HandlerFunc(container.BranchHandler.UpdateChannelBranchMappingHandler))).Methods(http.MethodPost)
+	// An API token is publishing power over the app — minting and revoking are
+	// admin actions. The list stays readable: it only carries names and hints.
+	appAuthSubrouter.Handle("/apiKeys", adminOnly(http.HandlerFunc(container.ApiKeyHandler.CreateApiKeyHandler))).Methods(http.MethodPost)
 	appAuthSubrouter.HandleFunc("/apiKeys", container.ApiKeyHandler.GetApiKeysHandler).Methods(http.MethodGet)
-	appAuthSubrouter.HandleFunc("/apiKeys/{API_KEY_ID}/revoke", container.ApiKeyHandler.RevokeApiKeyHandler).Methods(http.MethodDelete)
+	appAuthSubrouter.Handle("/apiKeys/{API_KEY_ID}/revoke", adminOnly(http.HandlerFunc(container.ApiKeyHandler.RevokeApiKeyHandler))).Methods(http.MethodDelete)
 	return r
 }

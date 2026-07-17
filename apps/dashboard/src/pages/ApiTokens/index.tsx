@@ -11,9 +11,13 @@ import { ResourceCreateForm } from '@/components/ui/resource-create-form';
 import { DataTable } from '@/components/DataTable';
 import { TimestampCell } from '@/components/ui/timestamp-cell';
 import { DeleteDialog } from '@/components/ui/delete-dialog';
+import { AdminOnlyNote } from '@/components/ui/admin-only-note';
+import { useCurrentUser } from '@/lib/CurrentUserContext';
 
 export const ApiTokens = () => {
   const { CONTROL_PLANE_ENABLED } = useSettings();
+  // Member accounts are read-only: minting and revoking tokens is admin-only.
+  const { isAdmin } = useCurrentUser();
   const { selectedAppId } = useSelectedApp();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -105,19 +109,27 @@ export const ApiTokens = () => {
       />
 
       <div className="space-y-4">
-        <div className="flex justify-end">
-          <ResourceCreateForm
-            id="token-name"
-            label="Token name"
-            placeholder="Token name, e.g. ci-pipeline"
-            inputValue={newKeyName}
-            onInputChange={setNewKeyName}
-            onSubmit={handleCreateApiKey}
-            isSubmitting={isCreatingKey}
-            buttonText="Create token"
-            icon={Plus}
-          />
-        </div>
+        {!isAdmin && (
+          <AdminOnlyNote>
+            You are signed in with a member account, which is read-only — ask an admin to create or
+            revoke tokens.
+          </AdminOnlyNote>
+        )}
+        {isAdmin && (
+          <div className="flex justify-end">
+            <ResourceCreateForm
+              id="token-name"
+              label="Token name"
+              placeholder="Token name, e.g. ci-pipeline"
+              inputValue={newKeyName}
+              onInputChange={setNewKeyName}
+              onSubmit={handleCreateApiKey}
+              isSubmitting={isCreatingKey}
+              buttonText="Create token"
+              icon={Plus}
+            />
+          </div>
+        )}
 
         {generatedToken && (
           <div className="rounded-xl border bg-muted/40 p-4">
@@ -176,22 +188,26 @@ export const ApiTokens = () => {
                 return <TimestampCell dateString={lastUsed} />;
               },
             },
-            {
-              header: '',
-              id: 'actions',
-              cell: ({ row }) => (
-                <div className="text-right">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setKeyToRevoke(row.original)}
-                    className="h-8 w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    title="Revoke token">
-                    <Trash2 />
-                  </Button>
-                </div>
-              ),
-            },
+            ...(isAdmin
+              ? [
+                  {
+                    header: '',
+                    id: 'actions',
+                    cell: ({ row }: { row: { original: ApiKeyRecord } }) => (
+                      <div className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setKeyToRevoke(row.original)}
+                          className="h-8 w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          title="Revoke token">
+                          <Trash2 />
+                        </Button>
+                      </div>
+                    ),
+                  },
+                ]
+              : []),
           ]}
           data={apiKeysQuery.data ?? []}
           emptyMessage="No tokens yet. Create one to publish updates from your CI."
