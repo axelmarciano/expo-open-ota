@@ -28,6 +28,7 @@ storageMode: "s3"
 keysStorageType: "aws-secrets-manager"
 useCloudfrontRedirect: "false"
 useAWSAccessKeys: "false"
+useGenericCDN: "false"
 cacheMode: "redis"
 useDashboard: "false"
 useRedisTLS: "false"
@@ -59,6 +60,17 @@ environment:
     key: "cacheMode"
     required: true
     computed: true
+  - name: "REDIS_SENTINEL_ADDRS"
+    value: ""
+    required:
+      - key: "cacheMode"
+        is: "redis-sentinel"
+  - name: "REDIS_SENTINEL_MASTER_NAME"
+    value: "mymaster"
+    required: false
+    enabled:
+      - key: "cacheMode"
+        is: "redis-sentinel"
   - name: "REDIS_HOST"
     value: ""
     required:
@@ -73,7 +85,9 @@ environment:
     value: "true"
     required:
       - key: "cacheMode"
-        is: "redis"
+        in:
+          - "redis"
+          - "redis-sentinel"
       - key: "useRedisTLS"
         is: "true"
   - name: "REDIS_PASSWORD"
@@ -81,12 +95,29 @@ environment:
     required:
       - key: "cacheMode"
         is: "redis"
+    enabled:
+      - key: "cacheMode"
+        in:
+          - "redis"
+          - "redis-sentinel"
   - name: "REDIS_USERNAME"
     value: ""
     required: false
+    enabled:
+      - key: "cacheMode"
+        in:
+          - "redis"
+          - "redis-sentinel"
   - name: "REDIS_CA_CERT_B64"
     value: ""
     required: false
+    enabled:
+      - key: "cacheMode"
+        in:
+          - "redis"
+          - "redis-sentinel"
+      - key: "useRedisTLS"
+        is: "true"
   - name: "STORAGE_MODE"
     key: "storageMode"
     required: true
@@ -119,6 +150,9 @@ environment:
   - name: "AWS_BASE_ENDPOINT"
     value: ""
     required: false
+  - name: "AWS_S3_FORCE_PATH_STYLE"
+    value: ""
+    required: false
   - name: "S3_BUCKET_NAME"
     value: ""
     required:
@@ -131,6 +165,11 @@ environment:
   - name: "S3_KEY_PREFIX"
     value: ""
     required: false
+  - name: "S3_CDN_PREFIX"
+    value: ""
+    required:
+      - key: "useGenericCDN"
+        is: "true"
   - name: "LOCAL_BUCKET_BASE_PATH"
     value: ""
     required:

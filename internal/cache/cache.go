@@ -2,6 +2,7 @@ package cache
 
 import (
 	"expo-open-ota/config"
+	"strings"
 	"sync"
 )
 
@@ -18,8 +19,9 @@ type Cache interface {
 type CacheType string
 
 const (
-	LocalCacheType CacheType = "local"
-	RedisCacheType CacheType = "redis"
+	LocalCacheType         CacheType = "local"
+	RedisCacheType         CacheType = "redis"
+	RedisSentinelCacheType CacheType = "redis-sentinel"
 )
 
 const defaultPrefix = "expoopenota"
@@ -34,10 +36,26 @@ func withPrefix(key string) string {
 
 func ResolveCacheType() CacheType {
 	cacheType := config.GetEnv("CACHE_MODE")
-	if cacheType == "redis" {
+	switch cacheType {
+	case "redis":
 		return RedisCacheType
+	case "redis-sentinel":
+		return RedisSentinelCacheType
+	default:
+		return LocalCacheType
 	}
-	return LocalCacheType
+}
+
+func parseSentinelAddrs(addrs string) []string {
+	parts := strings.Split(addrs, ",")
+	sentinelAddrs := make([]string, 0, len(parts))
+	for _, part := range parts {
+		addr := strings.TrimSpace(part)
+		if addr != "" {
+			sentinelAddrs = append(sentinelAddrs, addr)
+		}
+	}
+	return sentinelAddrs
 }
 
 var (
@@ -56,10 +74,24 @@ func GetCache() Cache {
 			password := config.GetEnv("REDIS_PASSWORD")
 			port := config.GetEnv("REDIS_PORT")
 			useTLS := config.GetEnv("REDIS_USE_TLS") == "true"
-			// ACL and TLS configuration
 			username := config.GetEnv("REDIS_USERNAME")
 			caCertB64 := config.GetEnv("REDIS_CA_CERT_B64")
 			cacheInstance = NewRedisCache(host, password, port, useTLS, username, caCertB64)
+		case RedisSentinelCacheType:
+			sentinelAddrsStr := config.GetEnv("REDIS_SENTINEL_ADDRS")
+			sentinelAddrs := parseSentinelAddrs(sentinelAddrsStr)
+			if len(sentinelAddrs) == 0 {
+				panic("REDIS_SENTINEL_ADDRS must contain at least one Sentinel address")
+			}
+			masterName := config.GetEnv("REDIS_SENTINEL_MASTER_NAME")
+			if masterName == "" {
+				masterName = "mymaster"
+			}
+			password := config.GetEnv("REDIS_PASSWORD")
+			useTLS := config.GetEnv("REDIS_USE_TLS") == "true"
+			username := config.GetEnv("REDIS_USERNAME")
+			caCertB64 := config.GetEnv("REDIS_CA_CERT_B64")
+			cacheInstance = NewRedisSentinelCache(sentinelAddrs, masterName, password, useTLS, username, caCertB64)
 		default:
 			panic("Unknown cache type")
 		}

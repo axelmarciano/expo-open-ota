@@ -92,6 +92,22 @@ func getAssetMetadata(req AssetsRequest, returnAsset bool) (AssetsResponse, *typ
 		}
 	}
 
+	if !returnAsset {
+		if !isLaunchAsset && assetMetadata == (types.Asset{}) {
+			log.Printf("[RequestID: %s] Asset not found in metadata: %s", requestID, req.AssetName)
+			return AssetsResponse{StatusCode: http.StatusNotFound, Body: []byte("Asset not found")}, nil, "", nil
+		}
+		headers := map[string]string{
+			"expo-protocol-version": "1",
+			"expo-sfv-version":      "0",
+			"Cache-Control":         "public, max-age=31536000",
+		}
+		return AssetsResponse{
+			StatusCode: http.StatusOK,
+			Headers:    headers,
+		}, nil, lastUpdate.UpdateId, nil
+	}
+
 	resolvedBucket := bucket.GetBucket()
 	asset, err := resolvedBucket.GetFile(*lastUpdate, req.AssetName)
 	if err != nil {

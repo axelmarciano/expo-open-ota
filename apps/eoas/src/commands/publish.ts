@@ -19,7 +19,7 @@ import { fetchWithRetries } from '../lib/fetch';
 import Log from '../lib/log';
 import { ora } from '../lib/ora';
 import { isExpoInstalled } from '../lib/package';
-import { resolvePackageRunner } from '../lib/packageRunner';
+import { resolvePackageRunner, splitPackageRunner } from '../lib/packageRunner';
 import { confirmAsync } from '../lib/prompts';
 import { ensureRepoIsCleanAsync } from '../lib/repo';
 import { resolveRuntimeVersionAsync } from '../lib/runtimeVersion';
@@ -65,7 +65,7 @@ export default class Publish extends Command {
     }),
     packageRunner: Flags.string({
       description:
-        'Package runner to use for spawning Expo CLI commands (e.g. npx, bunx, pnpx). Can also be set via EOAS_PACKAGE_RUNNER env var. Defaults to npx.',
+        'Package runner to use for spawning Expo CLI commands (e.g. npx, bunx, "pnpm exec"). Can also be set via EOAS_PACKAGE_RUNNER env var. Defaults to npx.',
       required: false,
     }),
     message: Flags.string({
@@ -73,6 +73,11 @@ export default class Publish extends Command {
       description:
         'A short message describing the update. Defaults to the latest git commit message.',
       required: false,
+    }),
+    dumpSourcemap: Flags.boolean({
+      description:
+        'Emit Hermes source maps alongside the bundle so the published artifact can be symbolicated by tools like Sentry or PostHog.',
+      default: false,
     }),
   };
   private sanitizeFlags(flags: any): {
@@ -84,6 +89,7 @@ export default class Publish extends Command {
     packageRunner: string;
     providedDeprecatedChannel?: string;
     message?: string;
+    dumpSourcemap: boolean;
   } {
     return {
       disableRepositoryCheck: flags.disableRepositoryCheck,
@@ -94,6 +100,7 @@ export default class Publish extends Command {
       packageRunner: resolvePackageRunner(flags.packageRunner, process.cwd()),
       providedDeprecatedChannel: flags.channel,
       message: flags.message,
+      dumpSourcemap: flags.dumpSourcemap,
     };
   }
   public async run(): Promise<void> {
@@ -115,6 +122,7 @@ export default class Publish extends Command {
       providedDeprecatedChannel,
       disableRepositoryCheck,
       message,
+      dumpSourcemap,
     } = this.sanitizeFlags(flags);
     if (!branch) {
       Log.error('Branch name is required');
@@ -224,9 +232,19 @@ export default class Publish extends Command {
     const exportSpinner = ora('📦 Exporting project files...').start();
     try {
       const specifiedPlatform = platform === RequestedPlatform.All ? [] : ['--platform', platform];
+      const sourcemapArgs = dumpSourcemap ? ['--dump-sourcemap'] : [];
+      const [runnerCommand, runnerArgs] = splitPackageRunner(packageRunner);
       const { stdout } = await spawnAsync(
-        packageRunner,
-        ['expo', 'export', '--output-dir', outputDir, ...specifiedPlatform],
+        runnerCommand,
+        [
+          ...runnerArgs,
+          'expo',
+          'export',
+          '--output-dir',
+          outputDir,
+          ...sourcemapArgs,
+          ...specifiedPlatform,
+        ],
         {
           cwd: projectDir,
           env: {

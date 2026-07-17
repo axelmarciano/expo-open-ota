@@ -34,42 +34,35 @@ func NewBucketUpdateStore(bucket bucket2.Bucket) *BucketUpdateStore {
 // Callers that need the cached answer must go through UpdateService, which owns
 // the lastUpdate cache — this is the uncached read underneath it.
 func (s *BucketUpdateStore) GetLatestUpdate(ctx context.Context, appId string, branchName string, runtimeVersion string, platform string) (*types.Update, error) {
-	updates, err := s.allUpdatesForRuntimeVersion(appId, branchName, runtimeVersion, platform)
+	// List the runtime's updates (the bucket derives CreatedAt from the updateId, so
+	// we can sort newest-first WITHOUT reading any per-update metadata) and scan once,
+	// reading update-metadata.json + .check only until the first update that matches
+	// the platform AND is valid. That update is the latest (newest-first order), so
+	// the result is identical to filtering+validating every update — but a cold cache
+	// miss now does O(1) bucket reads in the common case (newest update matches)
+	// instead of O(N). The previous shape read metadata for every update up front,
+	// so a foreground herd at the 1800s lastUpdate TTL expiry stampeded the origin.
+	//
+	// It resolves the bucket through the singleton rather than s.bucket on purpose:
+	// the metadata reads below go via internal/update, which is singleton-backed
+	// throughout. Mixing the two would list updates from one bucket and read their
+	// metadata from another whenever they diverge.
+	updates, err := bucket2.GetBucket().GetUpdates(appId, branchName, runtimeVersion)
 	if err != nil {
 		return nil, err
 	}
-	for _, update := range updates {
-		if s.isUpdateValid(update) {
-			return &update, nil
+	updates = sortNewestFirst(updates)
+	for i := range updates {
+		storedMetadata, metaErr := update2.RetrieveUpdateStoredMetadata(updates[i])
+		if metaErr != nil || storedMetadata == nil || storedMetadata.Platform != platform {
+			continue
 		}
+		if !s.isUpdateValid(updates[i]) {
+			continue
+		}
+		return &updates[i], nil
 	}
 	return nil, nil
-}
-
-// allUpdatesForRuntimeVersion lists the platform's updates, newest first.
-//
-// It resolves the bucket through the singleton rather than s.bucket on purpose:
-// filterByPlatform below reads each update's metadata via internal/update, which
-// is singleton-backed throughout. Mixing the two here would list updates from
-// one bucket and read their metadata from another whenever they diverge.
-// Untangling that means moving internal/update off the singleton wholesale.
-func (s *BucketUpdateStore) allUpdatesForRuntimeVersion(appId, branch, runtimeVersion, platform string) ([]types.Update, error) {
-	updates, err := bucket2.GetBucket().GetUpdates(appId, branch, runtimeVersion)
-	if err != nil {
-		return nil, err
-	}
-	return sortNewestFirst(filterByPlatform(updates, platform)), nil
-}
-
-func filterByPlatform(updates []types.Update, platform string) []types.Update {
-	filtered := make([]types.Update, 0)
-	for _, update := range updates {
-		storedMetadata, err := update2.RetrieveUpdateStoredMetadata(update)
-		if err == nil && storedMetadata != nil && storedMetadata.Platform == platform {
-			filtered = append(filtered, update)
-		}
-	}
-	return filtered
 }
 
 func sortNewestFirst(updates []types.Update) []types.Update {

@@ -8,14 +8,22 @@ import (
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/keyStore"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/feature/cloudfront/sign"
+	"strings"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/feature/cloudfront/sign"
 )
 
 type CloudfrontCDN struct{}
 
 func getCloudfrontDomain() string {
-	return config.GetEnv("CLOUDFRONT_DOMAIN")
+	domain := config.GetEnv("CLOUDFRONT_DOMAIN")
+	// The AWS SDK URL signer requires a scheme; tolerate the bare domain
+	// shown in the documentation examples.
+	if domain != "" && !strings.HasPrefix(domain, "http://") && !strings.HasPrefix(domain, "https://") {
+		domain = "https://" + domain
+	}
+	return domain
 }
 
 func getCloudfrontKeyPairId() string {
@@ -30,10 +38,12 @@ func (c *CloudfrontCDN) isCDNAvailable() bool {
 }
 
 func getSigner(key string) (crypto.Signer, error) {
-	reader := bytes.NewReader([]byte(key))
-	privateKey, err := sign.LoadPEMPrivKeyPKCS8AsSigner(reader)
+	privateKey, err := sign.LoadPEMPrivKeyPKCS8AsSigner(bytes.NewReader([]byte(key)))
 	if err != nil {
-		privateKey, err = sign.LoadPEMPrivKey(reader)
+		// A fresh reader is required: the failed PKCS#8 attempt above has
+		// already consumed the previous one, so reusing it would make this
+		// fallback always fail with "no valid PEM data provided".
+		privateKey, err = sign.LoadPEMPrivKey(bytes.NewReader([]byte(key)))
 		if err != nil {
 			return nil, fmt.Errorf("error parsing private key: %w", err)
 		}

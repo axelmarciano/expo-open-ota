@@ -25,11 +25,15 @@ type SettingsEnv struct {
 	CACHE_MODE                             string `json:"CACHE_MODE"`
 	REDIS_HOST                             string `json:"REDIS_HOST"`
 	REDIS_PORT                             string `json:"REDIS_PORT"`
+	REDIS_SENTINEL_ADDRS                   string `json:"REDIS_SENTINEL_ADDRS"`
+	REDIS_SENTINEL_MASTER_NAME             string `json:"REDIS_SENTINEL_MASTER_NAME"`
 	STORAGE_MODE                           string `json:"STORAGE_MODE"`
 	S3_BUCKET_NAME                         string `json:"S3_BUCKET_NAME"`
+	S3_CDN_PREFIX                          string `json:"S3_CDN_PREFIX"`
 	LOCAL_BUCKET_BASE_PATH                 string `json:"LOCAL_BUCKET_BASE_PATH"`
 	AWS_REGION                             string `json:"AWS_REGION"`
 	AWS_BASE_ENDPOINT                      string `json:"AWS_BASE_ENDPOINT"`
+	AWS_S3_FORCE_PATH_STYLE                string `json:"AWS_S3_FORCE_PATH_STYLE"`
 	AWS_ACCESS_KEY_ID                      string `json:"AWS_ACCESS_KEY_ID"`
 	CLOUDFRONT_DOMAIN                      string `json:"CLOUDFRONT_DOMAIN"`
 	CLOUDFRONT_KEY_PAIR_ID                 string `json:"CLOUDFRONT_KEY_PAIR_ID"`
@@ -56,11 +60,15 @@ func (h *SettingsHandler) GetSettingsHandler(w http.ResponseWriter, r *http.Requ
 		CACHE_MODE:                             config.GetEnv("CACHE_MODE"),
 		REDIS_HOST:                             config.GetEnv("REDIS_HOST"),
 		REDIS_PORT:                             config.GetEnv("REDIS_PORT"),
+		REDIS_SENTINEL_ADDRS:                   config.GetEnv("REDIS_SENTINEL_ADDRS"),
+		REDIS_SENTINEL_MASTER_NAME:             config.GetEnv("REDIS_SENTINEL_MASTER_NAME"),
 		STORAGE_MODE:                           config.GetEnv("STORAGE_MODE"),
 		S3_BUCKET_NAME:                         config.GetEnv("S3_BUCKET_NAME"),
+		S3_CDN_PREFIX:                          config.GetEnv("S3_CDN_PREFIX"),
 		LOCAL_BUCKET_BASE_PATH:                 config.GetEnv("LOCAL_BUCKET_BASE_PATH"),
 		AWS_REGION:                             config.GetEnv("AWS_REGION"),
 		AWS_BASE_ENDPOINT:                      config.GetEnv("AWS_BASE_ENDPOINT"),
+		AWS_S3_FORCE_PATH_STYLE:                config.GetEnv("AWS_S3_FORCE_PATH_STYLE"),
 		AWS_ACCESS_KEY_ID:                      helpers.MaskSecret(config.GetEnv("AWS_ACCESS_KEY_ID")),
 		CLOUDFRONT_DOMAIN:                      config.GetEnv("CLOUDFRONT_DOMAIN"),
 		CLOUDFRONT_KEY_PAIR_ID:                 helpers.MaskSecret(config.GetEnv("CLOUDFRONT_KEY_PAIR_ID")),

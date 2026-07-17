@@ -75,13 +75,15 @@ procedure.
 ### ⚡ **Cache Configuration**
 | Name | Required | Description | Example | Reference |
 | --- | --- | --- | --- | --- |
-| `CACHE_MODE` | ✅ | `local` or `redis` | `local` | [Ref](/docs/server-configuration/cache) |
+| `CACHE_MODE` | ✅ | `local`, `redis`, or `redis-sentinel` | `local` | [Ref](/docs/server-configuration/cache) |
 | `REDIS_HOST` | ✅ if CACHE_MODE = `redis` | Redis host | `127.0.0.1` | [Ref](/docs/server-configuration/cache?cache=redis) |
 | `REDIS_PORT` | ✅ if CACHE_MODE = `redis` | Redis port | `6379` | [Ref](/docs/server-configuration/cache?cache=redis) |
 | `REDIS_PASSWORD` | ✅ if CACHE_MODE = `redis` | Redis password | `password` | [Ref](/docs/server-configuration/cache?cache=redis) |
 | `REDIS_USE_TLS`     | ❌ | Enable TLS/SSL connection             | `true`          | [Ref](/docs/server-configuration/cache?cache=redis) |
 | `REDIS_USERNAME`    | ❌ | Redis username for ACL authentication | `myuser`        | [Ref](/docs/server-configuration/cache?cache=redis) |
 | `REDIS_CA_CERT_B64` | ❌ | Base64-encoded CA certificate for TLS | `Base64 string` | [Ref](/docs/server-configuration/cache?cache=redis) |
+| `REDIS_SENTINEL_ADDRS` | ✅ if CACHE_MODE = `redis-sentinel` | Comma-separated list of Sentinel addresses | `sentinel-0:26379,sentinel-1:26379,sentinel-2:26379` | [Ref](/docs/server-configuration/cache?cache=redis-sentinel) |
+| `REDIS_SENTINEL_MASTER_NAME` | ❌ | Sentinel master name (defaults to `mymaster`) | `mymaster` | [Ref](/docs/server-configuration/cache?cache=redis-sentinel) |
 
 ### 📦 **Storage Configuration**
 | Name | Required | Description | Example | Reference |
@@ -106,6 +108,7 @@ keys stay global and are configured via env vars below.
 | --- | --- | --- | --- | --- |
 | `AWS_REGION` | ✅ if using `aws-secrets-manager` or `s3` | AWS Region | `us-east-1` | [Ref](/docs/server-configuration/key-store?keyStore=aws-secrets-manager#key-store-configuration), [Storage](/docs/server-configuration/storage?storage=s3) |
 | `AWS_BASE_ENDPOINT` | ❌ | Custom S3-compatible endpoint for alternative object storage | `https://account-id.r2.cloudflarestorage.com` | [Storage](/docs/server-configuration/storage?storage=s3) |
+| `AWS_S3_FORCE_PATH_STYLE` | ❌ | Force path-style S3 addressing instead of virtual-hosted-style URLs | `true` | [Storage](/docs/server-configuration/storage?storage=s3) |
 | `AWS_ACCESS_KEY_ID` | ✅ if using `aws-secrets-manager` or `s3` without IAM roles | AWS Access Key ID | `ACCESSKEYID` | [Ref](/docs/server-configuration/key-store?keyStore=aws-secrets-manager#key-store-configuration), [Storage](/docs/server-configuration/storage?storage=s3) |
 | `AWS_SECRET_ACCESS_KEY` | ✅ if using `aws-secrets-manager` or `s3` without IAM roles | AWS Secret Access Key | `SECRETACCESSKEY` | [Ref](/docs/server-configuration/key-store?keyStore=aws-secrets-manager#key-store-configuration), [Storage](/docs/server-configuration/storage?storage=s3) |
 
@@ -117,6 +120,11 @@ keys stay global and are configured via env vars below.
 | `CLOUDFRONT_PRIVATE_KEY_B64` | ✅ if using `environment` & CLOUDFRONT_DOMAIN is set | Base64 CloudFront private key | `Base64 string` | [Ref](/docs/server-configuration/cdn/cloudfront) |
 | `AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID` | ✅ if using `aws-secrets-manager` & CLOUDFRONT_DOMAIN is set | CloudFront private key in AWS Secrets Manager | `my-cloudfront-private-key` | [Ref](/docs/server-configuration/cdn/cloudfront) |
 | `PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH` | ✅ if using `local` & CLOUDFRONT_DOMAIN is set | Path to CloudFront private key | `/path/to/cloudfront-private-key.pem` | [Ref](/docs/server-configuration/cdn/cloudfront) |
+
+#### **Generic CDN Settings**
+| Name | Required | Description | Example | Reference |
+| --- | --- | --- | --- | --- |
+| `S3_CDN_PREFIX` | ❌ | CDN domain prefix for S3 assets | `https://cdn.example.com` | [Ref](/docs/server-configuration/cdn/generic) |
 
 #### **Prometheus Configuration**
 | Name | Required | Description | Example | Reference |

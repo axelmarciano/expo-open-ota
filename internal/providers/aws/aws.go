@@ -43,17 +43,20 @@ func GetS3Client() (*s3.Client, error) {
 			s3ClientErr = fmt.Errorf("error loading AWS configuration: %w", s3ClientErr)
 			return
 		}
-		baseEndpoint := config.GetEnv("AWS_BASE_ENDPOINT")
-		if baseEndpoint != "" {
-			s3Client = s3.NewFromConfig(cfg, func(o *s3.Options) {
-				o.BaseEndpoint = awssdk.String(baseEndpoint)
-			})
-		} else {
-			s3Client = s3.NewFromConfig(cfg)
-		}
+
+		s3Client = s3.NewFromConfig(cfg, applyS3ClientOptions)
 	})
 
 	return s3Client, s3ClientErr
+}
+
+func applyS3ClientOptions(o *s3.Options) {
+	baseEndpoint := config.GetEnv("AWS_BASE_ENDPOINT")
+	if baseEndpoint != "" {
+		o.BaseEndpoint = awssdk.String(baseEndpoint)
+	}
+
+	o.UsePathStyle = config.GetEnv("AWS_S3_FORCE_PATH_STYLE") == "true"
 }
 
 func FetchSecret(secretName string) string {

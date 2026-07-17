@@ -130,6 +130,13 @@ func (b *S3Bucket) GetRuntimeVersions(appId string, branch string) ([]types.Runt
 		var updateTimestamps []int64
 		for _, commonPrefix := range updateResp.CommonPrefixes {
 			updateID := strings.TrimSuffix((*commonPrefix.Prefix)[len(updatesPath):], "/")
+			_, err := s3Client.HeadObject(context.TODO(), &s3.HeadObjectInput{
+				Bucket: awssdk.String(b.BucketName),
+				Key:    awssdk.String(*commonPrefix.Prefix + ".check"),
+			})
+			if err != nil {
+				continue
+			}
 			timestamp, err := strconv.ParseInt(updateID, 10, 64)
 			if err != nil {
 				continue
@@ -360,9 +367,10 @@ func (b *S3Bucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId st
 				defer getObjOutput.Body.Close()
 
 				_, err = s3Client.PutObject(context.TODO(), &s3.PutObjectInput{
-					Bucket: awssdk.String(b.BucketName),
-					Key:    awssdk.String(dstKey),
-					Body:   getObjOutput.Body,
+					Bucket:        awssdk.String(b.BucketName),
+					Key:           awssdk.String(dstKey),
+					Body:          getObjOutput.Body,
+					ContentLength: getObjOutput.ContentLength,
 				})
 				if err != nil {
 					errChan <- fmt.Errorf("error putting object %s: %w", dstKey, err)
