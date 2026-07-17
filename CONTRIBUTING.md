@@ -32,4 +32,4 @@ External pull requests touching `ee/` directories are not accepted for now: this
 
 ## Questions
 
-Open an issue, or reach out at [expoopenota@gmail.com](mailto:expoopenota@gmail.com).
+Open an issue, or reach out at [contact@mercuretechnologies.com](mailto:contact@mercuretechnologies.com).

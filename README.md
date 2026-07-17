@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://mercure-technologies.gitbook.io/expo-open-ota">Documentation</a> · <a href="https://github.com/axelmarciano/expo-open-ota/issues">Issues</a> · <a href="mailto:expoopenota@gmail.com">Contact</a>
+  <a href="https://mercure-technologies.gitbook.io/expo-open-ota">Documentation</a> · <a href="https://github.com/axelmarciano/expo-open-ota/issues">Issues</a> · <a href="mailto:contact@mercuretechnologies.com">Contact</a>
 </p>
 
 ---
@@ -81,4 +81,4 @@ The core is MIT and will stay MIT. Enterprise features live in `ee/` directories
 
 ## Contact
 
-[expoopenota@gmail.com](mailto:expoopenota@gmail.com)
+[contact@mercuretechnologies.com](mailto:contact@mercuretechnologies.com)
