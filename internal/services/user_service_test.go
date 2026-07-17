@@ -60,8 +60,12 @@ func (r *fakeUserRepo) GetUsers(_ context.Context) ([]store.User, error) {
 }
 
 func (r *fakeUserRepo) DeleteUserByID(_ context.Context, id string) error {
-	if _, ok := r.users[id]; !ok {
+	user, ok := r.users[id]
+	if !ok {
 		return &store.ErrResourceNotFound{Resource: "user", Identifier: id}
+	}
+	if user.IsAdmin && r.adminCount() <= 1 {
+		return store.ErrWouldLeaveNoAdmin
 	}
 	delete(r.users, id)
 	return nil
@@ -82,6 +86,9 @@ func (r *fakeUserRepo) UpdateUserIsAdmin(_ context.Context, id string, isAdmin b
 	if !ok {
 		return &store.ErrResourceNotFound{Resource: "user", Identifier: id}
 	}
+	if user.IsAdmin && !isAdmin && r.adminCount() <= 1 {
+		return store.ErrWouldLeaveNoAdmin
+	}
 	user.IsAdmin = isAdmin
 	r.users[id] = user
 	return nil
@@ -98,14 +105,16 @@ func (r *fakeUserRepo) TouchUserLastConnected(_ context.Context, id string) erro
 	return nil
 }
 
-func (r *fakeUserRepo) CountAdmins(_ context.Context) (int64, error) {
+// adminCount backs the same "at least one admin" guard the guarded SQL
+// queries enforce in the real store.
+func (r *fakeUserRepo) adminCount() int64 {
 	var count int64
 	for _, user := range r.users {
 		if user.IsAdmin {
 			count++
 		}
 	}
-	return count, nil
+	return count
 }
 
 func seedUserService(t *testing.T) (*UserService, *fakeUserRepo, store.User, store.User) {
@@ -239,7 +248,10 @@ func TestDashboardAuthServiceWithUserRepo(t *testing.T) {
 	_, err = authService.RefreshSession(ctx, session.RefreshToken)
 	require.NoError(t, err)
 
-	// A deleted user cannot refresh its way back in.
+	// A deleted user cannot refresh its way back in. The repo-level guard
+	// refuses to delete the last admin, so hand it a replacement first.
+	_, err = userService.CreateUser(ctx, "second-admin@example.com", "Sup3rSecret!", true)
+	require.NoError(t, err)
 	require.NoError(t, repo.DeleteUserByID(ctx, user.Id))
 	_, err = authService.RefreshSession(ctx, session.RefreshToken)
 	assert.Error(t, err)

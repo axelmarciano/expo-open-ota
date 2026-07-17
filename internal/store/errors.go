@@ -8,6 +8,12 @@ import (
 
 var ErrNotSupportedInStatelessMode = errors.New("operation not supported in stateless mode")
 
+// ErrWouldLeaveNoAdmin is returned by the guarded user delete/demote paths
+// when the target is the last remaining admin: the write is refused
+// atomically in SQL so the dashboard can never lock itself out, even under
+// concurrent operations.
+var ErrWouldLeaveNoAdmin = errors.New("operation refused: it would leave the dashboard without any admin account")
+
 type ErrBranchHasActiveChannels struct {
 	BranchName   string
 	ChannelNames []string

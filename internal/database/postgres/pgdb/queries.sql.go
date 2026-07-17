@@ -12,18 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const countAdminUsers = `-- name: CountAdminUsers :one
-SELECT COUNT(*) FROM users
-WHERE is_admin
-`
-
-func (q *Queries) CountAdminUsers(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, countAdminUsers)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const deleteAppByID = `-- name: DeleteAppByID :execresult
 DELETE FROM apps
 WHERE id = $1
@@ -62,8 +50,12 @@ func (q *Queries) DeleteChannelByName(ctx context.Context, arg DeleteChannelByNa
 }
 
 const deleteUserByID = `-- name: DeleteUserByID :execresult
+WITH admins AS (
+    SELECT id FROM users WHERE is_admin ORDER BY id FOR UPDATE
+)
 DELETE FROM users
 WHERE id = $1
+  AND (id NOT IN (SELECT id FROM admins) OR (SELECT COUNT(*) FROM admins) > 1)
 `
 
 func (q *Queries) DeleteUserByID(ctx context.Context, id pgtype.UUID) (pgconn.CommandTag, error) {
@@ -1333,9 +1325,15 @@ func (q *Queries) UpdateChannelBranchMapping(ctx context.Context, arg UpdateChan
 }
 
 const updateUserIsAdminByID = `-- name: UpdateUserIsAdminByID :execresult
+WITH admins AS (
+    SELECT id FROM users WHERE is_admin ORDER BY id FOR UPDATE
+)
 UPDATE users
 SET is_admin = $2, updated_at = CURRENT_TIMESTAMP
 WHERE id = $1
+  AND ($2::boolean
+       OR id NOT IN (SELECT id FROM admins)
+       OR (SELECT COUNT(*) FROM admins) > 1)
 `
 
 type UpdateUserIsAdminByIDParams struct {

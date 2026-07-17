@@ -117,7 +117,12 @@ func (s *PostgresUserStore) DeleteUserByID(ctx context.Context, id string) error
 		return fmt.Errorf("failed to delete user from database: %w", err)
 	}
 	if commandTag.RowsAffected() == 0 {
-		return &ErrResourceNotFound{Resource: "user", Identifier: id}
+		// The guarded query matches no row both for a missing user and for the
+		// last remaining admin — look the row up to tell the two apart.
+		if _, lookupErr := s.GetUserByID(ctx, id); lookupErr != nil {
+			return lookupErr
+		}
+		return ErrWouldLeaveNoAdmin
 	}
 	return nil
 }
@@ -145,7 +150,12 @@ func (s *PostgresUserStore) UpdateUserIsAdmin(ctx context.Context, id string, is
 		return fmt.Errorf("failed to update user admin flag in database: %w", err)
 	}
 	if commandTag.RowsAffected() == 0 {
-		return &ErrResourceNotFound{Resource: "user", Identifier: id}
+		// The guarded query matches no row both for a missing user and for the
+		// last remaining admin — look the row up to tell the two apart.
+		if _, lookupErr := s.GetUserByID(ctx, id); lookupErr != nil {
+			return lookupErr
+		}
+		return ErrWouldLeaveNoAdmin
 	}
 	return nil
 }
@@ -155,14 +165,6 @@ func (s *PostgresUserStore) TouchUserLastConnected(ctx context.Context, id strin
 		return fmt.Errorf("failed to touch user last connection in database: %w", err)
 	}
 	return nil
-}
-
-func (s *PostgresUserStore) CountAdmins(ctx context.Context) (int64, error) {
-	count, err := s.engine.Queries.CountAdminUsers(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("failed to count admin users in database: %w", err)
-	}
-	return count, nil
 }
 
 func userFromRow(row pgdb.User) User {

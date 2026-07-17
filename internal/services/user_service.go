@@ -18,11 +18,13 @@ type UserRepository interface {
 	GetUserByEmail(ctx context.Context, email string) (store.User, error)
 	GetUserByID(ctx context.Context, id string) (store.User, error)
 	GetUsers(ctx context.Context) ([]store.User, error)
+	// DeleteUserByID and UpdateUserIsAdmin enforce the "at least one admin"
+	// invariant atomically (store.ErrWouldLeaveNoAdmin): a check-then-write at
+	// this level would race with concurrent demotions/deletions.
 	DeleteUserByID(ctx context.Context, id string) error
 	UpdateUserPassword(ctx context.Context, id string, passwordHash string) error
 	UpdateUserIsAdmin(ctx context.Context, id string, isAdmin bool) error
 	TouchUserLastConnected(ctx context.Context, id string) error
-	CountAdmins(ctx context.Context) (int64, error)
 }
 
 // Business-rule violations, mapped to explicit 4xx responses by the handlers.
@@ -110,23 +112,13 @@ func (s *UserService) DeleteUser(ctx context.Context, actorUserId string, target
 	if actorUserId == targetUserId {
 		return ErrCannotDeleteOwnAccount
 	}
-	target, err := s.userRepo.GetUserByID(ctx, targetUserId)
-	if err != nil {
-		return err
-	}
-	// The self-delete guard above already keeps an admin actor alive through
-	// the delete, but the actor's own flag may have been revoked concurrently —
-	// count instead of assuming.
-	if target.IsAdmin {
-		adminCount, err := s.userRepo.CountAdmins(ctx)
-		if err != nil {
-			return err
-		}
-		if adminCount <= 1 {
+	if err := s.userRepo.DeleteUserByID(ctx, targetUserId); err != nil {
+		if errors.Is(err, store.ErrWouldLeaveNoAdmin) {
 			return ErrLastAdmin
 		}
+		return err
 	}
-	return s.userRepo.DeleteUserByID(ctx, targetUserId)
+	return nil
 }
 
 func (s *UserService) SetUserAdmin(ctx context.Context, actorUserId string, targetUserId string, isAdmin bool) error {
@@ -138,20 +130,13 @@ func (s *UserService) SetUserAdmin(ctx context.Context, actorUserId string, targ
 	if actorUserId == targetUserId {
 		return ErrCannotChangeOwnAdminFlag
 	}
-	target, err := s.userRepo.GetUserByID(ctx, targetUserId)
-	if err != nil {
-		return err
-	}
-	if target.IsAdmin && !isAdmin {
-		adminCount, err := s.userRepo.CountAdmins(ctx)
-		if err != nil {
-			return err
-		}
-		if adminCount <= 1 {
+	if err := s.userRepo.UpdateUserIsAdmin(ctx, targetUserId, isAdmin); err != nil {
+		if errors.Is(err, store.ErrWouldLeaveNoAdmin) {
 			return ErrLastAdmin
 		}
+		return err
 	}
-	return s.userRepo.UpdateUserIsAdmin(ctx, targetUserId, isAdmin)
+	return nil
 }
 
 // ChangePassword re-checks the current password even though the caller holds a
