@@ -8,3 +8,10 @@ func StringInSlice(a string, list []string) bool {
 	}
 	return false
 }
+
+func StringOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}

@@ -34,6 +34,15 @@ type UpdateMetadata struct {
 	Fingerprint  string         `json:"fingerprint"`
 }
 
+type UpdateItem struct {
+	UpdateUUID string `json:"updateUUID"`
+	UpdateId   string `json:"updateId"`
+	CreatedAt  string `json:"createdAt"`
+	CommitHash string `json:"commitHash"`
+	Platform   string `json:"platform"`
+	Message    string `json:"message,omitempty"`
+}
+
 type UpdateStoredMetadata struct {
 	Platform   string `json:"platform"`
 	CommitHash string `json:"commitHash"`
@@ -47,6 +56,25 @@ const (
 	NormalUpdate UpdateType = iota
 	Rollback
 )
+
+type UpdateDetails struct {
+	UpdateUUID string     `json:"updateUUID"`
+	UpdateId   string     `json:"updateId"`
+	CreatedAt  string     `json:"createdAt"`
+	CommitHash string     `json:"commitHash"`
+	Platform   string     `json:"platform"`
+	Message    string     `json:"message,omitempty"`
+	Type       UpdateType `json:"type"`
+	ExpoConfig string     `json:"expoConfig"`
+}
+
+type ApiKeyMetadata struct {
+	ID         string  `json:"id"`
+	Name       string  `json:"name"`
+	Hint       string  `json:"hint"`
+	CreatedAt  string  `json:"createdAt"`
+	LastUsedAt *string `json:"lastUsedAt,omitempty"`
+}
 
 type ManifestAsset struct {
 	Hash          string `json:"hash"`
@@ -85,10 +113,33 @@ type NoUpdateAvailableDirective struct {
 }
 
 type Update struct {
+	AppId          string        `json:"appId"`
 	Branch         string        `json:"branch"`
 	RuntimeVersion string        `json:"runtimeVersion"`
 	UpdateId       string        `json:"updateId"`
 	CreatedAt      time.Duration `json:"createdAt"`
+}
+
+type ChannelMapping struct {
+	ReleaseChannelName string  `json:"releaseChannelName"`
+	ReleaseChannelId   string  `json:"releaseChannelId"`
+	BranchName         *string `json:"branchName"`
+	BranchId           *string `json:"branchId"`
+	CreatedAt          *string `json:"createdAt"`
+}
+
+type BranchMapping struct {
+	BranchName     string  `json:"branchName"`
+	BranchId       *string `json:"branchId"`
+	ReleaseChannel *string `json:"releaseChannel"`
+	CreatedAt      *string `json:"createdAt"`
+}
+
+type RuntimeVersionWithStats struct {
+	RuntimeVersion  string `json:"runtimeVersion"`
+	LastUpdatedAt   string `json:"lastUpdatedAt"`
+	CreatedAt       string `json:"createdAt"`
+	NumberOfUpdates int    `json:"numberOfUpdates"`
 }
 
 type BucketFile struct {
@@ -96,7 +147,7 @@ type BucketFile struct {
 	CreatedAt time.Time
 }
 
-type ExpoAuth struct {
+type Auth struct {
 	Token         *string
 	SessionSecret *string
 }

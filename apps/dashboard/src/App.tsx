@@ -8,6 +8,9 @@ import { Updates } from '@/pages/Updates';
 import { Settings } from '@/pages/Settings';
 import { Logout } from '@/pages/Logout';
 import { Channels } from '@/pages/Channels';
+import { SelectedAppProvider } from '@/lib/SelectedAppContext';
+import { AppInfo } from '@/pages/AppInfo';
+import { SettingsProvider } from '@/lib/SettingsContext';
 
 function withLayout(children: ReactNode) {
   return <Layout>{children}</Layout>;
@@ -28,10 +31,24 @@ export const App = () => {
       <Toaster />
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/" element={withLayout(<Updates />)} />
-        <Route path="/settings" element={withLayout(<Settings />)} />
-        <Route path="/channels" element={withLayout(<Channels />)} />
-        <Route path="/logout" element={withLayout(<Logout />)} />
+        <Route
+          path="*"
+          element={
+            isLoggedIn ? (
+              <SettingsProvider>
+                <SelectedAppProvider>
+                  <Routes>
+                    <Route path="/" element={withLayout(<Updates />)} />
+                    <Route path="/settings" element={withLayout(<Settings />)} />
+                    <Route path="/channels" element={withLayout(<Channels />)} />
+                    <Route path="/app-info" element={withLayout(<AppInfo />)} />
+                    <Route path="/logout" element={withLayout(<Logout />)} />
+                  </Routes>
+                </SelectedAppProvider>
+              </SettingsProvider>
+            ) : null
+          }
+        />
       </Routes>
     </>
   );

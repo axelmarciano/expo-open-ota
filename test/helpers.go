@@ -1,12 +1,17 @@
 package test
 
 import (
+	"context"
 	"encoding/json"
+	"expo-open-ota/config"
 	"expo-open-ota/internal/bucket"
 	cache2 "expo-open-ota/internal/cache"
 	"expo-open-ota/internal/cdn"
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/metrics"
+	infrastructure "expo-open-ota/internal/router"
+	"expo-open-ota/internal/services"
+	"expo-open-ota/internal/store"
 	"expo-open-ota/internal/types"
 	"github.com/jarcoal/httpmock"
 	"net/http"
@@ -28,6 +33,50 @@ func setup(t *testing.T) func() {
 	}
 }
 
+// testContainer builds a DI container from the current env, bucket and app
+// config. Request handlers were package-level funcs before the control-plane
+// refactor; they are now methods on the container's handler structs, so tests
+// resolve them through here (e.g. testContainer().ExpoProtocolHandler.
+// HandleManifest). Built fresh per call so a test that mutates the bucket path
+// or app registry before invoking a handler sees its change — the bucket is a
+// per-test singleton, so repeated calls reuse the same backend.
+func testContainer() *infrastructure.AppContainer {
+	container, _ := infrastructure.InitDependencies(context.Background())
+	return container
+}
+
+// testUpdateService builds an UpdateService over the current bucket, wired the
+// same way as the stateless branch of wire.go. Needed by tests that call
+// package-level service helpers (e.g. services.PreWarmManifestCache) directly
+// rather than through a handler.
+func testUpdateService() *services.UpdateService {
+	resolvedBucket := bucket.GetBucket()
+	return services.NewUpdateService(store.NewBucketUpdateStore(resolvedBucket), resolvedBucket)
+}
+
+// testLatestUpdate reads the newest update straight from the bucket store, the
+// same one wire.go uses in stateless mode. Assertions want this rather than
+// testUpdateService().GetLatestUpdate: the service reads through the lastUpdate
+// cache, which would let an assertion pass on a value a previous step cached.
+func testLatestUpdate(appId, branch, runtimeVersion, platform string) (*types.Update, error) {
+	return store.NewBucketUpdateStore(bucket.GetBucket()).
+		GetLatestUpdate(context.Background(), appId, branch, runtimeVersion, platform)
+}
+
+// testUpdate and testUpdateType read an update and its type from the bucket
+// store. That state is bucket-backed but belongs to the control plane, so it
+// lives on the store rather than in internal/update, which assertions would
+// otherwise reach for.
+func testUpdate(appId, branch, runtimeVersion, updateId string) (*types.Update, error) {
+	return store.NewBucketUpdateStore(bucket.GetBucket()).
+		GetUpdate(context.Background(), appId, branch, runtimeVersion, updateId)
+}
+
+func testUpdateType(update types.Update) (types.UpdateType, error) {
+	return store.NewBucketUpdateStore(bucket.GetBucket()).
+		GetUpdateType(context.Background(), update)
+}
+
 func GlobalBeforeEach() {
 	metrics.CleanupMetrics()
 	cache := cache2.GetCache()
@@ -46,33 +95,40 @@ func GlobalAfterEach(t *testing.T) {
 		if err != nil {
 			t.Errorf("Error finding project root: %v", err)
 		}
-		updatesPath := filepath.Join(projectRoot, "./updates/DO_NOT_USE")
-		updates, err := os.ReadDir(updatesPath)
-		if err != nil {
-			t.Errorf("Error reading updates directory: %v", err)
-		}
-		for _, update := range updates {
-			if update.IsDir() {
-				err = os.RemoveAll(filepath.Join(updatesPath, update.Name()))
-				if err != nil {
-					t.Errorf("Error removing update directory: %v", err)
+		// Clean both legacy path (./updates/DO_NOT_USE) and v2 multi-app path
+		// (./updates/test-app-id/DO_NOT_USE) — tests mix both depending on how
+		// they set LOCAL_BUCKET_BASE_PATH.
+		for _, updatesPath := range []string{
+			filepath.Join(projectRoot, "./updates/DO_NOT_USE"),
+			filepath.Join(projectRoot, "./updates/test-app-id/DO_NOT_USE"),
+		} {
+			updates, err := os.ReadDir(updatesPath)
+			if err != nil {
+				continue
+			}
+			for _, update := range updates {
+				if update.IsDir() {
+					err = os.RemoveAll(filepath.Join(updatesPath, update.Name()))
+					if err != nil {
+						t.Errorf("Error removing update directory: %v", err)
+					}
 				}
 			}
 		}
-		// Also remove all folders > 1674170951 in ./test/test-updates/branch-1/1
-		updatesPath = filepath.Join(projectRoot, "./test/test-updates/branch-1/1")
-		updates, err = os.ReadDir(updatesPath)
+		// Also remove all folders > 1674170951 in ./test/test-updates/test-app-id/branch-1/1
+		fixturePath := filepath.Join(projectRoot, "./test/test-updates/test-app-id/branch-1/1")
+		fixtureUpdates, err := os.ReadDir(fixturePath)
 		if err != nil {
 			t.Errorf("Error reading updates directory: %v", err)
 		}
-		for _, update := range updates {
+		for _, update := range fixtureUpdates {
 			if update.IsDir() {
 				updateTime, err := strconv.Atoi(update.Name())
 				if err != nil {
 					continue
 				}
 				if updateTime > 1674170951 {
-					err = os.RemoveAll(filepath.Join(updatesPath, update.Name()))
+					err = os.RemoveAll(filepath.Join(fixturePath, update.Name()))
 					if err != nil {
 						t.Errorf("Error removing update directory: %v", err)
 					}
@@ -413,15 +469,24 @@ func SetValidConfiguration() {
 		panic(err)
 	}
 	os.Setenv("BASE_URL", "http://localhost:3000")
-	os.Setenv("PUBLIC_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/public-key-test.pem"))
-	os.Setenv("PRIVATE_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/private-key-test.pem"))
 	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "/test/test-updates"))
-	os.Setenv("EXPO_APP_ID", "EXPO_APP_ID")
-	os.Setenv("EXPO_ACCESS_TOKEN", "EXPO_ACCESS_TOKEN")
 	os.Setenv("JWT_SECRET", "test_jwt_secret")
 	os.Setenv("PRIVATE_CLOUDFRONT_KEY_PATH", "")
 	os.Setenv("CLOUDFRONT_DOMAIN", "")
 	os.Setenv("CLOUDFRONT_KEY_PAIR_ID", "")
 	os.Setenv("USE_DASHBOARD", "true")
 	os.Setenv("ADMIN_PASSWORD", "admin")
+
+	// v2 single-app flat-env config: a test-app-id entry pointing at the
+	// existing test keys, reproducing the legacy local-file key storage
+	// behavior the old env vars provided.
+	os.Setenv("EXPO_APP_ID", "test-app-id")
+	os.Setenv("EXPO_ACCESS_TOKEN", "EXPO_ACCESS_TOKEN")
+	os.Setenv("KEYS_STORAGE_TYPE", "local")
+	os.Setenv("PUBLIC_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/public-key-test.pem"))
+	os.Setenv("PRIVATE_LOCAL_EXPO_KEY_PATH", filepath.Join(projectRoot, "/test/keys/private-key-test.pem"))
+	config.ResetAppsForTest()
+	if err := config.LoadAppsFromFlatEnv(); err != nil {
+		panic(err)
+	}
 }

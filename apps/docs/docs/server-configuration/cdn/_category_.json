@@ -1,8 +1,0 @@
-{
-  "label": "CDN",
-  "position": 4,
-  "link": {
-    "type": "doc",
-    "id": "server-configuration/cdn/intro"
-  }
-}

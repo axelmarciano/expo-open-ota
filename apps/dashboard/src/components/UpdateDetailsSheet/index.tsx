@@ -12,6 +12,8 @@ import { api } from '@/lib/api.ts';
 import { Skeleton } from '@/components/ui/skeleton.tsx';
 import { ApiError } from '@/components/APIError';
 import { Badge } from '@/components/ui/badge.tsx';
+import { useSelectedApp } from '@/lib/SelectedAppContext';
+import { formatTimestamp } from '@/lib/utils';
 
 interface Update {
   updateUUID: string;
@@ -35,9 +37,10 @@ const UpdateDetails = ({
   branch: string;
   runtimeVersion: string;
 }) => {
+  const { selectedAppId } = useSelectedApp();
   const { data, isLoading, error } = useQuery({
-    queryKey: [`update-details-${update?.updateUUID}`],
-    enabled: !!update?.updateId,
+    queryKey: ['update-details', selectedAppId, update?.updateUUID],
+    enabled: !!update?.updateId && !!selectedAppId,
     queryFn: () => api.getUpdateDetails(branch, runtimeVersion, update?.updateId as string),
   });
   const updateDetails = data;
@@ -114,14 +117,9 @@ const UpdateDetails = ({
         <div className="grid grid-cols-4 items-center gap-4">
           <Label>Created At</Label>
           <Badge variant="outline" className="col-span-3">
-            {new Date(updateDetails.createdAt).toLocaleDateString('en-GB', {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-              hour: 'numeric',
-              minute: 'numeric',
-              second: 'numeric',
-            })}
+            {formatTimestamp(updateDetails.createdAt, true) || (
+              <span className="text-muted-foreground italic">Legacy Record</span>
+            )}
           </Badge>
         </div>
         <div className="grid grid-cols-4 items-center gap-4">

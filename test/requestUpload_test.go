@@ -16,9 +16,9 @@ import (
 
 	"expo-open-ota/internal/bucket"
 	cache2 "expo-open-ota/internal/cache"
-	"expo-open-ota/internal/handlers"
-	"expo-open-ota/internal/services"
+	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/update"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -29,7 +29,7 @@ func createUploadRequest(t *testing.T, projectRoot, branch, runtimeVersion, samp
 	q := fmt.Sprintf("http://localhost:3000/requestUploadUrl/%s?runtimeVersion=%s&platform=%s&commitHash=abc123", branch, runtimeVersion, platform)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
-	r = mux.SetURLVars(r, map[string]string{"BRANCH": branch})
+	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": branch})
 	r.Header.Set(headerKey, headerValue)
 	uploadRequestsInput := ComputeUploadRequestsInput(sampleUpdatePath)
 	uploadRequestsInputJSON, err := json.Marshal(uploadRequestsInput)
@@ -45,7 +45,7 @@ func performUpload(t *testing.T, projectRoot, branch, runtimeVersion, sampleUpda
 	requestURL := fmt.Sprintf("http://localhost:3000/requestUploadUrl/%s?runtimeVersion=%s&platform=%s&commitHash=abc123", branch, runtimeVersion, platform)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", requestURL, nil)
-	r = mux.SetURLVars(r, map[string]string{"BRANCH": branch})
+	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": branch})
 	r.Header.Set("Authorization", "Bearer expo_test_token")
 	uploadRequestsInput := ComputeUploadRequestsInput(sampleUpdatePath)
 	uploadRequestsInputJSON, err := json.Marshal(uploadRequestsInput)
@@ -53,7 +53,7 @@ func performUpload(t *testing.T, projectRoot, branch, runtimeVersion, sampleUpda
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	if w.Code != 200 {
 		t.Fatalf("RequestUploadUrlHandler returned status %d instead of 200", w.Code)
 	}
@@ -105,7 +105,8 @@ func performUpload(t *testing.T, projectRoot, branch, runtimeVersion, sampleUpda
 			uploadReq := httptest.NewRequest("PUT", "/uploadLocalFile?token="+token, body)
 			uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
 			uploadReq.Header.Set("Authorization", "Bearer expo_test_token")
-			handlers.RequestUploadLocalFileHandler(ws[index], uploadReq)
+			uploadReq = mux.SetURLVars(uploadReq, map[string]string{"APP_ID": "test-app-id"})
+			testContainer().UploadHandler.RequestUploadLocalFileHandler(ws[index], uploadReq)
 			if ws[index].Code != 200 {
 				errs <- fmt.Errorf("File upload for %s returned status %d", req.FileName, ws[index].Code)
 			}
@@ -121,12 +122,12 @@ func performUpload(t *testing.T, projectRoot, branch, runtimeVersion, sampleUpda
 			t.Fatalf("A file upload returned status %d instead of 200", recorder.Code)
 		}
 		sampleReq := fileUploadRequests[0]
-		expectedFilePath := filepath.Join(projectRoot, "updates", branch, runtimeVersion, updateId, sampleReq.FilePath)
+		expectedFilePath := filepath.Join(projectRoot, "updates", "test-app-id", branch, runtimeVersion, updateId, sampleReq.FilePath)
 		if _, err := os.Open(expectedFilePath); err != nil {
 			t.Fatalf("Error opening uploaded file %s: %v", expectedFilePath, err)
 		}
 	}
-	metadataPath := filepath.Join(projectRoot, "updates", branch, runtimeVersion, updateId, "update-metadata.json")
+	metadataPath := filepath.Join(projectRoot, "updates", "test-app-id", branch, runtimeVersion, updateId, "update-metadata.json")
 	metadataContent, err := os.ReadFile(metadataPath)
 	if err != nil {
 		t.Fatalf("Error opening update-metadata.json file at %s: %v", metadataPath, err)
@@ -146,8 +147,8 @@ func markUpdateAsUploaded(t *testing.T, branch, runtimeVersion, updateId, platfo
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", markURL, nil)
 	r.Header.Set("Authorization", "Bearer expo_test_token")
-	r = mux.SetURLVars(r, map[string]string{"BRANCH": branch})
-	handlers.MarkUpdateAsUploadedHandler(w, r)
+	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": branch})
+	testContainer().UploadHandler.MarkUpdateAsUploadedHandler(w, r)
 	return w
 }
 
@@ -159,11 +160,11 @@ func TestRequestUploadUrlWithoutBearer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
 	}
-	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/branch-1/1/1674170951")
+	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/test-app-id/branch-1/1/1674170951")
 	w, _, _, r := createUploadRequest(t, projectRoot, "DO_NOT_USE", "1", sampleUpdatePath, "Authorization", "Bearer expo_alternative_token", "ios")
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error validating expo auth\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Error validating auth\n", w.Body.String(), "Expected error message")
 }
 
 func TestRequestUploadUrlWithBadBearer(t *testing.T) {
@@ -174,11 +175,11 @@ func TestRequestUploadUrlWithBadBearer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
 	}
-	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/branch-1/1/1674170951")
+	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/test-app-id/branch-1/1/1674170951")
 	w, _, _, r := createUploadRequest(t, projectRoot, "DO_NOT_USE", "1", sampleUpdatePath, "Authorization", "Bearer expo_bad_token", "ios")
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error validating expo auth\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Error validating auth\n", w.Body.String(), "Expected error message")
 }
 
 func TestRequestUploadUrlWithoutRuntimeVersion(t *testing.T) {
@@ -193,16 +194,16 @@ func TestRequestUploadUrlWithoutRuntimeVersion(t *testing.T) {
 	q := "http://localhost:3000/requestUploadUrl/DO_NOT_USE"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
-	r = mux.SetURLVars(r, map[string]string{"BRANCH": "DO_NOT_USE"})
+	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": "DO_NOT_USE"})
 	r.Header.Set("Authorization", "Bearer expo_test_token")
-	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/branch-1/1/1674170951")
+	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/test-app-id/branch-1/1/1674170951")
 	uploadRequestsInput := ComputeUploadRequestsInput(sampleUpdatePath)
 	uploadRequestsInputJSON, err := json.Marshal(uploadRequestsInput)
 	if err != nil {
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "No runtime version provided\n", w.Body.String(), "Expected error message")
 }
@@ -219,14 +220,14 @@ func TestRequestUploadUrlWithBadRequestBody(t *testing.T) {
 	q := "http://localhost:3000/requestUploadUrl/DO_NOT_USE?runtimeVersion=1"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
-	r = mux.SetURLVars(r, map[string]string{"BRANCH": "DO_NOT_USE"})
+	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": "DO_NOT_USE"})
 	r.Header.Set("Authorization", "Bearer expo_test_token")
 	uploadRequestsInputJSON, err := json.Marshal(map[string]string{"id": "4"})
 	if err != nil {
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "No file names provided\n", w.Body.String(), "Expected error message")
 }
@@ -243,14 +244,14 @@ func TestRequestUploadUrlWithBadFilenamesType(t *testing.T) {
 	q := "http://localhost:3000/requestUploadUrl/DO_NOT_USE?runtimeVersion=1"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
-	r = mux.SetURLVars(r, map[string]string{"BRANCH": "DO_NOT_USE"})
+	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": "DO_NOT_USE"})
 	r.Header.Set("Authorization", "Bearer expo_test_token")
 	uploadRequestsInputJSON, err := json.Marshal(map[string]int{"fileNames": 1})
 	if err != nil {
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "Invalid JSON body\n", w.Body.String(), "Expected error message")
 }
@@ -267,16 +268,16 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 	q := "http://localhost:3000/requestUploadUrl/DO_NOT_USE?runtimeVersion=1&platform=android&commitHash=abc123"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
-	r = mux.SetURLVars(r, map[string]string{"BRANCH": "DO_NOT_USE"})
+	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": "DO_NOT_USE"})
 	r.Header.Set("Authorization", "Bearer expo_test_token")
-	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/branch-4/1/1674170952")
+	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/test-app-id/branch-4/1/1674170952")
 	uploadRequestsInput := ComputeUploadRequestsInput(sampleUpdatePath)
 	uploadRequestsInputJSON, err := json.Marshal(uploadRequestsInput)
 	if err != nil {
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	var responseBody struct {
 		UpdateId       int64                      `json:"updateId"`
@@ -294,11 +295,11 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 		assert.Nil(t, err, "Expected valid URL")
 		assert.Equal(t, "http", parsedUrl.Scheme, "Expected HTTP scheme")
 		assert.Equal(t, "localhost:3000", parsedUrl.Host, "Expected localhost:3000 host")
-		assert.Equal(t, "/uploadLocalFile", parsedUrl.Path, "Expected /uploadLocalFile path")
+		assert.Equal(t, "/test-app-id/uploadLocalFile", parsedUrl.Path, "Expected /{appId}/uploadLocalFile path")
 		token := parsedUrl.Query().Get("token")
 		assert.NotEmpty(t, token, "Expected non-empty token")
 		claims := jwt.MapClaims{}
-		decoded, err := services.DecodeAndExtractJWTToken("test_jwt_secret", token, claims)
+		decoded, err := crypto.DecodeAndExtractJWTToken("test_jwt_secret", token, claims)
 		assert.Nil(t, err, "Expected valid JWT token")
 		if !decoded.Valid {
 			assert.Fail(t, "Expected valid JWT token")
@@ -322,7 +323,7 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 			ws[index] = httptest.NewRecorder()
 			body := &bytes.Buffer{}
 			writer := multipart.NewWriter(body)
-			filePath := filepath.Join(projectRoot, "/test/test-updates/branch-4/1/1674170952", uploadReq.FilePath)
+			filePath := filepath.Join(projectRoot, "/test/test-updates/test-app-id/branch-4/1/1674170952", uploadReq.FilePath)
 			fileBuffer, err := os.Open(filePath)
 			if err != nil {
 				errs <- err
@@ -348,7 +349,8 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 			uploadFileReq := httptest.NewRequest("PUT", "/uploadLocalFile?token="+token, body)
 			uploadFileReq.Header.Set("Content-Type", writer.FormDataContentType())
 			uploadFileReq.Header.Set("Authorization", "Bearer expo_test_token")
-			handlers.RequestUploadLocalFileHandler(ws[index], uploadFileReq)
+			uploadFileReq = mux.SetURLVars(uploadFileReq, map[string]string{"APP_ID": "test-app-id"})
+			testContainer().UploadHandler.RequestUploadLocalFileHandler(ws[index], uploadFileReq)
 			if ws[index].Code != 200 {
 				errs <- fmt.Errorf("Upload failed with status %d", ws[index].Code)
 			}
@@ -361,12 +363,12 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 	}
 	for _, rec := range ws {
 		assert.Equal(t, 200, rec.Code, "Expected status code 200")
-		expectedFile := filepath.Join(projectRoot, "/updates/DO_NOT_USE/1/", updateIdHeader, uploadRequests[0].FilePath)
+		expectedFile := filepath.Join(projectRoot, "/updates/test-app-id/DO_NOT_USE/1/", updateIdHeader, uploadRequests[0].FilePath)
 		if _, err := os.Open(expectedFile); err != nil {
 			assert.Nil(t, err, "Expected no errors when opening uploaded file")
 		}
 	}
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("DO_NOT_USE", "1", "android")
+	lastUpdate, err := testLatestUpdate("test-app-id", "DO_NOT_USE", "1", "android")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
@@ -375,10 +377,10 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 	wMark := httptest.NewRecorder()
 	rMark := httptest.NewRequest("POST", qMark, nil)
 	rMark.Header.Set("Authorization", "Bearer expo_test_token")
-	rMark = mux.SetURLVars(rMark, map[string]string{"BRANCH": "DO_NOT_USE"})
-	handlers.MarkUpdateAsUploadedHandler(wMark, rMark)
+	rMark = mux.SetURLVars(rMark, map[string]string{"APP_ID": "test-app-id", "BRANCH": "DO_NOT_USE"})
+	testContainer().UploadHandler.MarkUpdateAsUploadedHandler(wMark, rMark)
 	assert.Equal(t, 200, wMark.Code, "Expected status code 200")
-	lastUpdate, err = update.GetLatestUpdateBundlePathForRuntimeVersion("DO_NOT_USE", "1", "android")
+	lastUpdate, err = testLatestUpdate("test-app-id", "DO_NOT_USE", "1", "android")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
@@ -398,16 +400,16 @@ func TestRequestUploadUrlWithValidExpoSession(t *testing.T) {
 	q := "http://localhost:3000/requestUploadUrl/DO_NOT_USE?runtimeVersion=1&platform=android&commitHash=abc123"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
-	r = mux.SetURLVars(r, map[string]string{"BRANCH": "DO_NOT_USE"})
+	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": "DO_NOT_USE"})
 	r.Header.Set("expo-session", "expo_test_session")
-	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/branch-1/1/1674170951")
+	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/test-app-id/branch-1/1/1674170951")
 	uploadRequestsInput := ComputeUploadRequestsInput(sampleUpdatePath)
 	uploadRequestsInputJSON, err := json.Marshal(uploadRequestsInput)
 	if err != nil {
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	assert.NotEmpty(t, w.Header().Get("expo-update-id"), "Expected non-empty update ID")
 }
@@ -429,20 +431,21 @@ func TestShouldPreserveCacheOnUploadRequest(t *testing.T) {
 	rManifest.Header.Add("expo-protocol-version", "1")
 	rManifest.Header.Add("expo-expect-signature", "true")
 	rManifest.Header.Add("expo-channel-name", "staging")
-	handlers.ManifestHandler(wManifest, rManifest)
+	rManifest.Header.Add("expo-app-id", "test-app-id")
+	testContainer().ExpoProtocolHandler.HandleManifest(wManifest, rManifest)
 	assert.Equal(t, 200, wManifest.Code, "Expected status code 200")
 
 	os.Setenv("LOCAL_BUCKET_BASE_PATH", filepath.Join(projectRoot, "./updates"))
 	q := "http://localhost:3000/requestUploadUrl/branch-1?runtimeVersion=1&platform=android&commitHash=abc123"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
-	r = mux.SetURLVars(r, map[string]string{"BRANCH": "branch-1"})
+	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": "branch-1"})
 	r.Header.Set("expo-session", "expo_test_session")
-	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/branch-1/1/1674170951")
+	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/test-app-id/branch-1/1/1674170951")
 	cache := cache2.GetCache()
-	cacheKey := update.ComputeLastUpdateCacheKey("branch-1", "1", "android")
+	cacheKey := update.ComputeLastUpdateCacheKey("test-app-id", "branch-1", "1", "android")
 	value := cache.Get(cacheKey)
-	expectedValue := "{\"branch\":\"branch-1\",\"runtimeVersion\":\"1\",\"updateId\":\"1674170951\",\"createdAt\":1674170951000000}"
+	expectedValue := "{\"appId\":\"test-app-id\",\"branch\":\"branch-1\",\"runtimeVersion\":\"1\",\"updateId\":\"1674170951\",\"createdAt\":1674170951000000}"
 	assert.Equal(t, expectedValue, value, "Expected a specific cache value")
 	uploadRequestsInput := ComputeUploadRequestsInput(sampleUpdatePath)
 	uploadRequestsInputJSON, err := json.Marshal(uploadRequestsInput)
@@ -450,7 +453,7 @@ func TestShouldPreserveCacheOnUploadRequest(t *testing.T) {
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	assert.NotEmpty(t, w.Header().Get("expo-update-id"), "Expected non-empty update ID")
 	value = cache.Get(cacheKey)
@@ -469,18 +472,18 @@ func TestRequestUploadUrlWithInvalidExpoSession(t *testing.T) {
 	q := "http://localhost:3000/requestUploadUrl/DO_NOT_USE?runtimeVersion=1&platform=android&commitHash=abc123"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
-	r = mux.SetURLVars(r, map[string]string{"BRANCH": "DO_NOT_USE"})
+	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": "DO_NOT_USE"})
 	r.Header.Set("expo-session", "invalid_session_token")
-	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/branch-1/1/1674170951")
+	sampleUpdatePath := filepath.Join(projectRoot, "/test/test-updates/test-app-id/branch-1/1/1674170951")
 	uploadRequestsInput := ComputeUploadRequestsInput(sampleUpdatePath)
 	uploadRequestsInputJSON, err := json.Marshal(uploadRequestsInput)
 	if err != nil {
 		t.Fatalf("Error marshalling uploadRequestsInput: %v", err)
 	}
 	r.Body = io.NopCloser(bytes.NewReader(uploadRequestsInputJSON))
-	handlers.RequestUploadUrlHandler(w, r)
+	testContainer().UploadHandler.RequestUploadUrlHandler(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error validating expo auth\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Error validating auth\n", w.Body.String(), "Expected error message")
 }
 
 func TestIdenticalUpload(t *testing.T) {
@@ -491,7 +494,7 @@ func TestIdenticalUpload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
 	}
-	sampleUpdatePath := filepath.Join(projectRoot, "test", "test-updates", "branch-4", "1", "1674170952")
+	sampleUpdatePath := filepath.Join(projectRoot, "test", "test-updates", "test-app-id", "branch-4", "1", "1674170952")
 	branch := "DO_NOT_USE"
 	runtimeVersion := "1"
 	updateId1 := performUpload(t, projectRoot, branch, runtimeVersion, sampleUpdatePath, "ios")
@@ -504,7 +507,7 @@ func TestIdenticalUpload(t *testing.T) {
 	if w2.Code == 200 {
 		t.Fatalf("Second mark as uploaded should have failed (non-200), got %d", w2.Code)
 	}
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion(branch, runtimeVersion, "ios")
+	lastUpdate, err := testLatestUpdate("test-app-id", branch, runtimeVersion, "ios")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
@@ -520,7 +523,7 @@ func TestDifferentUpload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error finding project root: %v", err)
 	}
-	sampleUpdatePath := filepath.Join(projectRoot, "test", "test-updates", "branch-4", "1", "1674170952")
+	sampleUpdatePath := filepath.Join(projectRoot, "test", "test-updates", "test-app-id", "branch-4", "1", "1674170952")
 	branch := "DO_NOT_USE"
 	runtimeVersion := "1"
 	updateId1 := performUpload(t, projectRoot, branch, runtimeVersion, sampleUpdatePath, "android")
@@ -528,11 +531,11 @@ func TestDifferentUpload(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("First mark as uploaded failed with status %d", w.Code)
 	}
-	sampleOtherUpdatePath := filepath.Join(projectRoot, "test", "test-updates", "branch-4", "1", "1674170951")
+	sampleOtherUpdatePath := filepath.Join(projectRoot, "test", "test-updates", "test-app-id", "branch-4", "1", "1674170951")
 	updateId2 := performUpload(t, projectRoot, branch, runtimeVersion, sampleOtherUpdatePath, "android")
 	w2 := markUpdateAsUploaded(t, branch, runtimeVersion, updateId2, "android")
 	assert.Equal(t, 200, w2.Code, "Expected status code 200")
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion(branch, runtimeVersion, "android")
+	lastUpdate, err := testLatestUpdate("test-app-id", branch, runtimeVersion, "android")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}

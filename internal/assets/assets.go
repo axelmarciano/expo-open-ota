@@ -11,11 +11,13 @@ import (
 )
 
 type AssetsRequest struct {
+	AppId          string
 	Branch         string
 	AssetName      string
 	RuntimeVersion string
 	Platform       string
 	RequestID      string
+	Update         *types.Update
 }
 
 type AssetsResponse struct {
@@ -44,10 +46,24 @@ func getAssetMetadata(req AssetsRequest, returnAsset bool) (AssetsResponse, *typ
 		return AssetsResponse{StatusCode: http.StatusBadRequest, Body: []byte("No runtime version provided")}, nil, "", nil
 	}
 
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion(req.Branch, req.RuntimeVersion, req.Platform)
-	if err != nil || lastUpdate == nil {
-		log.Printf("[RequestID: %s] No update found for runtimeVersion: %s", requestID, req.RuntimeVersion)
+	lastUpdate := req.Update
+	if lastUpdate == nil {
+		// The service resolves the update and 404s before reaching here, so
+		// a nil Update means "no matching update". Guard it rather than
+		// dereferencing into a SIGSEGV below.
+		log.Printf("[RequestID: %s] No update found", requestID)
 		return AssetsResponse{StatusCode: http.StatusNotFound, Body: []byte("No update found")}, nil, "", nil
+	}
+	if !returnAsset {
+		headers := map[string]string{
+			"expo-protocol-version": "1",
+			"expo-sfv-version":      "0",
+			"Cache-Control":         "public, max-age=31536000",
+		}
+		return AssetsResponse{
+			StatusCode: http.StatusOK,
+			Headers:    headers,
+		}, nil, lastUpdate.UpdateId, nil
 	}
 
 	metadata, err := update.GetMetadata(*lastUpdate)
@@ -165,7 +181,7 @@ func HandleAssetsWithURL(req AssetsRequest, resolvedCDN cdn.CDN) (AssetsResponse
 			Body:       resp.Body,
 		}, nil
 	}
-	resp.URL, err = resolvedCDN.ComputeRedirectionURLForAsset(req.Branch, req.RuntimeVersion, updateId, req.AssetName)
+	resp.URL, err = resolvedCDN.ComputeRedirectionURLForAsset(req.AppId, req.Branch, req.RuntimeVersion, updateId, req.AssetName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error computing redirection URL: %v", req.RequestID, err)
 		return AssetsResponse{

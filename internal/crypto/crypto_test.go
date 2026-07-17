@@ -101,3 +101,67 @@ func TestSignRSASHA256(t *testing.T) {
 		t.Errorf("expected error for invalid private key, got none")
 	}
 }
+
+func TestSealUnsealAESGCMRoundTrip(t *testing.T) {
+	masterKey := []byte("0123456789abcdef0123456789abcdef")
+	plaintext := []byte("-----BEGIN RSA PRIVATE KEY-----\nsecret\n-----END RSA PRIVATE KEY-----")
+	aad := []byte("app-1|private")
+
+	sealed, err := SealAESGCM(plaintext, masterKey, aad)
+	if err != nil {
+		t.Fatalf("failed to seal: %v", err)
+	}
+	opened, err := UnsealAESGCM(sealed, masterKey, aad)
+	if err != nil {
+		t.Fatalf("failed to unseal with the matching aad: %v", err)
+	}
+	if string(opened) != string(plaintext) {
+		t.Error("plaintext did not survive the seal/unseal round trip")
+	}
+}
+
+// The property the aad exists for: a blob is only openable under the exact
+// context it was sealed with, even though the master key is the same.
+func TestUnsealAESGCMRejectsMismatchedAAD(t *testing.T) {
+	masterKey := []byte("0123456789abcdef0123456789abcdef")
+	sealed, err := SealAESGCM([]byte("app one private key"), masterKey, []byte("app-1|private"))
+	if err != nil {
+		t.Fatalf("failed to seal: %v", err)
+	}
+
+	for _, aad := range [][]byte{
+		[]byte("app-2|private"), // same half, another app
+		[]byte("app-1|public"),  // same app, other half
+		nil,                     // no context at all
+	} {
+		if _, err := UnsealAESGCM(sealed, masterKey, aad); err == nil {
+			t.Errorf("expected unseal to fail under aad %q, got nil", aad)
+		}
+	}
+}
+
+func TestSealAESGCMNilAADRoundTrips(t *testing.T) {
+	masterKey := []byte("0123456789abcdef0123456789abcdef")
+	sealed, err := SealAESGCM([]byte("unbound"), masterKey, nil)
+	if err != nil {
+		t.Fatalf("failed to seal: %v", err)
+	}
+	opened, err := UnsealAESGCM(sealed, masterKey, nil)
+	if err != nil {
+		t.Fatalf("failed to unseal: %v", err)
+	}
+	if string(opened) != "unbound" {
+		t.Error("nil-aad payload did not survive the round trip")
+	}
+}
+
+func TestUnsealAESGCMRejectsWrongMasterKey(t *testing.T) {
+	aad := []byte("app-1|private")
+	sealed, err := SealAESGCM([]byte("secret"), []byte("0123456789abcdef0123456789abcdef"), aad)
+	if err != nil {
+		t.Fatalf("failed to seal: %v", err)
+	}
+	if _, err := UnsealAESGCM(sealed, []byte("fedcba9876543210fedcba9876543210"), aad); err == nil {
+		t.Error("expected unseal to fail under a different master key, got nil")
+	}
+}

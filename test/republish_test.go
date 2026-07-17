@@ -2,7 +2,6 @@ package test
 
 import (
 	"encoding/json"
-	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/update"
 	"fmt"
@@ -26,7 +25,7 @@ func createRepublishRequest(branch, runtimeVersion, headerKey, headerValue, plat
 	}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", q, nil)
-	r = mux.SetURLVars(r, map[string]string{"BRANCH": branch})
+	r = mux.SetURLVars(r, map[string]string{"APP_ID": "test-app-id", "BRANCH": branch})
 	r.Header.Set(headerKey, headerValue)
 	return w, mux.NewRouter(), nil, r
 }
@@ -36,9 +35,9 @@ func TestToRepublishRollbackWithBadBearer(t *testing.T) {
 	defer teardown()
 	mockExpoForRequestUploadUrlTest("staging")
 	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_bad_token", "ios", "hash", "1737455526")
-	handlers.RepublishHandler(w, r)
+	testContainer().RepublishHandler.HandleRepublish(w, r)
 	assert.Equal(t, 401, w.Code, "Expected status code 401")
-	assert.Equal(t, "Error fetching expo account informations\n", w.Body.String(), "Expected error message")
+	assert.Equal(t, "Error validating auth\n", w.Body.String(), "Expected error message")
 }
 
 func copyDir(src string, dst string) error {
@@ -97,7 +96,7 @@ func TestGoodRepublish(t *testing.T) {
 		panic(err)
 	}
 	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "ios", "hash", "1737455526")
-	handlers.RepublishHandler(w, r)
+	testContainer().RepublishHandler.HandleRepublish(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	type Response struct {
 		Branch         string `json:"branch"`
@@ -114,15 +113,18 @@ func TestGoodRepublish(t *testing.T) {
 	assert.NotEmpty(t, body.RuntimeVersion, "Expected non-empty runtimeVersion")
 	assert.NotEmpty(t, body.Branch, "Expected non-empty branch")
 	assert.NotEmpty(t, body.CreatedAt, "Expected non-empty createdAt")
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("branch-2", "1", "ios")
+	lastUpdate, err := testLatestUpdate("test-app-id", "branch-2", "1", "ios")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
 	assert.Equal(t, body.UpdateId, lastUpdate.UpdateId, "Expected updateId to match the latest update")
-	updateType := update.GetUpdateType(*lastUpdate)
+	updateType, err := testUpdateType(*lastUpdate)
+	if err != nil {
+		t.Fatalf("Error getting update type: %v", err)
+	}
 	assert.Equal(t, updateType, types.NormalUpdate, "Expected update type to be normal")
 
-	previousUpdate, err := update.GetUpdate("branch-2", "1", "1737455526")
+	previousUpdate, err := testUpdate("test-app-id", "branch-2", "1", "1737455526")
 	if err != nil {
 		t.Fatalf("Error getting previous update: %v", err)
 	}
@@ -161,7 +163,7 @@ func TestGoodRepublishWithoutCommitHash(t *testing.T) {
 		panic(err)
 	}
 	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "ios", "", "1737455526")
-	handlers.RepublishHandler(w, r)
+	testContainer().RepublishHandler.HandleRepublish(w, r)
 	assert.Equal(t, 200, w.Code, "Expected status code 200")
 	type Response struct {
 		Branch         string `json:"branch"`
@@ -178,15 +180,18 @@ func TestGoodRepublishWithoutCommitHash(t *testing.T) {
 	assert.NotEmpty(t, body.RuntimeVersion, "Expected non-empty runtimeVersion")
 	assert.NotEmpty(t, body.Branch, "Expected non-empty branch")
 	assert.NotEmpty(t, body.CreatedAt, "Expected non-empty createdAt")
-	lastUpdate, err := update.GetLatestUpdateBundlePathForRuntimeVersion("branch-2", "1", "ios")
+	lastUpdate, err := testLatestUpdate("test-app-id", "branch-2", "1", "ios")
 	if err != nil {
 		t.Fatalf("Error getting latest update: %v", err)
 	}
 	assert.Equal(t, body.UpdateId, lastUpdate.UpdateId, "Expected updateId to match the latest update")
-	updateType := update.GetUpdateType(*lastUpdate)
+	updateType, err := testUpdateType(*lastUpdate)
+	if err != nil {
+		t.Fatalf("Error getting update type: %v", err)
+	}
 	assert.Equal(t, updateType, types.NormalUpdate, "Expected update type to be normal")
 
-	previousUpdate, err := update.GetUpdate("branch-2", "1", "1737455526")
+	previousUpdate, err := testUpdate("test-app-id", "branch-2", "1", "1737455526")
 	if err != nil {
 		t.Fatalf("Error getting previous update: %v", err)
 	}
@@ -225,7 +230,7 @@ func TestRepublishOnBadPlatform(t *testing.T) {
 		panic(err)
 	}
 	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "android", "", "1737455526")
-	handlers.RepublishHandler(w, r)
+	testContainer().RepublishHandler.HandleRepublish(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "Update platform mismatch\n", w.Body.String(), "Expected error message")
 }
@@ -246,13 +251,13 @@ func TestRepublishInvalidUpdate(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	// rm the file projectDir/updates/DO_NOT_USE/branch-2/1/1737455526/.check
-	err = os.Remove(filepath.Join(dst, "branch-2", "1", "1737455526", ".check"))
+	// rm the file projectDir/updates/DO_NOT_USE/test-app-id/branch-2/1/1737455526/.check
+	err = os.Remove(filepath.Join(dst, "test-app-id", "branch-2", "1", "1737455526", ".check"))
 	if err != nil {
 		panic(err)
 	}
 	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "ios", "", "1737455526")
-	handlers.RepublishHandler(w, r)
+	testContainer().RepublishHandler.HandleRepublish(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "Update is not valid\n", w.Body.String(), "Expected error message")
 }
@@ -274,7 +279,7 @@ func TestRepublishWithBadUpdate(t *testing.T) {
 		panic(err)
 	}
 	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "ios", "", "BAD_ONE")
-	handlers.RepublishHandler(w, r)
+	testContainer().RepublishHandler.HandleRepublish(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "Error getting update\n", w.Body.String(), "Expected error message")
 }
@@ -296,7 +301,7 @@ func TestToRepublishARollback(t *testing.T) {
 		panic(err)
 	}
 	w, _, _, r := createRepublishRequest("branch-2", "1", "Authorization", "Bearer expo_test_token", "ios", "", "1666629141")
-	handlers.RepublishHandler(w, r)
+	testContainer().RepublishHandler.HandleRepublish(w, r)
 	assert.Equal(t, 400, w.Code, "Expected status code 400")
 	assert.Equal(t, "Update type is not normal update\n", w.Body.String(), "Expected error message")
 }

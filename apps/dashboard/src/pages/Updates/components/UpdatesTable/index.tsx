@@ -16,6 +16,8 @@ import apple from '@/assets/apple.svg';
 import android from '@/assets/android.svg';
 import { UpdateDetailsRef, UpdateDetailsSheet } from '@/components/UpdateDetailsSheet';
 import { useRef } from 'react';
+import { useSelectedApp } from '@/lib/SelectedAppContext';
+import { TimestampCell } from '@/components/ui/timestamp-cell';
 
 export const UpdatesTable = ({
   branch,
@@ -25,9 +27,11 @@ export const UpdatesTable = ({
   runtimeVersion: string;
 }) => {
   const sheetRef = useRef<UpdateDetailsRef>(null);
+  const { selectedAppId } = useSelectedApp();
   const { data, isLoading, error } = useQuery({
-    queryKey: ['updates'],
+    queryKey: ['updates', selectedAppId, branch, runtimeVersion],
     queryFn: () => api.getUpdates(branch, runtimeVersion),
+    enabled: !!selectedAppId,
   });
 
   return (
@@ -114,7 +118,7 @@ export const UpdatesTable = ({
             accessorKey: 'commitHash',
             cell: value => {
               return (
-                <Badge variant="secondary" className="text-xs">
+                <Badge variant="secondary" className="text-xs font-mono">
                   {value.row.original.commitHash.slice(0, 7)}
                 </Badge>
               );
@@ -123,21 +127,9 @@ export const UpdatesTable = ({
           {
             header: 'Published at',
             accessorKey: 'createdAt',
-            cell: ({ row }) => {
-              const date = new Date(row.original.createdAt);
-              return (
-                <Badge variant="outline">
-                  {date.toLocaleDateString('en-GB', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                    hour: 'numeric',
-                    minute: 'numeric',
-                    second: 'numeric',
-                  })}
-                </Badge>
-              );
-            },
+            cell: ({ row }) => (
+              <TimestampCell dateString={row.original.createdAt} showSeconds />
+            ),
           },
         ]}
         data={data ?? []}

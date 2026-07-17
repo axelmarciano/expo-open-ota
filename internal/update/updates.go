@@ -6,126 +6,43 @@ import (
 	"expo-open-ota/internal/bucket"
 	cache2 "expo-open-ota/internal/cache"
 	"expo-open-ota/internal/crypto"
-	"expo-open-ota/internal/dashboard"
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/version"
 	"fmt"
 	"mime"
 	"net/url"
-	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-func sortUpdates(updates []types.Update) []types.Update {
-	sort.Slice(updates, func(i, j int) bool {
-		return updates[i].CreatedAt > updates[j].CreatedAt
-	})
-	return updates
-}
-
-func filterPlatformUpdates(updates []types.Update, platform string) []types.Update {
-	filteredUpdates := make([]types.Update, 0)
-	for _, update := range updates {
-		storedMetadata, err := RetrieveUpdateStoredMetadata(update)
-		if err == nil && storedMetadata != nil && storedMetadata.Platform == platform {
-			filteredUpdates = append(filteredUpdates, update)
-		}
-	}
-	return filteredUpdates
-}
-
-func GetAllUpdatesForRuntimeVersion(branch string, runtimeVersion string, platform string) ([]types.Update, error) {
+func GetUpdateCheckStatus(update types.Update) time.Time {
 	resolvedBucket := bucket.GetBucket()
-	updates, errGetUpdates := resolvedBucket.GetUpdates(branch, runtimeVersion)
-	if errGetUpdates != nil {
-		return nil, errGetUpdates
-	}
-	updates = sortUpdates(filterPlatformUpdates(updates, platform))
-	return updates, nil
-}
-
-func StoreUpdateUUIDInMetadata(update types.Update) error {
-	resolvedBucket := bucket.GetBucket()
-	file, err := resolvedBucket.GetFile(update, "update-metadata.json")
+	file, err := resolvedBucket.GetFile(update, ".check")
 	if err != nil {
-		return err
+		return time.Time{}
+	}
+	if file == nil {
+		return time.Time{}
 	}
 	defer file.Reader.Close()
-	var storedMetadata types.UpdateStoredMetadata
-	err = json.NewDecoder(file.Reader).Decode(&storedMetadata)
-	if err != nil {
-		return err
-	}
-	metadata, err := GetMetadata(update)
-	if err != nil {
-		return err
-	}
-	storedMetadata.UpdateUUID = crypto.ConvertSHA256HashToUUID(metadata.ID)
-	updatedMetadata, err := json.Marshal(storedMetadata)
-	if err != nil {
-		return err
-	}
-	reader := strings.NewReader(string(updatedMetadata))
-	err = resolvedBucket.UploadFileIntoUpdate(update, "update-metadata.json", reader)
-	if err != nil {
-		return err
-	}
-	return nil
+	return file.CreatedAt.UTC()
 }
 
-func MarkUpdateAsChecked(update types.Update) error {
-	cache := cache2.GetCache()
-	branchesCacheKey := dashboard.ComputeGetBranchesCacheKey()
-	runTimeVersionsCacheKey := dashboard.ComputeGetRuntimeVersionsCacheKey(update.Branch)
-	updatesCacheKey := dashboard.ComputeGetUpdatesCacheKey(update.Branch, update.RuntimeVersion)
-	storedMetadata, err := RetrieveUpdateStoredMetadata(update)
-	if err != nil || storedMetadata == nil {
-		return err
-	}
-	cacheKeys := []string{ComputeLastUpdateCacheKey(update.Branch, update.RuntimeVersion, storedMetadata.Platform), branchesCacheKey, runTimeVersionsCacheKey, updatesCacheKey}
-	for _, cacheKey := range cacheKeys {
-		cache.Delete(cacheKey)
-	}
-	resolvedBucket := bucket.GetBucket()
-	err = StoreUpdateUUIDInMetadata(update)
-	if err != nil {
-		return err
-	}
-	reader := strings.NewReader(".check")
-	_ = resolvedBucket.UploadFileIntoUpdate(update, ".check", reader)
-	go PreWarmManifestCache(update.Branch, update.RuntimeVersion, "ios")
-	go PreWarmManifestCache(update.Branch, update.RuntimeVersion, "android")
-	return nil
+func ComputeLastUpdateCacheKey(appId string, branch string, runtimeVersion string, platform string) string {
+	return fmt.Sprintf("lastUpdate:%s:%s:%s:%s:%s", appId, version.Version, branch, runtimeVersion, platform)
 }
 
-func IsUpdateValid(Update types.Update) bool {
-	resolvedBucket := bucket.GetBucket()
-	// Search for .check file in the update
-	file, _ := resolvedBucket.GetFile(Update, ".check")
-	if file != nil {
-		file.Reader.Close()
-		return true
-	}
-	return false
+func ComputeMetadataCacheKey(appId string, branch string, runtimeVersion string, updateId string) string {
+	return fmt.Sprintf("metadata:%s:%s:%s:%s:%s", appId, version.Version, branch, runtimeVersion, updateId)
 }
 
-func ComputeLastUpdateCacheKey(branch string, runtimeVersion string, platform string) string {
-	return fmt.Sprintf("lastUpdate:%s:%s:%s:%s", version.Version, branch, runtimeVersion, platform)
+func ComputeUpdateManifestCacheKey(appId string, branch string, runtimeVersion string, updateId string, platform string) string {
+	return fmt.Sprintf("manifest:%s:%s:%s:%s:%s:%s", appId, version.Version, branch, runtimeVersion, updateId, platform)
 }
 
-func ComputeMetadataCacheKey(branch string, runtimeVersion string, updateId string) string {
-	return fmt.Sprintf("metadata:%s:%s:%s:%s", version.Version, branch, runtimeVersion, updateId)
-}
-
-func ComputeUpdataManifestCacheKey(branch string, runtimeVersion string, updateId string, platform string) string {
-	return fmt.Sprintf("manifest:%s:%s:%s:%s:%s", version.Version, branch, runtimeVersion, updateId, platform)
-}
-
-func ComputeManifestAssetCacheKey(update types.Update, assetPath string) string {
-	return fmt.Sprintf("asset:%s:%s:%s:%s:%s", version.Version, update.Branch, update.RuntimeVersion, update.UpdateId, assetPath)
+func ComputeManifestAssetCacheKey(appId string, update types.Update, assetPath string) string {
+	return fmt.Sprintf("asset:%s:%s:%s:%s:%s:%s", appId, version.Version, update.Branch, update.RuntimeVersion, update.UpdateId, assetPath)
 }
 
 func VerifyUploadedUpdate(update types.Update) error {
@@ -163,19 +80,6 @@ func VerifyUploadedUpdate(update types.Update) error {
 	return nil
 }
 
-func GetUpdate(branch string, runtimeVersion string, updateId string) (*types.Update, error) {
-	updateIdInt64, err := strconv.ParseInt(updateId, 10, 64)
-	if err != nil {
-		return nil, err
-	}
-	return &types.Update{
-		Branch:         branch,
-		RuntimeVersion: runtimeVersion,
-		UpdateId:       updateId,
-		CreatedAt:      time.Duration(updateIdInt64) * time.Millisecond,
-	}, nil
-}
-
 func AreUpdatesIdentical(update1, update2 types.Update) (bool, error) {
 	metadata1, errMetadata1 := GetMetadata(update1)
 	if errMetadata1 != nil {
@@ -186,62 +90,6 @@ func AreUpdatesIdentical(update1, update2 types.Update) (bool, error) {
 		return false, errMetadata2
 	}
 	return metadata1.Fingerprint == metadata2.Fingerprint, nil
-}
-
-func GetLatestUpdateBundlePathForRuntimeVersion(branch string, runtimeVersion string, platform string) (*types.Update, error) {
-	cache := cache2.GetCache()
-	cacheKey := ComputeLastUpdateCacheKey(branch, runtimeVersion, platform)
-	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
-		var update types.Update
-		err := json.Unmarshal([]byte(cachedValue), &update)
-		if err != nil {
-			return nil, err
-		}
-		return &update, nil
-	}
-	// List the runtime's updates (the bucket derives CreatedAt from the updateId, so
-	// we can sort newest-first WITHOUT reading any per-update metadata) and scan once,
-	// reading update-metadata.json + .check only until the first update that matches
-	// the platform AND is valid. That update is the latest (newest-first order), so
-	// the result is identical to filtering+validating every update — but a cold cache
-	// miss now does O(1) bucket reads in the common case (newest update matches)
-	// instead of O(N) (N=82 for an active runtime). The previous code read metadata
-	// for every update (filterPlatformUpdates) AND .check for every update, so a
-	// foreground herd at the 1800s lastUpdate TTL expiry stampeded the origin.
-	resolvedBucket := bucket.GetBucket()
-	updates, err := resolvedBucket.GetUpdates(branch, runtimeVersion)
-	if err != nil {
-		return nil, err
-	}
-	updates = sortUpdates(updates)
-	for i := range updates {
-		storedMetadata, metaErr := RetrieveUpdateStoredMetadata(updates[i])
-		if metaErr != nil || storedMetadata == nil || storedMetadata.Platform != platform {
-			continue
-		}
-		if !IsUpdateValid(updates[i]) {
-			continue
-		}
-		latest := updates[i]
-		cacheValue, marshalErr := json.Marshal(latest)
-		if marshalErr != nil {
-			return &latest, nil
-		}
-		ttl := 1800
-		_ = cache.Set(cacheKey, string(cacheValue), &ttl)
-		return &latest, nil
-	}
-	return nil, nil
-}
-
-func GetUpdateType(update types.Update) types.UpdateType {
-	resolvedBucket := bucket.GetBucket()
-	file, _ := resolvedBucket.GetFile(update, "rollback")
-	if file != nil {
-		file.Reader.Close()
-		return types.Rollback
-	}
-	return types.NormalUpdate
 }
 
 func GetExpoConfig(update types.Update) (json.RawMessage, error) {
@@ -264,7 +112,7 @@ func GetExpoConfig(update types.Update) (json.RawMessage, error) {
 }
 
 func GetMetadata(update types.Update) (types.UpdateMetadata, error) {
-	metadataCacheKey := ComputeMetadataCacheKey(update.Branch, update.RuntimeVersion, update.UpdateId)
+	metadataCacheKey := ComputeMetadataCacheKey(update.AppId, update.Branch, update.RuntimeVersion, update.UpdateId)
 	cache := cache2.GetCache()
 	if cachedValue := cache.Get(metadataCacheKey); cachedValue != "" {
 		var metadata types.UpdateMetadata
@@ -336,7 +184,7 @@ func GetAssetEndpoint() string {
 }
 
 func shapeManifestAsset(update types.Update, asset *types.Asset, isLaunchAsset bool, platform string) (types.ManifestAsset, error) {
-	cacheKey := ComputeManifestAssetCacheKey(update, asset.Path)
+	cacheKey := ComputeManifestAssetCacheKey(update.AppId, update, asset.Path)
 	cache := cache2.GetCache()
 	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
 		var manifestAsset types.ManifestAsset
@@ -399,16 +247,6 @@ func shapeManifestAsset(update types.Update, asset *types.Asset, isLaunchAsset b
 	return manifestAsset, nil
 }
 
-func appendChannelOverrideToUrl(urlStr string) string {
-	parsedUrl, err := url.Parse(urlStr)
-	if err != nil {
-		return urlStr
-	}
-	query := parsedUrl.Query()
-	parsedUrl.RawQuery = query.Encode()
-	return parsedUrl.String()
-}
-
 func computeManifestMetadata(update types.Update) json.RawMessage {
 	metadataMap := map[string]string{
 		"branch": update.Branch,
@@ -427,7 +265,7 @@ func ComposeUpdateManifest(
 	platform string,
 ) (types.UpdateManifest, error) {
 	cache := cache2.GetCache()
-	cacheKey := ComputeUpdataManifestCacheKey(update.Branch, update.RuntimeVersion, update.UpdateId, platform)
+	cacheKey := ComputeUpdateManifestCacheKey(update.AppId, update.Branch, update.RuntimeVersion, update.UpdateId, platform)
 	if cachedValue := cache.Get(cacheKey); cachedValue != "" {
 		var manifest types.UpdateManifest
 		err := json.Unmarshal([]byte(cachedValue), &manifest)
@@ -514,14 +352,7 @@ func ComposeUpdateManifest(
 	return manifest, nil
 }
 
-func CreateRollbackDirective(update types.Update) (types.RollbackDirective, error) {
-	resolvedBucket := bucket.GetBucket()
-	object, err := resolvedBucket.GetFile(update, "rollback")
-	if err != nil {
-		return types.RollbackDirective{}, err
-	}
-	commitTime := object.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z")
-	defer object.Reader.Close()
+func CreateRollbackDirective(update types.Update, commitTime string) (types.RollbackDirective, error) {
 	return types.RollbackDirective{
 		Type: "rollBackToEmbedded",
 		Parameters: types.RollbackDirectiveParameters{
@@ -554,84 +385,35 @@ func RetrieveUpdateStoredMetadata(update types.Update) (*types.UpdateStoredMetad
 	return &metadata, nil
 }
 
-func createUpdateMetadata(platform, commitHash string) (*strings.Reader, error) {
-	metadata := map[string]string{
-		"platform":   platform,
-		"commitHash": commitHash,
+// Originally, this function returned a raw millisecond timestamp without parameters.
+// When deployment clients (like the Expo CLI) send concurrent, parallel requests for
+// both iOS and Android simultaneously, they arrive at the server in the same millisecond.
+//
+//   - In No-DB (Stateless) Mode: Outbound HTTP network hops to external Expo verification
+//     APIs introduce variable internet delays. This naturally staggered the execution
+//     threads across distinct millisecond clock ticks, hiding duplicate-ID risks.
+//
+//   - In DB Mode: Because operations complete in microseconds, both the iOS and Android
+//     execution threads regularly reach this generation line within the exact same 1ms window.
+//
+// To prevent concurrent platform requests from generating identical IDs and triggering
+// unique-key/constraint conflicts in relational stores, we append a deterministic
+// platform identifier digit (+1 for iOS, +2 for Android) to the end of the timestamp,
+// mathematically decoupling their identities under any hardware concurrency schedule.
+func GenerateUpdateTimestamp(platform string) int64 {
+	milli := time.Now().UnixNano() / int64(time.Millisecond)
+	var platformModifier int64 = 0
+	switch strings.ToLower(platform) {
+	case "ios":
+		platformModifier = 1
+	case "android":
+		platformModifier = 2
+	default:
+		platformModifier = 9
 	}
-
-	jsonData, err := json.Marshal(metadata)
-	if err != nil {
-		return nil, err
-	}
-
-	return strings.NewReader(string(jsonData)), nil
-}
-
-func GenerateUpdateTimestamp() int64 {
-	return time.Now().UnixNano() / int64(time.Millisecond)
+	return milli*10 + platformModifier
 }
 
 func ConvertUpdateTimestampToString(updateId int64) string {
 	return fmt.Sprintf("%d", updateId)
-}
-
-func CreateRollback(platform, commitHash, runtimeVersion, branchName string) (*types.Update, error) {
-	updateId := GenerateUpdateTimestamp()
-	update := types.Update{
-		UpdateId:       ConvertUpdateTimestampToString(updateId),
-		Branch:         branchName,
-		RuntimeVersion: runtimeVersion,
-		CreatedAt:      time.Duration(updateId) * time.Millisecond,
-	}
-	resolvedBucket := bucket.GetBucket()
-	reader, err := createUpdateMetadata(platform, commitHash)
-	if err != nil {
-		return nil, err
-	}
-	err = resolvedBucket.UploadFileIntoUpdate(update, "update-metadata.json", reader)
-	if err != nil {
-		return nil, err
-	}
-	emptyReader := strings.NewReader("")
-	err = resolvedBucket.UploadFileIntoUpdate(update, "rollback", emptyReader)
-	if err != nil {
-		return nil, err
-	}
-	err = StoreUpdateUUIDInMetadata(update)
-	if err != nil {
-		return nil, err
-	}
-	err = MarkUpdateAsChecked(update)
-	if err != nil {
-		return nil, err
-	}
-
-	return &update, nil
-}
-
-func RepublishUpdate(previousUpdate *types.Update, platform, commitHash string) (*types.Update, error) {
-	resolvedBucket := bucket.GetBucket()
-	updateId := GenerateUpdateTimestamp()
-	newUpdate, err := resolvedBucket.CreateUpdateFrom(previousUpdate, ConvertUpdateTimestampToString(updateId))
-	if err != nil {
-		return nil, err
-	}
-	reader, err := createUpdateMetadata(platform, commitHash)
-	if err != nil {
-		return nil, err
-	}
-	err = resolvedBucket.UploadFileIntoUpdate(*newUpdate, "update-metadata.json", reader)
-	if err != nil {
-		return nil, err
-	}
-	err = StoreUpdateUUIDInMetadata(*newUpdate)
-	if err != nil {
-		return nil, err
-	}
-	err = MarkUpdateAsChecked(*newUpdate)
-	if err != nil {
-		return nil, err
-	}
-	return newUpdate, nil
 }

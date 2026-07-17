@@ -1,65 +1,64 @@
 package handlers
 
 import (
-	"expo-open-ota/internal/assets"
-	cdn2 "expo-open-ota/internal/cdn"
+	"errors"
 	"expo-open-ota/internal/compression"
 	"expo-open-ota/internal/services"
-	"github.com/google/uuid"
 	"log"
 	"net/http"
+
+	"github.com/google/uuid"
 )
 
-func AssetsHandler(w http.ResponseWriter, r *http.Request) {
+func (h *ExpoProtocolHandler) HandleAssets(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
+
+	appId := resolveAppID(r)
+	if appId == "" {
+		log.Printf("[RequestID: %s] No app id provided", requestID)
+		http.Error(w, "No app id provided", http.StatusBadRequest)
+		return
+	}
+
 	channelName := r.Header.Get("expo-channel-name")
-	preventCDNRedirection := r.Header.Get("prevent-cdn-redirection") == "true"
-	branchMap, err := services.FetchExpoChannelMapping(channelName)
+
+	params := services.AssetResolutionParams{
+		RequestID:             requestID,
+		AppID:                 appId,
+		ChannelName:           channelName,
+		AssetName:             r.URL.Query().Get("asset"),
+		RuntimeVersion:        r.URL.Query().Get("runtimeVersion"),
+		Platform:              r.URL.Query().Get("platform"),
+		PreventCDNRedirection: r.Header.Get("prevent-cdn-redirection") == "true",
+	}
+
+	result, err := h.protocolService.ResolveAssetBundle(r.Context(), params)
 	if err != nil {
-		log.Printf("[RequestID: %s] Error fetching channel mapping: %v", requestID, err)
-		http.Error(w, "Error fetching channel mapping", http.StatusInternalServerError)
-		return
-	}
-	if branchMap == nil {
-		log.Printf("[RequestID: %s] No branch mapping found for channel: %s", requestID, channelName)
-		http.Error(w, "No branch mapping found", http.StatusNotFound)
-		return
-	}
-
-	req := assets.AssetsRequest{
-		Branch:         branchMap.BranchName,
-		AssetName:      r.URL.Query().Get("asset"),
-		RuntimeVersion: r.URL.Query().Get("runtimeVersion"),
-		Platform:       r.URL.Query().Get("platform"),
-		RequestID:      requestID,
-	}
-
-	cdn := cdn2.GetCDN()
-	if cdn == nil || preventCDNRedirection {
-		resp, err := assets.HandleAssetsWithFile(req)
-		if err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		if assetErr := (*services.ExpoAssetError)(nil); errors.As(err, &assetErr) {
+			http.Error(w, assetErr.Message, assetErr.StatusCode)
 			return
 		}
-
-		for key, value := range resp.Headers {
-			w.Header().Set(key, value)
-		}
-		if resp.StatusCode != 200 {
-			http.Error(w, string(resp.Body), resp.StatusCode)
+		if protoErr := (*services.ExpoProtocolError)(nil); errors.As(err, &protoErr) {
+			http.Error(w, protoErr.Message, protoErr.StatusCode)
 			return
 		}
-		compression.ServeCompressedAsset(w, r, resp.Body, resp.ContentType, req.RequestID)
-		return
-	}
-	resp, err := assets.HandleAssetsWithURL(req, cdn)
-	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	if resp.StatusCode != http.StatusOK {
-		http.Error(w, string(resp.Body), resp.StatusCode)
+
+	if result.RedirectToURL != "" {
+		http.Redirect(w, r, result.RedirectToURL, http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, resp.URL, http.StatusFound)
+
+	for key, value := range result.Headers {
+		w.Header().Set(key, value)
+	}
+
+	if result.StatusCode != http.StatusOK {
+		http.Error(w, string(result.Body), result.StatusCode)
+		return
+	}
+
+	compression.ServeCompressedAsset(w, r, result.Body, result.ContentType, params.RequestID)
 }

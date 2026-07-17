@@ -3,6 +3,7 @@ package config
 import (
 	"expo-open-ota/internal/helpers"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 
@@ -19,6 +20,27 @@ func GetPort() string {
 		port = "3000"
 	}
 	return port
+}
+
+func GetDBURL() string {
+	return GetEnv("DB_URL")
+}
+
+func IsDBMode() bool {
+	return GetDBURL() != ""
+}
+
+func ValidateMasterKey() error {
+	awsKeyId := GetEnv("AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID")
+	localKey := GetEnv("DB_KEYS_MASTER_KEY_B64")
+	if awsKeyId == "" && localKey == "" {
+		return fmt.Errorf("Neither AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID nor DB_KEYS_MASTER_KEY_B64 is set: DB mode requires a master key to seal the per-app Expo signing keys stored in Postgres. Generate one with `openssl rand -base64 32`")
+	}
+	if awsKeyId != "" && localKey != "" {
+		log.Printf("Both AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID and DB_KEYS_MASTER_KEY_B64 are set; please set only one")
+		return fmt.Errorf("Both AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID and DB_KEYS_MASTER_KEY_B64 are set; please set only one")
+	}
+	return nil
 }
 
 func validateBucketParams(storageMode string) bool {
@@ -65,7 +87,6 @@ func resolveDefaultBaseUrl() string {
 	return "http://localhost:" + port
 }
 
-
 func LoadConfig() {
 	err := godotenv.Load()
 	if err != nil {
@@ -83,14 +104,6 @@ func LoadConfig() {
 	if !validateBaseUrl(baseUrl) {
 		log.Fatalf("Invalid BASE_URL: %s", baseUrl)
 	}
-	expoToken := GetEnv("EXPO_ACCESS_TOKEN")
-	if expoToken == "" {
-		log.Fatalf("EXPO_ACCESS_TOKEN not set")
-	}
-	expoAppId := GetEnv("EXPO_APP_ID")
-	if expoAppId == "" {
-		log.Fatalf("EXPO_APP_ID not set")
-	}
 	jwtSecret := GetEnv("JWT_SECRET")
 	if jwtSecret == "" {
 		log.Fatalf("JWT_SECRET not set")
@@ -98,17 +111,20 @@ func LoadConfig() {
 }
 
 var DefaultEnvValues = map[string]string{
-	"LOCAL_BUCKET_BASE_PATH":      "./updates",
-	"STORAGE_MODE":                "local",
-	"BASE_URL":                    resolveDefaultBaseUrl(),
-	"PUBLIC_LOCAL_EXPO_KEY_PATH":  "./keyStore/public-key.pem",
-	"PRIVATE_LOCAL_EXPO_KEY_PATH": "./keyStore/private-key.pem",
-	"KEYS_STORAGE_TYPE":           "local",
-	"JWT_SECRET":                  "",
-	"AWS_REGION":                  "eu-west-3",
-	"AWS_BASE_ENDPOINT":           "",
-}
+	"LOCAL_BUCKET_BASE_PATH": "./updates",
+	"STORAGE_MODE":           "local",
+	"BASE_URL":               resolveDefaultBaseUrl(),
+	"JWT_SECRET":             "",
+	"AWS_REGION":             "eu-west-3",
+	"AWS_BASE_ENDPOINT":      "",
 
+	// Database connection defaults
+	"DB_URL":                "",
+	"DB_MAX_CONNS":          "25",
+	"DB_MIN_CONNS":          "5",
+	"DB_MAX_CONN_LIFETIME":  "30m",
+	"DB_MAX_CONN_IDLE_TIME": "5m",
+}
 
 func GetEnv(key string) string {
 	value := os.Getenv(key)
