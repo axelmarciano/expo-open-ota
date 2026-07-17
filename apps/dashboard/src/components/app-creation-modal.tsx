@@ -98,19 +98,17 @@ export const CreateAppModal = ({
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
-          <DialogTitle className="text-lg">Create New Application</DialogTitle>
+          <DialogTitle className="text-lg">New application</DialogTitle>
           <DialogDescription className="text-sm">
-            Register a new application target for OTA distributions and configure its isolated cryptographic signing keys.
+            Each application gets its own branches, channels, tokens and signing keys.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-5 py-2">
           <div className="space-y-1.5">
-            <Label htmlFor="app-name" className="text-xs font-medium uppercase text-muted-foreground">
-              Application Name
-            </Label>
+            <Label htmlFor="app-name">Name</Label>
             <Input
               id="app-name"
-              placeholder="e.g., consumer-mobile-app"
+              placeholder="e.g. my-mobile-app"
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={isSubmitting}
@@ -119,13 +117,11 @@ export const CreateAppModal = ({
             />
           </div>
           <div className="space-y-2">
-            <Label className="text-xs font-medium uppercase text-muted-foreground">
-              Key Management Mode
-            </Label>
+            <Label>Signing keys</Label>
             <div className="grid grid-cols-1 gap-2">
               {[
-                { id: 'database', label: 'Database Managed', desc: 'Keys are generated for you, sealed with the master key and stored in the database.' },
-                { id: 'aws-secrets-manager', label: 'AWS Secrets Manager', desc: 'Securely fetch keys directly from AWS vaults.' }
+                { id: 'database', label: 'Managed for you', desc: 'Keys are generated, sealed with the master key and stored in the database.' },
+                { id: 'aws-secrets-manager', label: 'AWS Secrets Manager', desc: 'Keys are fetched from secrets you manage in AWS.' }
               ].map((mode) => (
                 <label
                   key={mode.id}
@@ -196,12 +192,8 @@ export const CreateAppModal = ({
             >
               Cancel
             </Button>
-            <Button
-              type="submit"
-              disabled={isSubmitting}
-              className="h-9 text-xs font-medium bg-foreground text-background hover:bg-foreground/90"
-            >
-              {isSubmitting ? 'Registering...' : 'Create Application'}
+            <Button type="submit" disabled={isSubmitting} className="h-9">
+              {isSubmitting ? 'Creating…' : 'Create application'}
             </Button>
           </DialogFooter>
         </form>

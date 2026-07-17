@@ -12,12 +12,14 @@ export const SelectBranch = ({
   currentBranch,
   onChange,
   loading,
+  className,
 }: {
   // Receives the branch id (used to map a channel) and its name (used when
   // creating a channel, which takes a branch name).
   onChange: (branchId?: string | null, branchName?: string) => void;
   loading?: boolean;
   currentBranch?: string | null;
+  className?: string;
 }) => {
   const { CONTROL_PLANE_ENABLED } = useSettings();
   const { selectedAppId } = useSelectedApp();
@@ -46,6 +48,7 @@ export const SelectBranch = ({
   return (
     <>
       <Combobox
+        className={className}
         loading={isLoading || loading}
         options={allBranches.map(b => {
           return {

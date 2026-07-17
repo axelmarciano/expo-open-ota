@@ -43,7 +43,7 @@ export const DeleteDialog = ({
             {title}
           </DialogTitle>
           <DialogDescription className="pt-1 text-left text-muted-foreground">
-            Are you completely sure you want to delete{' '}
+            Are you sure you want to delete{' '}
             {resourceName && (
               <strong className="font-semibold text-foreground">
                 "{resourceName}"

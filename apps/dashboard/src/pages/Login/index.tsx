@@ -1,6 +1,7 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.tsx';
+import { Radio } from 'lucide-react';
 import { Input } from '@/components/ui/input.tsx';
 import { Button } from '@/components/ui/button.tsx';
+import { Label } from '@/components/ui/label.tsx';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -12,7 +13,7 @@ import { api } from '@/lib/api.ts';
 
 const FormSchema = z.object({
   password: z.string().min(1, {
-    message: 'Password is required',
+    message: 'Enter your admin password',
   }),
 });
 
@@ -34,41 +35,63 @@ export const Login = () => {
       } catch {
         form.setError('password', {
           type: 'server',
-          message: 'Error logging in',
+          message: 'That password is incorrect',
         });
       }
     },
-    [form]
+    [form, navigate]
   );
 
   return (
-    <div className="flex-1 w-full h-screen flex items-center justify-center">
-      <Card className="w-[350px]">
-        <CardHeader>
-          <CardTitle>Admin password</CardTitle>
-        </CardHeader>
-        <CardContent>
+    <div className="flex min-h-screen w-full items-center justify-center bg-muted/50 px-4">
+      <div className="w-full max-w-sm">
+        <div className="rounded-2xl border bg-background p-8 shadow-elevated">
+          <div className="mb-8 flex flex-col items-center gap-3 text-center">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+              <Radio className="h-5 w-5" strokeWidth={2} />
+            </div>
+            <div className="space-y-1">
+              <h1 className="text-lg font-semibold tracking-tight">Expo Open OTA</h1>
+              <p className="text-sm text-muted-foreground">
+                Sign in to manage your over-the-air updates
+              </p>
+            </div>
+          </div>
+
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="w-full gap-5 flex flex-col">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-5">
               <FormField
                 control={form.control}
                 name="password"
                 render={({ field, fieldState }) => {
                   return (
-                    <FormItem>
+                    <FormItem className="space-y-1.5">
+                      <Label htmlFor="admin-password">Admin password</Label>
                       <FormControl>
-                        <Input type={'password'} {...field} />
+                        <Input
+                          id="admin-password"
+                          type="password"
+                          autoFocus
+                          autoComplete="current-password"
+                          {...field}
+                        />
                       </FormControl>
                       <FormMessage>{fieldState.error?.message}</FormMessage>
                     </FormItem>
                   );
                 }}
               />
-              <Button type="submit">Submit</Button>
+              <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
+                {form.formState.isSubmitting ? 'Signing in…' : 'Sign in'}
+              </Button>
             </form>
           </Form>
-        </CardContent>
-      </Card>
+        </div>
+
+        <p className="mt-6 text-center text-xs text-muted-foreground">
+          Self-hosted OTA updates for Expo apps
+        </p>
+      </div>
     </div>
   );
 };

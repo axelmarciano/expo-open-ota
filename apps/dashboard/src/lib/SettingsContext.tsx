@@ -1,26 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { api, ApiProblemError } from '@/lib/api';
+import { api, ApiProblemError, ServerSettings } from '@/lib/api';
 
-export interface Settings {
-  BASE_URL: string;
-  CONTROL_PLANE_ENABLED: boolean;
-  CACHE_MODE: string;
-  REDIS_HOST: string;
-  REDIS_PORT: string;
-  STORAGE_MODE: string;
-  S3_BUCKET_NAME: string;
-  LOCAL_BUCKET_BASE_PATH: string;
-  AWS_REGION: string;
-  AWS_BASE_ENDPOINT: string;
-  AWS_ACCESS_KEY_ID: string;
-  CLOUDFRONT_DOMAIN: string;
-  CLOUDFRONT_KEY_PAIR_ID: string;
-  CLOUDFRONT_PRIVATE_KEY_B64: string;
-  AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID: string;
-  PRIVATE_LOCAL_CLOUDFRONT_KEY_PATH: string;
-  PROMETHEUS_ENABLED: string;
-  APPS: { id: string; name?: string }[];
-}
+export type Settings = ServerSettings;
 
 const SettingsContext = createContext<Settings | null>(null);
 
@@ -53,11 +34,22 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   }, []);
 
   if (loading) {
-    return <div className="loading-screen">Loading dashboard configurations...</div>;
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+        Loading dashboard…
+      </div>
+    );
   }
 
   if (error) {
-    return <div className="error-screen">Error: {error}</div>;
+    return (
+      <div className="flex min-h-screen items-center justify-center px-4">
+        <div className="max-w-md rounded-xl border border-destructive/30 bg-destructive/5 p-6 text-center">
+          <p className="text-sm font-medium text-destructive">Could not reach the server</p>
+          <p className="mt-1 text-sm text-muted-foreground">{error}</p>
+        </div>
+      </div>
+    );
   }
 
   return (

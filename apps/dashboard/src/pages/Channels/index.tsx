@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
+import { PageHeader } from '@/components/PageHeader';
 import { DeleteDialog } from '@/components/ui/delete-dialog';
 import { TimestampCell } from '@/components/ui/timestamp-cell';
 import { Trash2, Plus } from 'lucide-react';
@@ -139,7 +139,7 @@ export const Channels = () => {
     try {
       await api.deleteChannel(channelToDelete.releaseChannelName);
       await refetch();
-      toast({ title: 'Channel Deleted', description: 'Release channel removed from application deployment grid.' });
+      toast({ title: 'Channel deleted', description: `"${channelToDelete.releaseChannelName}" was removed.` });
       setChannelToDelete(null);
     } catch (error) {
       let errorTitle = 'Deletion Failed';
@@ -163,12 +163,10 @@ export const Channels = () => {
   const tableColumns = useMemo<TableColumnConfig[]>(() => {
     return [
       {
-        header: 'Channel Name',
+        header: 'Channel',
         accessorKey: 'releaseChannelName',
         cell: ({ row }) => (
-          <span className="flex flex-row gap-2 items-center w-full">
-            {row.original.releaseChannelName}
-          </span>
+          <span className="font-medium">{row.original.releaseChannelName}</span>
         ),
       },
       {
@@ -185,7 +183,7 @@ export const Channels = () => {
       ...(CONTROL_PLANE_ENABLED
         ? [
             {
-              header: 'Created At',
+              header: 'Created',
               accessorKey: 'createdAt',
               cell: ({ row }) => <TimestampCell dateString={row.original.createdAt} />,
             } satisfies TableColumnConfig,
@@ -212,80 +210,84 @@ export const Channels = () => {
   }, [CONTROL_PLANE_ENABLED, isLoading, loading, onBranchChange]);
 
   return (
-    <div className="w-full h-screen flex-1 p-5 space-y-6">
-      <div className="space-y-2">
-        <h1 className="text-2xl font-medium tracking-tight">Channels</h1>
-        <p className="text-sm text-muted-foreground max-w-3xl">
-          A <span className="font-medium text-foreground">branch</span> is a line of updates you
-          publish to, much like a git branch. A{' '}
-          <span className="font-medium text-foreground">release channel</span> is the name your app
-          asks for when it checks for updates — it is baked into the build and never changes.
-        </p>
-        <p className="text-sm text-muted-foreground max-w-3xl">
-          Mapping a channel to a branch is what decides which updates an app actually receives.
-          Point{' '}
-          <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
-            production
-          </code>{' '}
-          at a new branch to roll out, or back at the previous one to roll back — without shipping a
-          new build.
-        </p>
-        <Separator />
-      </div>
-      {!!error && <ApiError error={error} />}
-      
-      {CONTROL_PLANE_ENABLED && (
-        <Card>
-          <CardContent className="p-4 space-y-2">
-            <form onSubmit={handleCreateChannel} className="flex gap-3 items-end flex-wrap">
-              <div className="space-y-1.5">
-                <Label
-                  htmlFor="channel-name"
-                  className="text-xs font-medium uppercase text-muted-foreground"
-                >
-                  New release channel
-                </Label>
-                <Input
-                  id="channel-name"
-                  placeholder="e.g., production, staging-v2"
-                  value={newChannelName}
-                  onChange={e => setNewChannelName(e.target.value)}
-                  disabled={isCreating}
-                  className="h-9 w-64"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium uppercase text-muted-foreground">
-                  Branch to serve
-                </Label>
-                <SelectBranch
-                  currentBranch={newChannelBranch?.id ?? ''}
-                  loading={isCreating}
-                  onChange={(branchId, branchName) =>
-                    setNewChannelBranch(
-                      branchId && branchName ? { id: branchId, name: branchName } : null
-                    )
-                  }
-                />
-              </div>
-              <Button type="submit" disabled={isCreating || !newChannelName.trim()}>
-                <Plus className="mr-1.5 h-4 w-4" />
-                {isCreating ? 'Creating...' : 'Create channel'}
-              </Button>
-            </form>
-            <p className="text-xs text-muted-foreground">
-              Pick an existing branch or create one on the fly. You can also leave it empty and map a
-              branch later from the table below.
+    <div className="w-full">
+      <PageHeader
+        title="Channels"
+        description={
+          <>
+            <p>
+              A <span className="font-medium text-foreground">branch</span> is a line of updates you
+              publish to, much like a git branch. A{' '}
+              <span className="font-medium text-foreground">release channel</span> is the name your
+              app asks for when it checks for updates — it is baked into the build and never
+              changes.
             </p>
-          </CardContent>
-        </Card>
-      )}
-
-      <DataTable
-        loading={isLoading}
-        columns={tableColumns}
-        data={data ?? []}
+            <p className="mt-2">
+              Mapping a channel to a branch decides which updates an app actually receives. Point{' '}
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
+                production
+              </code>{' '}
+              at a new branch to roll out, or back at the previous one to roll back — without
+              shipping a new build.
+            </p>
+          </>
+        }
       />
+      {!!error && <ApiError error={error} />}
+
+      <div className="space-y-4">
+        {CONTROL_PLANE_ENABLED && (
+          <Card>
+            <CardContent className="p-5">
+              <form
+                onSubmit={handleCreateChannel}
+                className="grid items-end gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                <div className="space-y-1.5">
+                  <Label htmlFor="channel-name">Channel name</Label>
+                  <Input
+                    id="channel-name"
+                    placeholder="production, staging…"
+                    value={newChannelName}
+                    onChange={e => setNewChannelName(e.target.value)}
+                    disabled={isCreating}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>
+                    Branch to serve{' '}
+                    <span className="font-normal text-muted-foreground">(optional)</span>
+                  </Label>
+                  <SelectBranch
+                    className="w-full"
+                    currentBranch={newChannelBranch?.id ?? ''}
+                    loading={isCreating}
+                    onChange={(branchId, branchName) =>
+                      setNewChannelBranch(
+                        branchId && branchName ? { id: branchId, name: branchName } : null
+                      )
+                    }
+                  />
+                </div>
+                <Button type="submit" disabled={isCreating || !newChannelName.trim()}>
+                  <Plus className="h-4 w-4" />
+                  {isCreating ? 'Creating…' : 'Create channel'}
+                </Button>
+              </form>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Pick an existing branch or create one on the fly. You can also leave it empty and
+                map a branch later from the table below.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        <DataTable
+          loading={isLoading}
+          columns={tableColumns}
+          data={data ?? []}
+          emptyMessage="No channels yet. Create one to start serving updates to your builds."
+        />
+      </div>
 
       {CONTROL_PLANE_ENABLED && (
         <DeleteDialog
@@ -293,11 +295,11 @@ export const Channels = () => {
           onClose={() => setChannelToDelete(null)}
           onConfirm={handleExecuteDeletion}
           isDeleting={isDeleting}
-          title="Delete Release Channel"
+          title="Delete channel"
           resourceName={channelToDelete?.releaseChannelName}
-          descriptionText="Any runtime client devices polling for OTA updates against this track route string will no longer receive updates. This action is irreversible."
+          descriptionText="Builds configured with this channel will stop receiving updates. This cannot be undone."
           confirmButtonText="Delete channel"
-          isDeletingButtonText="Deleting..."
+          isDeletingButtonText="Deleting…"
         />
       )}
     </div>

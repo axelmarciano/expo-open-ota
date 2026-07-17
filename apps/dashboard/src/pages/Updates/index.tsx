@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import { BranchesTable } from '@/pages/Updates/components/BranchesTable';
 import { RuntimeVersionsTable } from '@/pages/Updates/components/RuntimeVersionsTable';
 import { UpdatesTable } from '@/pages/Updates/components/UpdatesTable';
-import { Separator } from '@/components/ui/separator';
+import { PageHeader } from '@/components/PageHeader';
 
 export const Updates = () => {
   const [searchParams] = useSearchParams();
@@ -21,14 +21,11 @@ export const Updates = () => {
   }, [currentBranch, runtimeVersion]);
 
   return (
-    <div className="w-full min-h-screen flex-1 p-5 space-y-6">
-      <div className="space-y-2">
-        <h1 className="text-2xl font-medium tracking-tight">Updates</h1>
-        <p className="text-sm text-muted-foreground">
-          Provision or delete release branches, explore targeted runtime environments, and audit deployed OTA bundle history.
-        </p>
-        <Separator />
-      </div>
+    <div className="w-full">
+      <PageHeader
+        title="Updates"
+        description="Browse your release branches, drill into a runtime version, and audit every OTA update you have published."
+      />
       {component}
     </div>
   );

@@ -10,6 +10,7 @@ import { Logout } from '@/pages/Logout';
 import { Channels } from '@/pages/Channels';
 import { SelectedAppProvider } from '@/lib/SelectedAppContext';
 import { AppInfo } from '@/pages/AppInfo';
+import { ApiTokens } from '@/pages/ApiTokens';
 import { SettingsProvider } from '@/lib/SettingsContext';
 
 function withLayout(children: ReactNode) {
@@ -42,6 +43,7 @@ export const App = () => {
                     <Route path="/settings" element={withLayout(<Settings />)} />
                     <Route path="/channels" element={withLayout(<Channels />)} />
                     <Route path="/app-info" element={withLayout(<AppInfo />)} />
+                    <Route path="/tokens" element={withLayout(<ApiTokens />)} />
                     <Route path="/logout" element={withLayout(<Logout />)} />
                   </Routes>
                 </SelectedAppProvider>

@@ -29,11 +29,14 @@ interface ComboboxProps {
   // Optional action pinned under the options (e.g. "New Application"). Stays
   // visible whatever the search input, since it is not one of the options.
   action?: { label: string; icon?: React.ReactNode; onSelect: () => void };
+  // Extra classes for the trigger button — pass "w-full" to make the combobox
+  // fill its container (the popover always matches the trigger width).
+  className?: string;
 }
 
 export function Combobox(props: ComboboxProps) {
   const [open, setOpen] = React.useState(false);
-  const { options, value, onChange, loading, label, action } = props;
+  const { options, value, onChange, loading, label, action, className } = props;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -41,12 +44,14 @@ export function Combobox(props: ComboboxProps) {
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="w-max justify-between">
-          {value ? options.find(opt => opt.value === value)?.label : label || 'Select option'}
+          className={cn('w-max justify-between font-normal', className)}>
+          <span className="truncate">
+            {value ? options.find(opt => opt.value === value)?.label : label || 'Select option'}
+          </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-max p-0">
+      <PopoverContent className="w-[max(var(--radix-popover-trigger-width),12rem)] p-0">
         <Command
           filter={(itemValue, search) => {
             if (itemValue === ACTION_VALUE) return 1;
