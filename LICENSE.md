@@ -1,3 +1,14 @@
+# Expo Open OTA licensing
+
+This repository contains two categories of code:
+
+- Every directory named `ee/` (for example `/ee` and `apps/dashboard/src/ee/`)
+  is licensed under the Expo Open OTA Enterprise Edition license — see
+  [ee/LICENSE](./ee/LICENSE).
+- Everything else is licensed under the MIT License below.
+
+---
+
 MIT License
 
 Copyright (c) [2025] [Axel Marciano]

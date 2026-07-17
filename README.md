@@ -67,14 +67,17 @@ v3 changes the bucket layout (updates are now scoped per app id) and identifies 
 | **S3-compatible** (R2, MinIO, etc.) | `STORAGE_MODE=s3` + `AWS_BASE_ENDPOINT` | Direct |
 | **Local file system** | `STORAGE_MODE=local` | Direct (dev only) |
 
+## Contributing
+
+Contributions are welcome! For anything beyond a small fix, please open an issue before writing code — Expo Open OTA is an open-core project and some advanced features are reserved for the commercial edition. The boundary is documented in [CONTRIBUTING.md](./CONTRIBUTING.md).
+
 ## Disclaimer
 
 Expo Open OTA is **not officially supported or affiliated with [Expo](https://expo.dev/)**. This is an independent open-source project.
 
 ## License
 
-Core is MIT and will stay MIT; advanced org features may be offered under a commercial license in the future
-see [LICENSE](./LICENSE.md).
+The core is MIT and will stay MIT. Enterprise features live in `ee/` directories and are covered by a commercial license — see [ee/LICENSE](./ee/LICENSE); everything else is MIT — see [LICENSE](./LICENSE.md).
 
 ## Contact
 
