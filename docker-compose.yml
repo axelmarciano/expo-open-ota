@@ -26,6 +26,7 @@ services:
     volumes:
       - .:/app
       - ~/.aws:/root/.aws:ro
+      - ./updates:/updates
     env_file:
       - .env
     command: reflex -r '\.go' -s -- sh -c "ls -l cmd/api && go run cmd/api/main.go"
