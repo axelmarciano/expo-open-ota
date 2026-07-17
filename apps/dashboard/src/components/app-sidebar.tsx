@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import {
+  BadgeCheck,
   Box,
   CircleUser,
   HardDriveDownload,
@@ -18,6 +19,7 @@ import { useSelectedApp } from '@/lib/SelectedAppContext';
 import { CreateAppModal } from '@/components/app-creation-modal';
 import { useSettings } from '@/lib/SettingsContext';
 import { useCurrentUser } from '@/lib/CurrentUserContext';
+import { EnterpriseBadge } from '@/ee/components/EnterpriseBadge';
 
 const NavLink = ({
   to,
@@ -74,6 +76,8 @@ export function AppSidebar() {
           </div>
           <span className="text-[15px] font-semibold tracking-tight">Expo Open OTA</span>
         </div>
+
+        <EnterpriseBadge />
 
         <div className="px-3 pt-3">
           {/* Always rendered, even with a single app: the selector is what tells
@@ -137,6 +141,11 @@ export function AppSidebar() {
             {CONTROL_PLANE_ENABLED && isAdmin && (
               <NavLink to="/users" icon={Users}>
                 Users
+              </NavLink>
+            )}
+            {CONTROL_PLANE_ENABLED && (
+              <NavLink to="/license" icon={BadgeCheck}>
+                License
               </NavLink>
             )}
             <NavLink to="/account" icon={CircleUser}>

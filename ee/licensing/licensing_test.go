@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -90,9 +91,14 @@ func TestRejectsTamperedKey(t *testing.T) {
 	priv := setupTestKeypair(t)
 	key := signTestKey(t, priv, in(24*time.Hour))
 	other := signTestKey(t, priv, in(48*time.Hour))
-	tampered := other[:len(other)/2] + key[len(key)/2:]
-	if _, err := Activate(tampered); err == nil {
-		t.Fatal("expected tampered key to be rejected")
+	// Graft other's dataset onto key's signature. Each part is genuine on its
+	// own — the datasets are guaranteed to differ (24h vs 48h expiry), so
+	// only signature verification over the full payload catches the mix.
+	dataset := strings.SplitN(strings.TrimPrefix(other, keyPrefix), ".", 2)[0]
+	signature := strings.SplitN(strings.TrimPrefix(key, keyPrefix), ".", 2)[1]
+	tampered := keyPrefix + dataset + "." + signature
+	if _, err := Activate(tampered); !errors.Is(err, ErrInvalidSignature) {
+		t.Fatalf("expected ErrInvalidSignature for tampered key, got %v", err)
 	}
 	if IsEnterprise() {
 		t.Fatal("expected no active license after rejected activation")

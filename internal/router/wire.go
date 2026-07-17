@@ -3,6 +3,7 @@ package infrastructure
 import (
 	"context"
 	"expo-open-ota/config"
+	"expo-open-ota/ee/licensing"
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/database"
 	"expo-open-ota/internal/database/postgres"
@@ -12,6 +13,7 @@ import (
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
 	"log"
+	"time"
 )
 
 type AppContainer struct {
@@ -24,6 +26,7 @@ type AppContainer struct {
 	BranchHandler        *dashhandlers.BranchHandler
 	ChannelHandler       *dashhandlers.ChannelHandler
 	ExpoProtocolHandler  *handlers.ExpoProtocolHandler
+	LicenseHandler       *licensing.LicenseHandler
 	RollbackHandler      *handlers.RollbackHandler
 	SettingsHandler      *dashhandlers.SettingsHandler
 	UpdateHandler        *dashhandlers.UpdateHandler
@@ -56,6 +59,9 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// Stays nil in stateless mode: user accounts only exist on the control
 	// plane, the flat-env dashboard authenticates against ADMIN_EMAIL/ADMIN_PASSWORD.
 	var userRepo services.UserRepository
+	// Stays nil in stateless mode too: the enterprise license lives in the
+	// database, stateless deployments run community edition.
+	var licenseRepo licensing.LicenseRepository
 
 	cleanup := func() {}
 	dbUrl := config.GetDBURL()
@@ -83,6 +89,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		authRepo = store.NewPostgresAuthStore(dbEngine)
 		appRepo = store.NewPostgresAppStore(dbEngine)
 		userRepo = store.NewPostgresUserStore(dbEngine)
+		licenseRepo = licensing.NewPostgresLicenseStore(dbEngine)
 		branchRepo = store.NewPostgresBranchStore(dbEngine)
 		channelRepo = store.NewPostgresChannelStore(dbEngine)
 		updateRepo = store.NewPostgresUpdateStore(dbEngine)
@@ -99,6 +106,16 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	}
 
 	logLegacyAppIdFallback()
+
+	licenseService := licensing.NewLicenseService(licenseRepo)
+	// A missing/invalid stored key just means community edition; only an
+	// unreachable database is worth a warning, and never a boot failure.
+	if err := licenseService.ActivateFromStore(ctx); err != nil {
+		log.Printf("⚠️  [LICENSE] Could not load the enterprise license from the database: %v", err)
+	}
+	// Other replicas learn about license changes through this loop rather
+	// than at their next boot.
+	licenseService.StartSync(ctx, 30*time.Second)
 
 	dashboardAuthService := services.NewDashboardAuthService(userRepo)
 	cliAuthService := services.NewCliAuthService(authRepo)
@@ -120,6 +137,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		BranchHandler:        dashhandlers.NewBranchHandler(branchService),
 		ChannelHandler:       dashhandlers.NewChannelHandler(channelService),
 		ExpoProtocolHandler:  handlers.NewExpoProtocolHandler(expoProtocolService),
+		LicenseHandler:       licensing.NewLicenseHandler(licenseService),
 		RepublishHandler:     handlers.NewRepublishHandler(cliAuthService, deploymentService),
 		RollbackHandler:      handlers.NewRollbackHandler(cliAuthService, deploymentService),
 		SettingsHandler:      dashhandlers.NewSettingsHandler(appService),

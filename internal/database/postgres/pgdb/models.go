@@ -48,6 +48,13 @@ type Channel struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type EnterpriseLicense struct {
+	Singleton  bool               `json:"singleton"`
+	LicenseKey string             `json:"license_key"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
 type RuntimeVersion struct {
 	ID        int64              `json:"id"`
 	AppID     pgtype.UUID        `json:"app_id"`

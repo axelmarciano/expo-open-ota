@@ -103,6 +103,21 @@ export type UserRecord = {
   lastConnectedAt?: string;
 };
 
+// The deployment's Enterprise Edition license status (/api/license,
+// control-plane only). `valid` is the single source of truth for "enterprise
+// features are on": `hasKey` can be true with `valid` false when the stored
+// key is expired or malformed, in which case `error` says why. `expiresAt` is
+// absent for a perpetual license.
+export type LicenseStatus = {
+  hasKey: boolean;
+  valid: boolean;
+  error?: string;
+  licenseId?: string;
+  issuedAt?: string;
+  expiresAt?: string;
+  activatedAt?: string;
+};
+
 // Mirror of the server's SettingsEnv payload (/api/settings). Field names are
 // the raw env-var spellings on purpose — the server is the source of truth.
 export type ServerSettings = {
@@ -283,6 +298,26 @@ export class ApiClient {
 
   public async deleteUser(userId: string) {
     return this.request<void>(`/api/users/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  public async getLicense() {
+    return this.request<LicenseStatus>(`/api/license`, {
+      method: 'GET',
+    });
+  }
+
+  public async activateLicense(key: string) {
+    return this.request<LicenseStatus>(`/api/license`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key }),
+    });
+  }
+
+  public async removeLicense() {
+    return this.request<void>(`/api/license`, {
       method: 'DELETE',
     });
   }

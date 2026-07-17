@@ -316,8 +316,8 @@ WITH admins AS (
     SELECT id FROM users WHERE is_admin ORDER BY id FOR UPDATE
 )
 DELETE FROM users
-WHERE id = $1
-  AND (id NOT IN (SELECT id FROM admins) OR (SELECT COUNT(*) FROM admins) > 1);
+WHERE users.id = $1
+  AND (users.id NOT IN (SELECT id FROM admins) OR (SELECT COUNT(*) FROM admins) > 1);
 
 -- name: UpdateUserPasswordByID :execresult
 UPDATE users
@@ -333,9 +333,9 @@ WITH admins AS (
 )
 UPDATE users
 SET is_admin = $2, updated_at = CURRENT_TIMESTAMP
-WHERE id = $1
+WHERE users.id = $1
   AND ($2::boolean
-       OR id NOT IN (SELECT id FROM admins)
+       OR users.id NOT IN (SELECT id FROM admins)
        OR (SELECT COUNT(*) FROM admins) > 1);
 
 -- name: MigrateLegacyApp :exec
@@ -435,3 +435,16 @@ ON CONFLICT (branch_id, id) DO UPDATE SET
     checked_at = EXCLUDED.checked_at,
     update_uuid = EXCLUDED.update_uuid,
     created_at = EXCLUDED.created_at;
+-- name: GetEnterpriseLicense :one
+SELECT * FROM enterprise_license
+WHERE singleton;
+
+-- name: UpsertEnterpriseLicense :one
+INSERT INTO enterprise_license (singleton, license_key)
+VALUES (TRUE, $1)
+ON CONFLICT (singleton) DO UPDATE
+SET license_key = EXCLUDED.license_key, updated_at = CURRENT_TIMESTAMP
+RETURNING *;
+
+-- name: DeleteEnterpriseLicense :exec
+DELETE FROM enterprise_license;

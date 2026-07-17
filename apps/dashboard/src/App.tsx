@@ -13,6 +13,7 @@ import { AppInfo } from '@/pages/AppInfo';
 import { ApiTokens } from '@/pages/ApiTokens';
 import { Users } from '@/pages/Users';
 import { Account } from '@/pages/Account';
+import { License } from '@/ee/pages/License';
 import { SettingsProvider } from '@/lib/SettingsContext';
 import { CurrentUserProvider } from '@/lib/CurrentUserContext';
 
@@ -49,6 +50,7 @@ export const App = () => {
                       <Route path="/app-info" element={withLayout(<AppInfo />)} />
                       <Route path="/tokens" element={withLayout(<ApiTokens />)} />
                       <Route path="/users" element={withLayout(<Users />)} />
+                      <Route path="/license" element={withLayout(<License />)} />
                       <Route path="/account" element={withLayout(<Account />)} />
                       <Route path="/logout" element={withLayout(<Logout />)} />
                     </Routes>

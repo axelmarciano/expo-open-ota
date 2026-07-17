@@ -49,15 +49,27 @@ func (q *Queries) DeleteChannelByName(ctx context.Context, arg DeleteChannelByNa
 	return q.db.Exec(ctx, deleteChannelByName, arg.Name, arg.AppID)
 }
 
+const deleteEnterpriseLicense = `-- name: DeleteEnterpriseLicense :exec
+DELETE FROM enterprise_license
+`
+
+func (q *Queries) DeleteEnterpriseLicense(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, deleteEnterpriseLicense)
+	return err
+}
+
 const deleteUserByID = `-- name: DeleteUserByID :execresult
 WITH admins AS (
     SELECT id FROM users WHERE is_admin ORDER BY id FOR UPDATE
 )
 DELETE FROM users
-WHERE id = $1
-  AND (id NOT IN (SELECT id FROM admins) OR (SELECT COUNT(*) FROM admins) > 1)
+WHERE users.id = $1
+  AND (users.id NOT IN (SELECT id FROM admins) OR (SELECT COUNT(*) FROM admins) > 1)
 `
 
+// Locks the admin rows first so concurrent deletes/demotions serialize:
+// deleting the last remaining admin matches no row instead of leaving the
+// dashboard without any admin.
 func (q *Queries) DeleteUserByID(ctx context.Context, id pgtype.UUID) (pgconn.CommandTag, error) {
 	return q.db.Exec(ctx, deleteUserByID, id)
 }
@@ -318,6 +330,23 @@ func (q *Queries) GetChannelsByAppID(ctx context.Context, appID pgtype.UUID) ([]
 		return nil, err
 	}
 	return items, nil
+}
+
+const getEnterpriseLicense = `-- name: GetEnterpriseLicense :one
+SELECT singleton, license_key, created_at, updated_at FROM enterprise_license
+WHERE singleton
+`
+
+func (q *Queries) GetEnterpriseLicense(ctx context.Context) (EnterpriseLicense, error) {
+	row := q.db.QueryRow(ctx, getEnterpriseLicense)
+	var i EnterpriseLicense
+	err := row.Scan(
+		&i.Singleton,
+		&i.LicenseKey,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const getLatestUpdate = `-- name: GetLatestUpdate :one
@@ -1330,9 +1359,9 @@ WITH admins AS (
 )
 UPDATE users
 SET is_admin = $2, updated_at = CURRENT_TIMESTAMP
-WHERE id = $1
+WHERE users.id = $1
   AND ($2::boolean
-       OR id NOT IN (SELECT id FROM admins)
+       OR users.id NOT IN (SELECT id FROM admins)
        OR (SELECT COUNT(*) FROM admins) > 1)
 `
 
@@ -1341,6 +1370,9 @@ type UpdateUserIsAdminByIDParams struct {
 	IsAdmin bool        `json:"is_admin"`
 }
 
+// Same admin-row lock as DeleteUserByID: demoting the last remaining admin
+// matches no row. Promotions ($2 true) always pass the guard but still take
+// the lock, so they serialize with concurrent demotions.
 func (q *Queries) UpdateUserIsAdminByID(ctx context.Context, arg UpdateUserIsAdminByIDParams) (pgconn.CommandTag, error) {
 	return q.db.Exec(ctx, updateUserIsAdminByID, arg.ID, arg.IsAdmin)
 }
@@ -1358,6 +1390,26 @@ type UpdateUserPasswordByIDParams struct {
 
 func (q *Queries) UpdateUserPasswordByID(ctx context.Context, arg UpdateUserPasswordByIDParams) (pgconn.CommandTag, error) {
 	return q.db.Exec(ctx, updateUserPasswordByID, arg.ID, arg.PasswordHash)
+}
+
+const upsertEnterpriseLicense = `-- name: UpsertEnterpriseLicense :one
+INSERT INTO enterprise_license (singleton, license_key)
+VALUES (TRUE, $1)
+ON CONFLICT (singleton) DO UPDATE
+SET license_key = EXCLUDED.license_key, updated_at = CURRENT_TIMESTAMP
+RETURNING singleton, license_key, created_at, updated_at
+`
+
+func (q *Queries) UpsertEnterpriseLicense(ctx context.Context, licenseKey string) (EnterpriseLicense, error) {
+	row := q.db.QueryRow(ctx, upsertEnterpriseLicense, licenseKey)
+	var i EnterpriseLicense
+	err := row.Scan(
+		&i.Singleton,
+		&i.LicenseKey,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const validateAndTouchAuth = `-- name: ValidateAndTouchAuth :one
