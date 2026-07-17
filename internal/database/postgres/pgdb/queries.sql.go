@@ -7,10 +7,29 @@ package pgdb
 
 import (
 	"context"
+	"net/netip"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const deleteApiKeyChannelsByKey = `-- name: DeleteApiKeyChannelsByKey :exec
+DELETE FROM api_key_channels
+USING api_keys ak
+WHERE api_key_channels.api_key_id = ak.id
+  AND ak.id = $1
+  AND ak.app_id = $2
+`
+
+type DeleteApiKeyChannelsByKeyParams struct {
+	ID    int64       `json:"id"`
+	AppID pgtype.UUID `json:"app_id"`
+}
+
+func (q *Queries) DeleteApiKeyChannelsByKey(ctx context.Context, arg DeleteApiKeyChannelsByKeyParams) error {
+	_, err := q.db.Exec(ctx, deleteApiKeyChannelsByKey, arg.ID, arg.AppID)
+	return err
+}
 
 const deleteAppByID = `-- name: DeleteAppByID :execresult
 DELETE FROM apps
@@ -72,6 +91,74 @@ WHERE users.id = $1
 // dashboard without any admin.
 func (q *Queries) DeleteUserByID(ctx context.Context, id pgtype.UUID) (pgconn.CommandTag, error) {
 	return q.db.Exec(ctx, deleteUserByID, id)
+}
+
+const getApiKeyChannelsByAppID = `-- name: GetApiKeyChannelsByAppID :many
+
+SELECT akc.api_key_id, akc.channel_id
+FROM api_key_channels akc
+JOIN api_keys ak ON ak.id = akc.api_key_id
+WHERE ak.app_id = $1 AND ak.revoked_at IS NULL
+ORDER BY akc.api_key_id, akc.channel_id
+`
+
+type GetApiKeyChannelsByAppIDRow struct {
+	ApiKeyID  int64 `json:"api_key_id"`
+	ChannelID int64 `json:"channel_id"`
+}
+
+// The queries below back the Enterprise Edition per-key access restrictions
+// (ee/apikeyscopes). sqlc generates a single package for the whole schema, so
+// the EE feature's SQL lives here like the enterprise license queries above.
+func (q *Queries) GetApiKeyChannelsByAppID(ctx context.Context, appID pgtype.UUID) ([]GetApiKeyChannelsByAppIDRow, error) {
+	rows, err := q.db.Query(ctx, getApiKeyChannelsByAppID, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetApiKeyChannelsByAppIDRow
+	for rows.Next() {
+		var i GetApiKeyChannelsByAppIDRow
+		if err := rows.Scan(&i.ApiKeyID, &i.ChannelID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getApiKeysAllowedIpsByAppID = `-- name: GetApiKeysAllowedIpsByAppID :many
+SELECT id, allowed_ips
+FROM api_keys
+WHERE app_id = $1 AND revoked_at IS NULL AND allowed_ips IS NOT NULL
+`
+
+type GetApiKeysAllowedIpsByAppIDRow struct {
+	ID         int64          `json:"id"`
+	AllowedIps []netip.Prefix `json:"allowed_ips"`
+}
+
+func (q *Queries) GetApiKeysAllowedIpsByAppID(ctx context.Context, appID pgtype.UUID) ([]GetApiKeysAllowedIpsByAppIDRow, error) {
+	rows, err := q.db.Query(ctx, getApiKeysAllowedIpsByAppID, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetApiKeysAllowedIpsByAppIDRow
+	for rows.Next() {
+		var i GetApiKeysAllowedIpsByAppIDRow
+		if err := rows.Scan(&i.ID, &i.AllowedIps); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getApiKeysMetadataByAppID = `-- name: GetApiKeysMetadataByAppID :many
@@ -816,6 +903,31 @@ func (q *Queries) InsertApiKey(ctx context.Context, arg InsertApiKeyParams) erro
 	return err
 }
 
+const insertApiKeyChannels = `-- name: InsertApiKeyChannels :execrows
+INSERT INTO api_key_channels (api_key_id, channel_id)
+SELECT $1, c.id
+FROM channels c
+WHERE c.app_id = $2
+  AND c.id = ANY($3::BIGINT[])
+`
+
+type InsertApiKeyChannelsParams struct {
+	ApiKeyID   int64       `json:"api_key_id"`
+	AppID      pgtype.UUID `json:"app_id"`
+	ChannelIds []int64     `json:"channel_ids"`
+}
+
+// The join against channels pins each channel id to the caller's app: a
+// channel from another app inserts nothing, which the store surfaces as a
+// row-count mismatch instead of silently granting a cross-tenant scope.
+func (q *Queries) InsertApiKeyChannels(ctx context.Context, arg InsertApiKeyChannelsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertApiKeyChannels, arg.ApiKeyID, arg.AppID, arg.ChannelIds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertApp = `-- name: InsertApp :one
 INSERT INTO apps (id, name, keys_mode, sealed_public_key, sealed_private_key, path_public_key, path_private_key, aws_secret_id_public, aws_secret_id_private)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -1313,6 +1425,26 @@ WHERE id = $1
 func (q *Queries) TouchUserLastConnectedAt(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, touchUserLastConnectedAt, id)
 	return err
+}
+
+const updateApiKeyAllowedIps = `-- name: UpdateApiKeyAllowedIps :execrows
+UPDATE api_keys
+SET allowed_ips = $1
+WHERE id = $2 AND app_id = $3 AND revoked_at IS NULL
+`
+
+type UpdateApiKeyAllowedIpsParams struct {
+	AllowedIps []netip.Prefix `json:"allowed_ips"`
+	ID         int64          `json:"id"`
+	AppID      pgtype.UUID    `json:"app_id"`
+}
+
+func (q *Queries) UpdateApiKeyAllowedIps(ctx context.Context, arg UpdateApiKeyAllowedIpsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateApiKeyAllowedIps, arg.AllowedIps, arg.ID, arg.AppID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateAppNameByID = `-- name: UpdateAppNameByID :execresult

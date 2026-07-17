@@ -15,7 +15,7 @@ type ResourceCreateFormProps = {
   icon?: LucideIcon;
 };
 
-// Compact inline creation row meant to sit right above the table it feeds —
+// Compact inline creation row meant to sit right above the table it feeds:
 // the placeholder carries the hint, the label is kept for screen readers.
 export const ResourceCreateForm = ({
   onSubmit,

@@ -5,6 +5,8 @@
 package pgdb
 
 import (
+	"net/netip"
+
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -17,6 +19,13 @@ type ApiKey struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
 	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
+	AllowedIps []netip.Prefix     `json:"allowed_ips"`
+}
+
+type ApiKeyChannel struct {
+	ApiKeyID  int64              `json:"api_key_id"`
+	ChannelID int64              `json:"channel_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type App struct {

@@ -160,5 +160,10 @@ func NewRouter(container *AppContainer) *mux.Router {
 	appAuthSubrouter.Handle("/apiKeys", adminOnly(http.HandlerFunc(container.ApiKeyHandler.CreateApiKeyHandler))).Methods(http.MethodPost)
 	appAuthSubrouter.HandleFunc("/apiKeys", container.ApiKeyHandler.GetApiKeysHandler).Methods(http.MethodGet)
 	appAuthSubrouter.Handle("/apiKeys/{API_KEY_ID}/revoke", adminOnly(http.HandlerFunc(container.ApiKeyHandler.RevokeApiKeyHandler))).Methods(http.MethodDelete)
+	// Enterprise: per-key access restrictions (channel scope + IP allowlist).
+	// Reads stay open like the key list; writing restrictions changes what a
+	// token can do, so it is admin-only and license-gated in the service.
+	appAuthSubrouter.HandleFunc("/apiKeys/scopes", container.ApiKeyScopeHandler.GetApiKeyScopesHandler).Methods(http.MethodGet)
+	appAuthSubrouter.Handle("/apiKeys/{API_KEY_ID}/scopes", adminOnly(http.HandlerFunc(container.ApiKeyScopeHandler.SetApiKeyScopesHandler))).Methods(http.MethodPut)
 	return r
 }

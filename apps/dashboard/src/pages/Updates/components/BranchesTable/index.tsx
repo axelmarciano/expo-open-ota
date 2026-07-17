@@ -26,7 +26,7 @@ interface TableColumnConfig {
 
 export const BranchesTable = () => {
   const { CONTROL_PLANE_ENABLED } = useSettings();
-  // Member accounts are read-only — every mutation is admin-only server-side.
+  // Member accounts are read-only; every mutation is admin-only server-side.
   const { isAdmin } = useCurrentUser();
   const [, setSearchParams] = useSearchParams();
   const { selectedAppId } = useSelectedApp();
@@ -167,7 +167,7 @@ export const BranchesTable = () => {
 
       {CONTROL_PLANE_ENABLED && !isAdmin && (
         <AdminOnlyNote>
-          You are signed in with a member account, which is read-only — ask an admin to create or
+          You are signed in with a member account, which is read-only. Ask an admin to create or
           delete branches.
         </AdminOnlyNote>
       )}

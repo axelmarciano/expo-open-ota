@@ -92,6 +92,16 @@ export type CreateApiKeyResponse = {
   apiKey: string;
 };
 
+// Enterprise per-token access restrictions (/apiKeys/scopes, control-plane
+// only). A token absent from the list is unrestricted. Empty channelIds means
+// the token can publish to every channel; empty allowedIps means it can be
+// used from any source address.
+export type ApiKeyScopeRecord = {
+  apiKeyId: string;
+  channelIds: string[];
+  allowedIps: string[];
+};
+
 // A dashboard user account. `id` is empty in stateless mode, where the only
 // account comes from ADMIN_EMAIL and is not a database row. `lastConnectedAt`
 // is absent until the account's first successful sign-in.
@@ -119,7 +129,7 @@ export type LicenseStatus = {
 };
 
 // Mirror of the server's SettingsEnv payload (/api/settings). Field names are
-// the raw env-var spellings on purpose — the server is the source of truth.
+// the raw env-var spellings on purpose; the server is the source of truth.
 export type ServerSettings = {
   BASE_URL: string;
   CONTROL_PLANE_ENABLED: boolean;
@@ -151,7 +161,7 @@ export type ServerSettings = {
 // All per-app routes (branches, channels, runtime versions, updates,
 // updateChannelBranchMapping) are scoped under /api/apps/{appId} on the
 // server. The dashboard keeps the currently-selected app id on the ApiClient
-// instance so call sites don't all have to pass it explicitly — the
+// instance so call sites don't all have to pass it explicitly; the
 // SelectedAppContext is the single source of truth and calls setAppId()
 // whenever the user switches apps.
 export class ApiClient {
@@ -180,7 +190,7 @@ export class ApiClient {
       // clear console error instead of a confusing "No app id provided"
       // coming back from the server.
       throw new Error(
-        'No app selected — set one via SelectedAppContext before making app-scoped calls.'
+        'No app selected. Set one via SelectedAppContext before making app-scoped calls.'
       );
     }
     return `/api/apps/${encodeURIComponent(this.appId)}`;
@@ -374,6 +384,26 @@ export class ApiClient {
     return this.request<void>(`${this.appScope()}/apiKeys/${encodeURIComponent(apiKeyId)}/revoke`, {
       method: 'DELETE',
     });
+  }
+
+  public async getApiKeyScopes() {
+    return this.request<ApiKeyScopeRecord[]>(`${this.appScope()}/apiKeys/scopes`, {
+      method: 'GET',
+    });
+  }
+
+  public async setApiKeyScopes(
+    apiKeyId: string,
+    scopes: { channelIds: string[]; allowedIps: string[] }
+  ) {
+    return this.request<void>(
+      `${this.appScope()}/apiKeys/${encodeURIComponent(apiKeyId)}/scopes`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(scopes),
+      }
+    );
   }
 
   public async downloadAppCertificate(appId: string): Promise<string> {

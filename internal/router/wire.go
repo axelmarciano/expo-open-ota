@@ -3,6 +3,7 @@ package infrastructure
 import (
 	"context"
 	"expo-open-ota/config"
+	"expo-open-ota/ee/apikeyscopes"
 	"expo-open-ota/ee/licensing"
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/database"
@@ -21,6 +22,7 @@ type AppContainer struct {
 	DashboardAuthService *services.DashboardAuthService
 	CliAuthService       *services.CliAuthService
 	ApiKeyHandler        *dashhandlers.ApiKeyHandler
+	ApiKeyScopeHandler   *apikeyscopes.ApiKeyScopeHandler
 	AppHandler           *dashhandlers.AppHandler
 	AppRepo              services.AppRepository
 	BranchHandler        *dashhandlers.BranchHandler
@@ -62,6 +64,9 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// Stays nil in stateless mode too: the enterprise license lives in the
 	// database, stateless deployments run community edition.
 	var licenseRepo licensing.LicenseRepository
+	// Same story: per-key access restrictions are an enterprise feature backed
+	// by the database.
+	var apiKeyScopeRepo apikeyscopes.ApiKeyScopeRepository
 
 	cleanup := func() {}
 	dbUrl := config.GetDBURL()
@@ -90,6 +95,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		appRepo = store.NewPostgresAppStore(dbEngine)
 		userRepo = store.NewPostgresUserStore(dbEngine)
 		licenseRepo = licensing.NewPostgresLicenseStore(dbEngine)
+		apiKeyScopeRepo = apikeyscopes.NewPostgresApiKeyScopeStore(dbEngine)
 		branchRepo = store.NewPostgresBranchStore(dbEngine)
 		channelRepo = store.NewPostgresChannelStore(dbEngine)
 		updateRepo = store.NewPostgresUpdateStore(dbEngine)
@@ -117,6 +123,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// than at their next boot.
 	licenseService.StartSync(ctx, 30*time.Second)
 
+	apiKeyScopeService := apikeyscopes.NewApiKeyScopeService(apiKeyScopeRepo)
 	dashboardAuthService := services.NewDashboardAuthService(userRepo)
 	cliAuthService := services.NewCliAuthService(authRepo)
 	userService := services.NewUserService(userRepo)
@@ -132,6 +139,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		DashboardAuthService: dashboardAuthService,
 		CliAuthService:       cliAuthService,
 		ApiKeyHandler:        dashhandlers.NewApiKeyHandler(cliAuthService),
+		ApiKeyScopeHandler:   apikeyscopes.NewApiKeyScopeHandler(apiKeyScopeService),
 		AppHandler:           dashhandlers.NewAppHandler(appService),
 		AppRepo:              appRepo,
 		BranchHandler:        dashhandlers.NewBranchHandler(branchService),

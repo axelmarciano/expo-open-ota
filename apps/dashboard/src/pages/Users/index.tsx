@@ -151,7 +151,7 @@ export const Users = () => {
               id: 'actions',
               cell: ({ row }) => {
                 // The server refuses self-service admin changes and
-                // self-deletion — do not offer them.
+                // self-deletion, so do not offer them.
                 if (row.original.id === currentUser?.id) return null;
                 return (
                   <div className="flex items-center justify-end gap-1">

@@ -74,7 +74,7 @@ export const UpdatesTable = ({
                   {msg}
                 </span>
               ) : (
-                <span className="text-sm text-muted-foreground/60">—</span>
+                <span className="text-sm text-muted-foreground/60">No message</span>
               );
             },
           },

@@ -448,3 +448,41 @@ RETURNING *;
 
 -- name: DeleteEnterpriseLicense :exec
 DELETE FROM enterprise_license;
+
+-- The queries below back the Enterprise Edition per-key access restrictions
+-- (ee/apikeyscopes). sqlc generates a single package for the whole schema, so
+-- the EE feature's SQL lives here like the enterprise license queries above.
+
+-- name: GetApiKeyChannelsByAppID :many
+SELECT akc.api_key_id, akc.channel_id
+FROM api_key_channels akc
+JOIN api_keys ak ON ak.id = akc.api_key_id
+WHERE ak.app_id = $1 AND ak.revoked_at IS NULL
+ORDER BY akc.api_key_id, akc.channel_id;
+
+-- name: GetApiKeysAllowedIpsByAppID :many
+SELECT id, allowed_ips
+FROM api_keys
+WHERE app_id = $1 AND revoked_at IS NULL AND allowed_ips IS NOT NULL;
+
+-- name: UpdateApiKeyAllowedIps :execrows
+UPDATE api_keys
+SET allowed_ips = $1
+WHERE id = $2 AND app_id = $3 AND revoked_at IS NULL;
+
+-- name: DeleteApiKeyChannelsByKey :exec
+DELETE FROM api_key_channels
+USING api_keys ak
+WHERE api_key_channels.api_key_id = ak.id
+  AND ak.id = $1
+  AND ak.app_id = $2;
+
+-- name: InsertApiKeyChannels :execrows
+-- The join against channels pins each channel id to the caller's app: a
+-- channel from another app inserts nothing, which the store surfaces as a
+-- row-count mismatch instead of silently granting a cross-tenant scope.
+INSERT INTO api_key_channels (api_key_id, channel_id)
+SELECT sqlc.arg(api_key_id), c.id
+FROM channels c
+WHERE c.app_id = sqlc.arg(app_id)
+  AND c.id = ANY(sqlc.arg(channel_ids)::BIGINT[]);

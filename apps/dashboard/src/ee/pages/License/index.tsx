@@ -141,7 +141,7 @@ export const License = () => {
     <div className="w-full">
       <PageHeader
         title="License"
-        description="Enterprise Edition license for this deployment. Keys are verified offline against the Expo Open OTA signing key — no phone home — and stored in the database."
+        description="Enterprise Edition license for this deployment. Keys are verified offline against the Expo Open OTA signing key (no phone home) and stored in the database."
       />
 
       {licenseQuery.isLoading && (

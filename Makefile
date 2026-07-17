@@ -5,6 +5,7 @@ MAKEFLAGS += --silent
 # Pinned so a new upstream release can't turn CI red without a code change.
 DEADCODE_VERSION := v0.30.0
 STATICCHECK_VERSION := v0.6.1
+SQLC_VERSION := v1.31.1
 
 build:
 ifeq ($(DOCKER_FLAG),docker)
@@ -26,6 +27,11 @@ ifeq ($(DOCKER_FLAG),docker)
 else
 	echo "Not applicable locally. Stop the application manually."
 endif
+
+# Regenerates internal/database/postgres/pgdb from the migrations (schema) and
+# queries dirs. Run after touching any .sql file. No local install needed.
+sqlc:
+	go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION) generate
 
 # Both tools always run before failing, so one `make lint` reports every finding.
 # They are complementary: staticcheck catches unused unexported identifiers (incl. struct
@@ -75,4 +81,4 @@ define GENERATE_HTML
 	fi
 endef
 
-.PHONY: docker html lint
+.PHONY: docker html lint sqlc

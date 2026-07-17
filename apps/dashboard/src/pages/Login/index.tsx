@@ -41,7 +41,7 @@ export const Login = () => {
         // (e.g. ADMIN_EMAIL not set in stateless mode) answers with an
         // actionable detail, and a fetch that never reached the server must
         // not masquerade as a credentials problem.
-        let message = 'Could not reach the server — check that it is running.';
+        let message = 'Could not reach the server. Check that it is running.';
         if (error instanceof ApiProblemError) {
           message = error.status === 401 ? 'Invalid email or password' : error.detail;
         }
