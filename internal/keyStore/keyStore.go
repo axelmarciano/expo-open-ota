@@ -114,19 +114,13 @@ func readExpoKey(app config.AppConfig, public bool) string {
 // A source set for a different mode is deliberately ignored (with a one-time
 // warning) instead of silently winning over the configured mode.
 //
-// In control-plane (DB) mode per-app keys live in the database and
-// KEYS_STORAGE_TYPE has no meaning, so it is ignored entirely — a leftover
-// value must not disable the CDN. There, and in stateless mode when the
-// variable is unset, the sources are tried in order: AWSSM, then B64, then
-// PATH.
+// When KEYS_STORAGE_TYPE is unset the sources are tried in order: AWSSM,
+// then B64, then PATH.
 func GetPrivateCloudfrontKey() string {
 	secretId := config.GetEnv("AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID")
 	b64 := config.GetEnv("PRIVATE_CLOUDFRONT_KEY_B64")
 	path := config.GetEnv("PRIVATE_CLOUDFRONT_KEY_PATH")
 	mode := config.GetEnv("KEYS_STORAGE_TYPE")
-	if config.IsDBMode() {
-		mode = ""
-	}
 	switch mode {
 	case "aws-secrets-manager":
 		warnCloudfrontSourceMismatch(mode, secretId == "", b64 != "" || path != "")
