@@ -2,7 +2,9 @@ package cdn
 
 import (
 	"expo-open-ota/config"
+	"expo-open-ota/internal/bucket"
 	"net/url"
+	"strings"
 )
 
 type GenericCDN struct{}
@@ -13,7 +15,7 @@ func (c *GenericCDN) isCDNAvailable() bool {
 
 func (c *GenericCDN) ComputeRedirectionURLForAsset(appId, branch, runtimeVersion, updateId, asset string) (string, error) {
 	prefix := config.GetEnv("S3_CDN_PREFIX")
-	keyPrefix := config.GetEnv("S3_KEY_PREFIX")
+	keyPrefix := strings.TrimSuffix(bucket.ResolveKeyPrefix(), "/")
 	elems := []string{appId, branch, runtimeVersion, updateId, asset}
 	if keyPrefix != "" {
 		elems = append([]string{keyPrefix}, elems...)
