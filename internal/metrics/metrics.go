@@ -74,7 +74,7 @@ func TrackUpdateErrorUsers(appId, clientId, platform, runtime, branch, update st
 	key := fmt.Sprintf("update_error_users:%s:%s:%s:%s:%s", appId, branch, platform, runtime, computedUpdate)
 	ttl := 600
 
-	_ = resolvedCache.Sadd(key, []string{runtime}, &ttl)
+	_ = resolvedCache.Sadd(key, []string{clientId}, &ttl)
 
 	count, err := resolvedCache.Scard(key)
 	if err != nil {
