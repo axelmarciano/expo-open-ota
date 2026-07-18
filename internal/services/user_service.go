@@ -29,11 +29,12 @@ type UserRepository interface {
 
 // Business-rule violations, mapped to explicit 4xx responses by the handlers.
 var (
-	ErrUsersRequireControlPlane = errors.New("user accounts are managed in the database: this deployment runs in stateless mode, where the only account comes from ADMIN_EMAIL and ADMIN_PASSWORD")
-	ErrCannotChangeOwnAdminFlag = errors.New("you cannot change your own admin status")
-	ErrCannotDeleteOwnAccount   = errors.New("you cannot delete your own account")
-	ErrLastAdmin                = errors.New("there must always be at least one admin")
-	ErrInvalidCurrentPassword   = errors.New("the current password is incorrect")
+	ErrUsersRequireControlPlane  = errors.New("user accounts are managed in the database: this deployment runs in stateless mode, where the only account comes from ADMIN_EMAIL and ADMIN_PASSWORD")
+	ErrCannotChangeOwnAdminFlag  = errors.New("you cannot change your own admin status")
+	ErrCannotDeleteOwnAccount    = errors.New("you cannot delete your own account")
+	ErrLastAdmin                 = errors.New("there must always be at least one admin")
+	ErrInvalidCurrentPassword    = errors.New("the current password is incorrect")
+	ErrUserCreationDisabledBySSO = errors.New("SSO is active: accounts are provisioned automatically on their first SSO sign-in")
 )
 
 // ValidationError wraps a user-input validation failure (email format,
@@ -51,6 +52,11 @@ func (e *ValidationError) Unwrap() error { return e.Reason }
 // demoted nor deleted — so the dashboard can never lock itself out.
 type UserService struct {
 	userRepo UserRepository
+	// ssoEnforced reports whether SSO is currently active (configured, enabled
+	// and licensed). Injected by the enterprise wiring; nil means never
+	// enforced. While enforced, accounts arrive through SSO provisioning and
+	// manual creation is refused.
+	ssoEnforced func(context.Context) bool
 }
 
 // NewUserService accepts a nil repository (stateless mode); every method then
@@ -59,6 +65,11 @@ func NewUserService(userRepo UserRepository) *UserService {
 	return &UserService{
 		userRepo: userRepo,
 	}
+}
+
+// SetSSOEnforced injects the live "SSO is active" signal (see the field doc).
+func (s *UserService) SetSSOEnforced(enforced func(context.Context) bool) {
+	s.ssoEnforced = enforced
 }
 
 func (s *UserService) requireControlPlane() error {
@@ -85,6 +96,9 @@ func (s *UserService) GetUserByID(ctx context.Context, id string) (store.User, e
 func (s *UserService) CreateUser(ctx context.Context, email string, password string, isAdmin bool) (store.User, error) {
 	if err := s.requireControlPlane(); err != nil {
 		return store.User{}, err
+	}
+	if s.ssoEnforced != nil && s.ssoEnforced(ctx) {
+		return store.User{}, ErrUserCreationDisabledBySSO
 	}
 	normalizedEmail := store.NormalizeEmail(email)
 	// The addr comparison rejects mailbox forms like "Jane <jane@acme.dev>":

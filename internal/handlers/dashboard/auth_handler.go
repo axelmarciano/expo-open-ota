@@ -47,6 +47,12 @@ func (ah *AuthHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 			handlers.RenderError(w, http.StatusInternalServerError, "Could not verify the credentials — try again later")
 			return
 		}
+		// The password was correct but SSO is enforced for this account: the
+		// actionable message sends the member to the SSO button.
+		if errors.Is(err, services.ErrPasswordLoginDisabledBySSO) {
+			handlers.RenderError(w, http.StatusForbidden, err.Error())
+			return
+		}
 		handlers.RenderError(w, http.StatusUnauthorized, "Invalid credentials")
 		return
 	}

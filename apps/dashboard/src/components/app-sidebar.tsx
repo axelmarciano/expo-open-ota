@@ -4,6 +4,7 @@ import {
   BadgeCheck,
   Box,
   CircleUser,
+  Fingerprint,
   HardDriveDownload,
   Info,
   KeyRound,
@@ -24,10 +25,12 @@ import { EnterpriseBadge } from '@/ee/components/EnterpriseBadge';
 const NavLink = ({
   to,
   icon: Icon,
+  badge,
   children,
 }: {
   to: string;
   icon: typeof Box;
+  badge?: React.ReactNode;
   children: React.ReactNode;
 }) => {
   const { pathname } = useLocation();
@@ -46,9 +49,18 @@ const NavLink = ({
       )}>
       <Icon className="h-4 w-4" strokeWidth={1.75} />
       <span>{children}</span>
+      {badge}
     </Link>
   );
 };
+
+// Marks a nav entry as part of the Enterprise edition, with the emerald
+// accent shared by the enterprise UI.
+const EnterpriseNavBadge = () => (
+  <span className="ml-auto rounded-full border border-emerald-200/80 bg-emerald-50/80 px-1.5 py-px text-[10px] font-medium text-emerald-700">
+    Enterprise
+  </span>
+);
 
 const SectionLabel = ({ children }: { children: React.ReactNode }) => (
   <p className="px-3 pb-1.5 pt-5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground/70">
@@ -138,11 +150,6 @@ export function AppSidebar() {
             <NavLink to="/settings" icon={Settings}>
               Settings
             </NavLink>
-            {CONTROL_PLANE_ENABLED && isAdmin && (
-              <NavLink to="/users" icon={Users}>
-                Users
-              </NavLink>
-            )}
             {CONTROL_PLANE_ENABLED && (
               <NavLink to="/license" icon={BadgeCheck}>
                 License
@@ -152,6 +159,22 @@ export function AppSidebar() {
               My account
             </NavLink>
           </div>
+
+          {/* Who signs in and how: accounts on one side, SSO on the other.
+              Both are control-plane, admin-managed concerns. */}
+          {CONTROL_PLANE_ENABLED && isAdmin && (
+            <>
+              <SectionLabel>Access & Security</SectionLabel>
+              <div className="space-y-0.5">
+                <NavLink to="/users" icon={Users}>
+                  Users
+                </NavLink>
+                <NavLink to="/sso" icon={Fingerprint} badge={<EnterpriseNavBadge />}>
+                  SSO
+                </NavLink>
+              </div>
+            </>
+          )}
         </nav>
 
         <div className="border-t p-3">

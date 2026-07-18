@@ -60,6 +60,14 @@ func NewRouter(container *AppContainer) *mux.Router {
 	corsSubrouter.HandleFunc("/login", container.AuthHandler.LoginHandler).Methods(http.MethodPost)
 	corsSubrouter.HandleFunc("/refreshToken", container.AuthHandler.RefreshTokenHandler).Methods(http.MethodPost)
 
+	// Enterprise SSO (control-plane only). Pre-auth by nature: config feeds
+	// the login page's SSO button, login/callback are the OIDC round-trip.
+	// Registered unconditionally like the license routes; without a database,
+	// a configuration or a valid license they answer accordingly.
+	corsSubrouter.HandleFunc("/sso/config", container.SSOHandler.GetPublicConfigHandler).Methods(http.MethodGet)
+	corsSubrouter.HandleFunc("/sso/login", container.SSOHandler.LoginRedirectHandler).Methods(http.MethodGet)
+	corsSubrouter.HandleFunc("/sso/callback", container.SSOHandler.CallbackHandler).Methods(http.MethodGet)
+
 	dashboardPath := getDashboardPath()
 
 	if dashutils.IsDashboardEnabled() {
@@ -121,6 +129,12 @@ func NewRouter(container *AppContainer) *mux.Router {
 	authSubrouter.HandleFunc("/license", container.LicenseHandler.GetLicenseHandler).Methods(http.MethodGet)
 	authSubrouter.Handle("/license", adminOnly(http.HandlerFunc(container.LicenseHandler.ActivateLicenseHandler))).Methods(http.MethodPut)
 	authSubrouter.Handle("/license", adminOnly(http.HandlerFunc(container.LicenseHandler.RemoveLicenseHandler))).Methods(http.MethodDelete)
+
+	// Enterprise SSO configuration (control-plane only, admin only), managed
+	// from the dashboard's License page.
+	authSubrouter.Handle("/sso", adminOnly(http.HandlerFunc(container.SSOHandler.GetConfigHandler))).Methods(http.MethodGet)
+	authSubrouter.Handle("/sso", adminOnly(http.HandlerFunc(container.SSOHandler.SaveConfigHandler))).Methods(http.MethodPut)
+	authSubrouter.Handle("/sso", adminOnly(http.HandlerFunc(container.SSOHandler.DeleteConfigHandler))).Methods(http.MethodDelete)
 
 	// Users management router (control-plane only, admin only)
 	authSubrouter.Handle("/users", adminOnly(http.HandlerFunc(container.UsersHandler.GetUsersHandler))).Methods(http.MethodGet)
