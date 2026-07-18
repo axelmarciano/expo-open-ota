@@ -176,7 +176,7 @@ export const Channels = () => {
         header: 'Branch',
         accessorKey: 'branchId',
         // Remapping a live channel is an admin action (the server enforces
-        // it) — everyone else sees the mapping read-only.
+        // it); everyone else sees the mapping read-only.
         cell: ({ row }) =>
           isAdmin ? (
             <SelectBranch
@@ -185,7 +185,7 @@ export const Channels = () => {
               onChange={onBranchChange(row.original)}
             />
           ) : (
-            <span className="text-muted-foreground">{row.original.branchName || '—'}</span>
+            <span className="text-muted-foreground">{row.original.branchName || 'No branch'}</span>
           ),
       },
       ...(CONTROL_PLANE_ENABLED
@@ -232,7 +232,7 @@ export const Channels = () => {
               A <span className="font-medium text-foreground">branch</span> is a line of updates you
               publish to, much like a git branch. A{' '}
               <span className="font-medium text-foreground">release channel</span> is the name your
-              app asks for when it checks for updates — it is baked into the build and never
+              app asks for when it checks for updates. It is baked into the build and never
               changes.
             </p>
             <p className="mt-2">
@@ -240,7 +240,7 @@ export const Channels = () => {
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
                 production
               </code>{' '}
-              at a new branch to roll out, or back at the previous one to roll back — without
+              at a new branch to roll out, or back at the previous one to roll back, without
               shipping a new build.
             </p>
           </>
@@ -251,7 +251,7 @@ export const Channels = () => {
       <div className="space-y-4">
         {CONTROL_PLANE_ENABLED && !isAdmin && (
           <AdminOnlyNote>
-            You are signed in with a member account, which is read-only — ask an admin to create or
+            You are signed in with a member account, which is read-only. Ask an admin to create or
             delete channels or change which branch a channel serves.
           </AdminOnlyNote>
         )}

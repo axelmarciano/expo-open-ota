@@ -11,7 +11,7 @@ type CurrentUserContextValue = {
 const CurrentUserContext = createContext<CurrentUserContextValue | null>(null);
 
 // CurrentUserProvider resolves the account behind the session (/api/me) so the
-// UI can hide admin-only actions — creating apps, remapping channels, managing
+// UI can hide admin-only actions: creating apps, remapping channels, managing
 // users. This is display gating only: the server re-checks the admin flag on
 // every admin route.
 export function CurrentUserProvider({ children }: { children: ReactNode }) {
@@ -28,12 +28,12 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
     );
   }
 
-  // A failed /api/me is not a member account — rendering the dashboard would
+  // A failed /api/me is not a member account; rendering the dashboard would
   // silently strip an admin of every admin control. Say what happened instead.
   if (isError) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
-        <p>Could not load your account — the server did not answer.</p>
+        <p>Could not load your account.</p>
         <Button variant="outline" size="sm" onClick={() => refetch()}>
           Try again
         </Button>

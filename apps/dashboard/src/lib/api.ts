@@ -70,6 +70,8 @@ export type BranchRecord = {
   branchId: string;
   releaseChannel?: string | null;
   createdAt: string | null;
+  // Enterprise branch protection; always false in stateless mode.
+  protected: boolean;
 };
 
 export type ChannelRecord = {
@@ -90,6 +92,16 @@ export type ApiKeyRecord = {
 
 export type CreateApiKeyResponse = {
   apiKey: string;
+};
+
+// Enterprise per-token access restrictions (/apiKeys/restrictions,
+// control-plane only). A token absent from the list is in the default state:
+// no access to protected branches and no IP allowlist. Empty allowedIps means
+// the token can be used from any source address.
+export type ApiKeyRestrictionsRecord = {
+  apiKeyId: string;
+  canAccessProtectedBranches: boolean;
+  allowedIps: string[];
 };
 
 // A dashboard user account. `id` is empty in stateless mode, where the only
@@ -119,7 +131,7 @@ export type LicenseStatus = {
 };
 
 // Mirror of the server's SettingsEnv payload (/api/settings). Field names are
-// the raw env-var spellings on purpose — the server is the source of truth.
+// the raw env-var spellings on purpose; the server is the source of truth.
 export type ServerSettings = {
   BASE_URL: string;
   CONTROL_PLANE_ENABLED: boolean;
@@ -151,7 +163,7 @@ export type ServerSettings = {
 // All per-app routes (branches, channels, runtime versions, updates,
 // updateChannelBranchMapping) are scoped under /api/apps/{appId} on the
 // server. The dashboard keeps the currently-selected app id on the ApiClient
-// instance so call sites don't all have to pass it explicitly — the
+// instance so call sites don't all have to pass it explicitly; the
 // SelectedAppContext is the single source of truth and calls setAppId()
 // whenever the user switches apps.
 export class ApiClient {
@@ -180,7 +192,7 @@ export class ApiClient {
       // clear console error instead of a confusing "No app id provided"
       // coming back from the server.
       throw new Error(
-        'No app selected — set one via SelectedAppContext before making app-scoped calls.'
+        'No app selected. Set one via SelectedAppContext before making app-scoped calls.'
       );
     }
     return `/api/apps/${encodeURIComponent(this.appId)}`;
@@ -374,6 +386,37 @@ export class ApiClient {
     return this.request<void>(`${this.appScope()}/apiKeys/${encodeURIComponent(apiKeyId)}/revoke`, {
       method: 'DELETE',
     });
+  }
+
+  public async getApiKeyRestrictions() {
+    return this.request<ApiKeyRestrictionsRecord[]>(`${this.appScope()}/apiKeys/restrictions`, {
+      method: 'GET',
+    });
+  }
+
+  public async setApiKeyRestrictions(
+    apiKeyId: string,
+    restrictions: { canAccessProtectedBranches: boolean; allowedIps: string[] }
+  ) {
+    return this.request<void>(
+      `${this.appScope()}/apiKeys/${encodeURIComponent(apiKeyId)}/restrictions`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(restrictions),
+      }
+    );
+  }
+
+  public async setBranchProtection(branchName: string, isProtected: boolean) {
+    return this.request<void>(
+      `${this.appScope()}/branches/${encodeURIComponent(branchName)}/protection`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ protected: isProtected }),
+      }
+    );
   }
 
   public async downloadAppCertificate(appId: string): Promise<string> {

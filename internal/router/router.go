@@ -160,5 +160,12 @@ func NewRouter(container *AppContainer) *mux.Router {
 	appAuthSubrouter.Handle("/apiKeys", adminOnly(http.HandlerFunc(container.ApiKeyHandler.CreateApiKeyHandler))).Methods(http.MethodPost)
 	appAuthSubrouter.HandleFunc("/apiKeys", container.ApiKeyHandler.GetApiKeysHandler).Methods(http.MethodGet)
 	appAuthSubrouter.Handle("/apiKeys/{API_KEY_ID}/revoke", adminOnly(http.HandlerFunc(container.ApiKeyHandler.RevokeApiKeyHandler))).Methods(http.MethodDelete)
+	// Enterprise: per-key access restrictions (protected-branch access + IP
+	// allowlist) and branch protection. Reads stay open like the key list;
+	// the writes change what a token can do, so they are admin-only and
+	// license-gated in the service.
+	appAuthSubrouter.HandleFunc("/apiKeys/restrictions", container.ApiKeyRestrictionHandler.GetApiKeyRestrictionsHandler).Methods(http.MethodGet)
+	appAuthSubrouter.Handle("/apiKeys/{API_KEY_ID}/restrictions", adminOnly(http.HandlerFunc(container.ApiKeyRestrictionHandler.SetApiKeyRestrictionsHandler))).Methods(http.MethodPut)
+	appAuthSubrouter.Handle("/branches/{BRANCH}/protection", adminOnly(http.HandlerFunc(container.ApiKeyRestrictionHandler.SetBranchProtectionHandler))).Methods(http.MethodPut)
 	return r
 }

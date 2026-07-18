@@ -15,8 +15,8 @@ import { useCurrentUser } from '@/lib/CurrentUserContext';
 
 export const AppInfo = () => {
   const { CONTROL_PLANE_ENABLED } = useSettings();
-  // Renaming and deleting an app are admin actions (the server enforces it) —
-  // hide the controls from everyone else.
+  // Renaming and deleting an app are admin actions (the server enforces it),
+  // so hide the controls from everyone else.
   const { isAdmin } = useCurrentUser();
   const { selectedAppId, refreshApps } = useSelectedApp();
   const { toast } = useToast();
@@ -213,7 +213,7 @@ export const AppInfo = () => {
       <div className="max-w-2xl space-y-6">
         {CONTROL_PLANE_ENABLED && !isAdmin && (
           <AdminOnlyNote>
-            You are signed in with a member account, which is read-only — only admins can rename or
+            You are signed in with a member account, which is read-only. Only admins can rename or
             delete the app and download its signing certificate.
           </AdminOnlyNote>
         )}

@@ -1,19 +1,29 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, ApiProblemError, BranchRecord } from '@/lib/api.ts';
+import { api, ApiProblemError, BranchRecord, describeApiError } from '@/lib/api.ts';
 import { ApiError } from '@/components/APIError';
 import { DataTable } from '@/components/DataTable';
-import { GitBranch, Plus, Trash2 } from 'lucide-react';
+import { GitBranch, Lock, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import { useSearchParams } from 'react-router';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast.ts';
 import { ResourceCreateForm } from '@/components/ui/resource-create-form';
 import { DeleteDialog } from '@/components/ui/delete-dialog';
 import { AdminOnlyNote } from '@/components/ui/admin-only-note';
 import { useSettings } from '@/lib/SettingsContext';
 import { useCurrentUser } from '@/lib/CurrentUserContext';
+import { EnterpriseExplainerDialog } from '@/ee/components/EnterpriseExplainerDialog';
 
 interface TableColumnConfig {
   header: string;
@@ -26,7 +36,7 @@ interface TableColumnConfig {
 
 export const BranchesTable = () => {
   const { CONTROL_PLANE_ENABLED } = useSettings();
-  // Member accounts are read-only — every mutation is admin-only server-side.
+  // Member accounts are read-only; every mutation is admin-only server-side.
   const { isAdmin } = useCurrentUser();
   const [, setSearchParams] = useSearchParams();
   const { selectedAppId } = useSelectedApp();
@@ -39,11 +49,63 @@ export const BranchesTable = () => {
   const [branchToDelete, setBranchToDelete] = useState<BranchRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Branch protection is enterprise: without a valid license the toggle opens
+  // the explainer dialog instead of calling the API.
+  const [isExplainerOpen, setIsExplainerOpen] = useState(false);
+  const [branchBeingToggled, setBranchBeingToggled] = useState<string | null>(null);
+  // Protecting a branch can lock out CI tokens, so it goes through a
+  // confirmation; unprotecting is immediate.
+  const [branchToProtect, setBranchToProtect] = useState<BranchRecord | null>(null);
+  const [isProtecting, setIsProtecting] = useState(false);
+
+  const licenseQuery = useQuery({
+    queryKey: ['license'],
+    queryFn: () => api.getLicense(),
+    enabled: CONTROL_PLANE_ENABLED,
+  });
+  const isEnterprise = !!licenseQuery.data?.valid;
+
   const { data, isLoading, error } = useQuery({
     queryKey: ['branches', selectedAppId],
     queryFn: () => api.getBranches(),
     enabled: !!selectedAppId,
   });
+
+   const applyProtection = useCallback(async (branch: BranchRecord, nextProtected: boolean) => {
+    setBranchBeingToggled(branch.branchName);
+    setIsProtecting(true);
+    try {
+      await api.setBranchProtection(branch.branchName, nextProtected);
+      queryClient.invalidateQueries({ queryKey: ['branches', selectedAppId] });
+      toast({
+        title: nextProtected ? 'Branch protected' : 'Branch unprotected',
+        description: nextProtected
+          ? `Only tokens allowed on protected branches can publish to "${branch.branchName}" now.`
+          : `Any token can publish to "${branch.branchName}" again.`,
+      });
+      setBranchToProtect(null);
+    } catch (error) {
+      const { title, description } = describeApiError(error, 'Could not update branch protection');
+      toast({ title, description, variant: 'destructive' });
+    } finally {
+      setBranchBeingToggled(null);
+      setIsProtecting(false);
+    }
+  }, [queryClient, selectedAppId, toast]);
+
+  const handleToggleProtection = useCallback((branch: BranchRecord, nextProtected: boolean) => {
+    if (!isEnterprise) {
+      setIsExplainerOpen(true);
+      return;
+    }
+    if (nextProtected) {
+      setBranchToProtect(branch);
+      return;
+    }
+    applyProtection(branch, false);
+  }, [isEnterprise, applyProtection]);
+
+ 
 
   const handleCreateBranch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -132,6 +194,45 @@ export const BranchesTable = () => {
           return <Badge variant="outline">{releaseChannel}</Badge>;
         },
       },
+      ...(CONTROL_PLANE_ENABLED
+        ? [
+            {
+              header: 'Protection',
+              id: 'protection',
+              cell: ({ row }) => {
+                const isProtected = row.original.protected;
+                const label = (
+                  <span
+                    className={
+                      isProtected
+                        ? 'inline-flex items-center gap-1 text-sm font-medium text-emerald-700'
+                        : 'text-sm text-muted-foreground'
+                    }
+                  >
+                    {isProtected && <Lock className="h-3.5 w-3.5" />}
+                    {isProtected ? 'Protected' : 'Unprotected'}
+                  </span>
+                );
+                // Members see the state read-only; the server gates the write
+                // to admins anyway.
+                if (!isAdmin) {
+                  return label;
+                }
+                return (
+                  <div className="flex items-center gap-2.5" onClick={e => e.stopPropagation()}>
+                    <Switch
+                      checked={isProtected}
+                      disabled={branchBeingToggled === row.original.branchName}
+                      onCheckedChange={next => handleToggleProtection(row.original, next)}
+                      aria-label={isProtected ? 'Unprotect branch' : 'Protect branch'}
+                    />
+                    {label}
+                  </div>
+                );
+              },
+            } satisfies TableColumnConfig,
+          ]
+        : []),
       ...(CONTROL_PLANE_ENABLED && isAdmin
         ? [
             {
@@ -159,7 +260,7 @@ export const BranchesTable = () => {
           ]
         : []),
     ];
-  }, [CONTROL_PLANE_ENABLED, isAdmin]);
+  }, [CONTROL_PLANE_ENABLED, isAdmin, branchBeingToggled, handleToggleProtection]);
 
   return (
     <div className="w-full flex-1 space-y-4">
@@ -167,7 +268,7 @@ export const BranchesTable = () => {
 
       {CONTROL_PLANE_ENABLED && !isAdmin && (
         <AdminOnlyNote>
-          You are signed in with a member account, which is read-only — ask an admin to create or
+          You are signed in with a member account, which is read-only. Ask an admin to create or
           delete branches.
         </AdminOnlyNote>
       )}
@@ -208,6 +309,58 @@ export const BranchesTable = () => {
           isDeletingButtonText="Deleting…"
         />
       )}
+
+      <Dialog
+        open={!!branchToProtect}
+        onOpenChange={open => !open && !isProtecting && setBranchToProtect(null)}
+      >
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader className="flex flex-col items-start gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600">
+              <ShieldAlert className="h-5 w-5" />
+            </div>
+            <DialogTitle className="mt-2 text-lg font-semibold tracking-tight">
+              Protect this branch?
+            </DialogTitle>
+            <DialogDescription className="pt-1 text-left text-muted-foreground">
+              Once{' '}
+              <strong className="font-semibold text-foreground">
+                "{branchToProtect?.branchName}"
+              </strong>{' '}
+              is protected, only API tokens explicitly allowed on protected branches can publish,
+              roll back or republish on it. Tokens handed to developers will be blocked.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 gap-2 border-t pt-3 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setBranchToProtect(null)}
+              disabled={isProtecting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => branchToProtect && applyProtection(branchToProtect, true)}
+              disabled={isProtecting}
+              className="bg-emerald-600 text-white hover:bg-emerald-700"
+            >
+              {isProtecting ? 'Protecting…' : 'Protect branch'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <EnterpriseExplainerDialog
+        open={isExplainerOpen}
+        onOpenChange={setIsExplainerOpen}
+        feature={{
+          name: 'Branch protection',
+          description:
+            'Protect critical branches like production. Once a branch is protected, only API tokens you explicitly allow can publish, roll back or republish on it, so a token handed to a developer for staging can never ship to production.',
+        }}
+      />
     </div>
   );
 };

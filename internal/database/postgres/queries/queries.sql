@@ -279,12 +279,14 @@ SET revoked_at = CURRENT_TIMESTAMP
 WHERE id = $1 AND app_id = $2;
 
 -- name: ValidateAndTouchAuth :one
+-- Returns the matched key id so the caller can enforce per-key restrictions
+-- (enterprise) on top of the authentication itself.
 UPDATE api_keys
 SET last_used_at = CURRENT_TIMESTAMP
 WHERE app_id = $1
   AND hashed_key = $2
   AND revoked_at IS NULL
-RETURNING TRUE AS is_valid;
+RETURNING id;
 
 -- name: InsertUser :one
 INSERT INTO users (id, email, password_hash, is_admin)
@@ -448,3 +450,33 @@ RETURNING *;
 
 -- name: DeleteEnterpriseLicense :exec
 DELETE FROM enterprise_license;
+
+-- The queries below back the Enterprise Edition per-key access restrictions
+-- (ee/apikeyrestrictions). sqlc generates a single package for the whole
+-- schema, so the EE feature's SQL lives here like the enterprise license
+-- queries above.
+
+-- name: GetApiKeyRestrictions :one
+-- Enforcement read for one authenticated key on the CLI request hot path.
+SELECT allowed_ips, can_access_protected_branches
+FROM api_keys
+WHERE id = $1;
+
+-- name: GetApiKeyRestrictionsByAppID :many
+SELECT id, allowed_ips, can_access_protected_branches
+FROM api_keys
+WHERE app_id = $1 AND revoked_at IS NULL;
+
+-- name: UpdateApiKeyRestrictions :execrows
+UPDATE api_keys
+SET allowed_ips = $1, can_access_protected_branches = $2
+WHERE id = $3 AND app_id = $4 AND revoked_at IS NULL;
+
+-- name: SetBranchProtected :execrows
+UPDATE branches
+SET protected = $1
+WHERE app_id = $2 AND name = $3;
+
+-- name: IsBranchProtected :one
+SELECT protected FROM branches
+WHERE app_id = $1 AND name = $2;

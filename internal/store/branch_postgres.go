@@ -73,6 +73,7 @@ func (s *PostgresBranchStore) GetBranches(ctx context.Context, appId string) ([]
 			BranchId:       &branchIdStr,
 			ReleaseChannel: branch.ChannelName,
 			CreatedAt:      createdAtStr,
+			Protected:      branch.Protected,
 		}
 	}
 	return branches, nil
