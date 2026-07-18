@@ -8,6 +8,7 @@ import (
 	"expo-open-ota/internal/validation"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -270,6 +271,8 @@ func (s *RolloutService) SetUpdateRolloutPercentage(ctx context.Context, appId s
 // otherwise downgrade the whole fleet). The claim opens a short window where the
 // rolled-out update is served unrestricted until the control republish lands; that
 // transient beats the alternative, a revert racing a finish and overwriting it.
+// If a republish fails mid-way the rollout stays ended: the error then names the
+// platforms still serving the rolled-out update and how to finish the revert by hand.
 func (s *RolloutService) RevertUpdateRollout(ctx context.Context, appId string, branchName string, runtimeVersion string, expectedUpdateId *string) ([]types.RolloutUpdate, error) {
 	if s.rolloutRepo == nil {
 		return nil, ErrRolloutsRequireControlPlane
@@ -291,9 +294,22 @@ func (s *RolloutService) RevertUpdateRollout(ctx context.Context, appId string, 
 	if rows == 0 {
 		return nil, &RolloutRequestError{Status: http.StatusConflict, Message: "the rollout ended concurrently; reload and retry"}
 	}
-	for _, activeRollout := range activeRollouts {
+	for i, activeRollout := range activeRollouts {
 		if err := s.revertSingleRolloutUpdate(ctx, appId, branchName, runtimeVersion, activeRollout); err != nil {
-			return nil, err
+			// The claim above is already consumed, so a retry gets a 409 and the
+			// rolled-out update is served unrestricted on the platforms not yet
+			// reverted. Name them and the manual recovery instead of failing generically.
+			remaining := make([]string, 0, len(activeRollouts)-i)
+			for _, r := range activeRollouts[i:] {
+				remaining = append(remaining, r.Platform)
+			}
+			return nil, &RolloutRequestError{
+				Status: http.StatusInternalServerError,
+				Message: fmt.Sprintf(
+					"the rollout was ended but republishing the previous update failed for %s: %v. Update %s is now served to all devices on: %s. Republish the previous update (or publish a rollback) for those platforms to finish the revert",
+					activeRollout.Platform, err, activeRollout.UpdateId, strings.Join(remaining, ", "),
+				),
+			}
 		}
 	}
 	return activeRollouts, nil

@@ -45,6 +45,7 @@ export const UpdatesTable = ({
     <div className="w-full flex-1">
       <UpdatesBreadcrumb branch={branch} runtimeVersion={runtimeVersion} />
       {!!error && <ApiError error={error} />}
+      {!!rolloutQuery.error && <ApiError error={rolloutQuery.error} />}
       {CONTROL_PLANE_ENABLED && activeRollout.length > 0 && (
         <UpdateRolloutCard
           branch={branch}
@@ -60,9 +61,7 @@ export const UpdatesTable = ({
           {
             header: 'Update',
             accessorKey: 'updateId',
-            cell: ({ row }) => (
-              <span className="font-medium">{row.original.updateId}</span>
-            ),
+            cell: ({ row }) => <span className="font-medium">{row.original.updateId}</span>,
           },
           {
             header: 'UUID',
@@ -126,9 +125,12 @@ export const UpdatesTable = ({
                         </Badge>
                       );
                     }
-                    // A rollout used to run on this update but has ended.
+                    // A rollout used to run on this update but has ended
+                    // (finished or reverted, the record does not distinguish).
                     if (update.controlUpdateId != null) {
-                      return <span className="text-xs text-muted-foreground/60">Rolled out</span>;
+                      return (
+                        <span className="text-xs text-muted-foreground/60">Rollout ended</span>
+                      );
                     }
                     // This update is the control an active rollout falls back to.
                     if (controlIds.has(update.updateId)) {
@@ -142,9 +144,7 @@ export const UpdatesTable = ({
           {
             header: 'Published',
             accessorKey: 'createdAt',
-            cell: ({ row }) => (
-              <TimestampCell dateString={row.original.createdAt} showSeconds />
-            ),
+            cell: ({ row }) => <TimestampCell dateString={row.original.createdAt} showSeconds />,
           },
         ]}
         data={data ?? []}

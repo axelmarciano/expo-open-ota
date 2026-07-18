@@ -406,7 +406,10 @@ func (s *ExpoProtocolService) ResolveAssetBundle(ctx context.Context, params Ass
 //  1. The updateId/branch query params baked into manifest asset URLs, validated
 //     app-scoped and against the channel's default and rollout branches.
 //  2. The Expo-Requested-Update-ID header (the UUID of the update the client is
-//     downloading), resolved app-scoped over checked updates only.
+//     downloading), resolved app-scoped over checked updates only and held to the
+//     same channel branch restriction as tier 1. A device caught mid-download by a
+//     cross-branch channel repoint falls through to tier 3 (the pre-header behavior)
+//     rather than the header working as a cross-branch read primitive.
 //  3. The same rule-engine decision as /manifest, so a client that carries neither
 //     hint still lands on the update its manifest resolution chose.
 //
@@ -435,7 +438,10 @@ func (s *ExpoProtocolService) resolveAssetUpdate(ctx context.Context, params Ass
 			if err != nil {
 				log.Printf("[RequestID: %s] Ignoring invalid Expo-Requested-Update-ID %q: %v", params.RequestID, params.RequestedUpdateID, err)
 			} else if requestedUpdate != nil {
-				return requestedUpdate.Branch, requestedUpdate, nil
+				if s.isAssetBranchAllowed(requestedUpdate.Branch, branchMap) {
+					return requestedUpdate.Branch, requestedUpdate, nil
+				}
+				log.Printf("[RequestID: %s] Ignoring Expo-Requested-Update-ID %q: branch %q is not served by channel %q", params.RequestID, params.RequestedUpdateID, requestedUpdate.Branch, params.ChannelName)
 			}
 		}
 	}

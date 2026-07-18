@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Split } from 'lucide-react';
 import { api, describeApiError, UpdateRolloutInfo } from '@/lib/api';
@@ -41,6 +41,13 @@ export const UpdateRolloutCard = ({
 
   const [nextPercentage, setNextPercentage] = useState(Math.min(99, percentage + 1));
   const [isBusy, setIsBusy] = useState(false);
+
+  // The card is never remounted, so resync the input after an increase refreshes
+  // the rollout percentage.
+  useEffect(() => {
+    setNextPercentage(Math.min(99, percentage + 1));
+  }, [percentage, updateId]);
+
   const [confirm, setConfirm] = useState<'finish' | 'revert' | null>(null);
 
   const invalidate = (endsRollout: boolean) => {

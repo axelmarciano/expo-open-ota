@@ -39,10 +39,14 @@ const CopyButton = ({ value, label }: { value: string; label: string }) => {
       variant="ghost"
       size="icon"
       className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
-      onClick={() => {
-        navigator.clipboard.writeText(value);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          setCopied(false);
+        }
       }}>
       {copied ? (
         <Check className="h-3.5 w-3.5 text-emerald-600" />
@@ -124,7 +128,7 @@ const UpdateDetailsBody = ({
 
   const isRollback = data.type !== 0;
   const rolloutActive = data.rolloutPercentage != null;
-  const rolloutCompleted = !rolloutActive && data.controlUpdateId != null;
+  const rolloutEnded = !rolloutActive && data.controlUpdateId != null;
   const publishedAt = formatTimestamp(data.createdAt, true);
   const configEntries = (
     [
@@ -189,10 +193,10 @@ const UpdateDetailsBody = ({
           <DetailRow label="Published">
             {publishedAt || <span className="italic text-muted-foreground">Legacy record</span>}
           </DetailRow>
-          {rolloutCompleted && (
+          {rolloutEnded && (
             <DetailRow label="Rollout">
               <span className="text-muted-foreground">
-                Completed, previously gated against update {data.controlUpdateId}
+                Ended, previously gated against update {data.controlUpdateId}
               </span>
             </DetailRow>
           )}

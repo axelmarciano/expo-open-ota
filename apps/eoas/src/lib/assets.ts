@@ -157,9 +157,12 @@ export async function requestUploadUrls({
   }
   const json = await response.json();
   // An old server silently ignores unknown query params, so a missing echo means
-  // the rollout was not applied even though the flag was set.
+  // the rollout was not applied even though the flag was set. Abort before any
+  // file is uploaded: continuing would finalize a full 100% publish.
   if (rolloutPercentage !== undefined && json.rolloutPercentage === undefined) {
-    Log.warn('server ignored --rollout-percentage (server may be too old)');
+    throw new Error(
+      'The server ignored --rollout-percentage and would publish to 100% of devices. Update the server to a version that supports progressive rollouts, or publish without --rollout-percentage.'
+    );
   }
   return json;
 }
