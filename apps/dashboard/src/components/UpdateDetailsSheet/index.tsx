@@ -39,10 +39,14 @@ const CopyButton = ({ value, label }: { value: string; label: string }) => {
       variant="ghost"
       size="icon"
       className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
-      onClick={() => {
-        navigator.clipboard.writeText(value);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          setCopied(false);
+        }
       }}>
       {copied ? (
         <Check className="h-3.5 w-3.5 text-emerald-600" />
