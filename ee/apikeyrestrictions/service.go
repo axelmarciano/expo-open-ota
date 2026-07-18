@@ -11,7 +11,6 @@ import (
 	"expo-open-ota/internal/services"
 	"fmt"
 	"net/netip"
-	"strings"
 )
 
 // ApiKeyRestrictions is the enterprise access restrictions attached to one
@@ -130,52 +129,4 @@ func (s *ApiKeyRestrictionService) AuthorizeCliRequest(ctx context.Context, appI
 		}
 	}
 	return nil
-}
-
-// ipAllowed reports whether the caller's address falls in one of the
-// allowlisted ranges. An unresolvable address never passes an allowlist.
-func ipAllowed(clientIP netip.Addr, allowed []netip.Prefix) bool {
-	if !clientIP.IsValid() {
-		return false
-	}
-	clientIP = clientIP.Unmap()
-	for _, prefix := range allowed {
-		if prefix.Contains(clientIP) {
-			return true
-		}
-	}
-	return false
-}
-
-// parseCidrs validates and normalizes user-entered allowlist entries. A bare
-// address is treated as a single-host range. Returns nil for an empty list so
-// the column stores NULL (= no IP restriction) rather than an empty array.
-func parseCidrs(entries []string) ([]netip.Prefix, error) {
-	var prefixes []netip.Prefix
-	seen := make(map[netip.Prefix]bool)
-	for _, entry := range entries {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-		var prefix netip.Prefix
-		if strings.Contains(entry, "/") {
-			parsed, err := netip.ParsePrefix(entry)
-			if err != nil {
-				return nil, fmt.Errorf("%w: %q", ErrInvalidCidr, entry)
-			}
-			prefix = parsed.Masked()
-		} else {
-			addr, err := netip.ParseAddr(entry)
-			if err != nil {
-				return nil, fmt.Errorf("%w: %q", ErrInvalidCidr, entry)
-			}
-			prefix = netip.PrefixFrom(addr, addr.BitLen())
-		}
-		if !seen[prefix] {
-			seen[prefix] = true
-			prefixes = append(prefixes, prefix)
-		}
-	}
-	return prefixes, nil
 }

@@ -116,25 +116,22 @@ func TestGetRestrictionsDoesNotRequireLicense(t *testing.T) {
 	}
 }
 
-func TestSetRestrictionsNormalizesCidrs(t *testing.T) {
+// SetRestrictions runs entries through parseCidrs (its edge cases are
+// covered in cidr_test.go) and persists the normalized result together with
+// the branch grant.
+func TestSetRestrictionsPersistsNormalizedAllowlist(t *testing.T) {
 	repo := &fakeRestrictionRepo{}
 	service := serviceWith(repo, true)
-	err := service.SetRestrictions(context.Background(), "app", 1, true,
-		[]string{" 192.168.1.5/24 ", "10.1.2.3", "2001:db8::1", "192.168.1.0/24", ""},
-	)
+	err := service.SetRestrictions(context.Background(), "app", 1, true, []string{"192.168.1.5/24", "::ffff:10.1.2.3"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !repo.setCanAccess {
 		t.Fatal("expected canAccessProtectedBranches to be persisted")
 	}
-	// 192.168.1.5/24 masks to 192.168.1.0/24 (postgres cidr rejects host
-	// bits), the duplicate masked entry collapses, bare addresses become
-	// single-host prefixes.
 	expected := []netip.Prefix{
 		netip.MustParsePrefix("192.168.1.0/24"),
 		netip.MustParsePrefix("10.1.2.3/32"),
-		netip.MustParsePrefix("2001:db8::1/128"),
 	}
 	if !reflect.DeepEqual(repo.setAllowedIps, expected) {
 		t.Fatalf("unexpected allowed ips: %v", repo.setAllowedIps)
@@ -163,6 +160,54 @@ func TestSetRestrictionsEmptyAllowlistIsNil(t *testing.T) {
 	}
 	if repo.setAllowedIps != nil {
 		t.Fatalf("expected nil allowlist, got %v", repo.setAllowedIps)
+	}
+}
+
+func TestAuthorizeEnforcesIpAllowlist(t *testing.T) {
+	repo := &fakeRestrictionRepo{
+		restrictions: map[int64]ApiKeyRestrictions{1: {
+			ApiKeyID:   1,
+			AllowedIps: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
+		}},
+	}
+	service := serviceWith(repo, true)
+	if err := service.AuthorizeCliRequest(context.Background(), "app", 1, "", mustAddr(t, "10.1.2.3")); err != nil {
+		t.Fatalf("allowlisted address rejected: %v", err)
+	}
+	if err := service.AuthorizeCliRequest(context.Background(), "app", 1, "", mustAddr(t, "203.0.113.9")); !errors.Is(err, ErrIpNotAllowed) {
+		t.Fatalf("expected ErrIpNotAllowed, got %v", err)
+	}
+	// An allowlist with an unresolvable caller address never passes.
+	if err := service.AuthorizeCliRequest(context.Background(), "app", 1, "", netip.Addr{}); !errors.Is(err, ErrIpNotAllowed) {
+		t.Fatalf("expected ErrIpNotAllowed for invalid address, got %v", err)
+	}
+}
+
+// Regression for the parse/enforce mismatch: an allowlist entered in mapped
+// form must actually admit the caller it designates, whether that caller
+// arrives as plain IPv4 or in mapped form, and still exclude everyone else.
+func TestAuthorizeMatchesAllowlistEnteredInMappedForm(t *testing.T) {
+	repo := &fakeRestrictionRepo{restrictions: map[int64]ApiKeyRestrictions{}}
+	service := serviceWith(repo, true)
+	err := service.SetRestrictions(context.Background(), "app", 1, false,
+		[]string{"::ffff:203.0.113.7", "::ffff:10.0.0.0/104"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// The fake repository does not wire Set to Get; feed the stored prefixes
+	// back so AuthorizeCliRequest evaluates exactly what was persisted.
+	repo.restrictions[1] = ApiKeyRestrictions{ApiKeyID: 1, AllowedIps: repo.setAllowedIps}
+
+	for _, caller := range []string{"203.0.113.7", "::ffff:203.0.113.7", "10.20.30.40"} {
+		if err := service.AuthorizeCliRequest(context.Background(), "app", 1, "", mustAddr(t, caller)); err != nil {
+			t.Fatalf("caller %q: allowlisted address rejected: %v", caller, err)
+		}
+	}
+	for _, caller := range []string{"203.0.113.8", "2001:db8::1"} {
+		if err := service.AuthorizeCliRequest(context.Background(), "app", 1, "", mustAddr(t, caller)); !errors.Is(err, ErrIpNotAllowed) {
+			t.Fatalf("caller %q: expected ErrIpNotAllowed, got %v", caller, err)
+		}
 	}
 }
 
@@ -212,30 +257,6 @@ func TestAuthorizeSkipsBranchCheckForBranchlessRequests(t *testing.T) {
 	service := serviceWith(repo, true)
 	if err := service.AuthorizeCliRequest(context.Background(), "app", 1, "", netip.Addr{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestAuthorizeEnforcesIpAllowlist(t *testing.T) {
-	repo := &fakeRestrictionRepo{
-		restrictions: map[int64]ApiKeyRestrictions{1: {
-			ApiKeyID:   1,
-			AllowedIps: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
-		}},
-	}
-	service := serviceWith(repo, true)
-	if err := service.AuthorizeCliRequest(context.Background(), "app", 1, "", mustAddr(t, "10.1.2.3")); err != nil {
-		t.Fatalf("allowlisted address rejected: %v", err)
-	}
-	if err := service.AuthorizeCliRequest(context.Background(), "app", 1, "", mustAddr(t, "203.0.113.9")); !errors.Is(err, ErrIpNotAllowed) {
-		t.Fatalf("expected ErrIpNotAllowed, got %v", err)
-	}
-	// An allowlist with an unresolvable caller address never passes.
-	if err := service.AuthorizeCliRequest(context.Background(), "app", 1, "", netip.Addr{}); !errors.Is(err, ErrIpNotAllowed) {
-		t.Fatalf("expected ErrIpNotAllowed for invalid address, got %v", err)
-	}
-	// IPv4-mapped IPv6 callers match their IPv4 range.
-	if err := service.AuthorizeCliRequest(context.Background(), "app", 1, "", mustAddr(t, "::ffff:10.1.2.3")); err != nil {
-		t.Fatalf("mapped address rejected: %v", err)
 	}
 }
 
