@@ -23,11 +23,12 @@ const flowCookieName = "eoo_sso_flow"
 // always logged server-side and never travels in the URL: the code is just
 // enough for the page to pick a message.
 const (
-	ssoErrDenied       = "sso_denied"
-	ssoErrLicense      = "sso_license"
-	ssoErrEmailMissing = "sso_email_missing"
-	ssoErrForbidden    = "sso_forbidden"
-	ssoErrFailed       = "sso_failed"
+	ssoErrDenied          = "sso_denied"
+	ssoErrLicense         = "sso_license"
+	ssoErrEmailMissing    = "sso_email_missing"
+	ssoErrEmailUnverified = "sso_email_unverified"
+	ssoErrForbidden       = "sso_forbidden"
+	ssoErrFailed          = "sso_failed"
 )
 
 type SSOHandler struct {
@@ -72,6 +73,8 @@ func ssoErrorCode(err error) string {
 		return ssoErrLicense
 	case errors.Is(err, ErrSSOEmailMissing):
 		return ssoErrEmailMissing
+	case errors.Is(err, ErrSSOEmailUnverified):
+		return ssoErrEmailUnverified
 	case errors.Is(err, ErrSSOAccessRestricted):
 		return ssoErrForbidden
 	default:
@@ -194,30 +197,32 @@ func (h *SSOHandler) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 // adminConfigResponse is the JSON shape of the admin card. The client secret
 // itself never appears; hasClientSecret drives the placeholder in the form.
 type adminConfigResponse struct {
-	Issuer              string   `json:"issuer"`
-	ClientID            string   `json:"clientId"`
-	HasClientSecret     bool     `json:"hasClientSecret"`
-	ProviderName        string   `json:"providerName"`
-	Scopes              string   `json:"scopes"`
-	Enabled             bool     `json:"enabled"`
-	AllowedEmailDomains []string `json:"allowedEmailDomains"`
-	AllowedGroups       []string `json:"allowedGroups"`
-	GroupsClaim         string   `json:"groupsClaim"`
-	RedirectURI         string   `json:"redirectUri"`
+	Issuer               string   `json:"issuer"`
+	ClientID             string   `json:"clientId"`
+	HasClientSecret      bool     `json:"hasClientSecret"`
+	ProviderName         string   `json:"providerName"`
+	Scopes               string   `json:"scopes"`
+	Enabled              bool     `json:"enabled"`
+	AllowedEmailDomains  []string `json:"allowedEmailDomains"`
+	AllowedGroups        []string `json:"allowedGroups"`
+	GroupsClaim          string   `json:"groupsClaim"`
+	TrustUnverifiedEmail bool     `json:"trustUnverifiedEmail"`
+	RedirectURI          string   `json:"redirectUri"`
 }
 
 func adminConfigResponseFrom(view *AdminConfig) adminConfigResponse {
 	response := adminConfigResponse{
-		Issuer:              view.Issuer,
-		ClientID:            view.ClientID,
-		HasClientSecret:     view.HasClientSecret,
-		ProviderName:        view.ProviderName,
-		Scopes:              view.Scopes,
-		Enabled:             view.Enabled,
-		AllowedEmailDomains: view.AllowedEmailDomains,
-		AllowedGroups:       view.AllowedGroups,
-		GroupsClaim:         view.GroupsClaim,
-		RedirectURI:         view.RedirectURI,
+		Issuer:               view.Issuer,
+		ClientID:             view.ClientID,
+		HasClientSecret:      view.HasClientSecret,
+		ProviderName:         view.ProviderName,
+		Scopes:               view.Scopes,
+		Enabled:              view.Enabled,
+		AllowedEmailDomains:  view.AllowedEmailDomains,
+		AllowedGroups:        view.AllowedGroups,
+		GroupsClaim:          view.GroupsClaim,
+		TrustUnverifiedEmail: view.TrustUnverifiedEmail,
+		RedirectURI:          view.RedirectURI,
 	}
 	// Encode empty lists as [], never null: the dashboard maps over them.
 	if response.AllowedEmailDomains == nil {
@@ -240,30 +245,32 @@ func (h *SSOHandler) GetConfigHandler(w http.ResponseWriter, r *http.Request) {
 
 func (h *SSOHandler) SaveConfigHandler(w http.ResponseWriter, r *http.Request) {
 	var requestBody struct {
-		Issuer              string   `json:"issuer"`
-		ClientID            string   `json:"clientId"`
-		ClientSecret        string   `json:"clientSecret"`
-		ProviderName        string   `json:"providerName"`
-		Scopes              string   `json:"scopes"`
-		Enabled             bool     `json:"enabled"`
-		AllowedEmailDomains []string `json:"allowedEmailDomains"`
-		AllowedGroups       []string `json:"allowedGroups"`
-		GroupsClaim         string   `json:"groupsClaim"`
+		Issuer               string   `json:"issuer"`
+		ClientID             string   `json:"clientId"`
+		ClientSecret         string   `json:"clientSecret"`
+		ProviderName         string   `json:"providerName"`
+		Scopes               string   `json:"scopes"`
+		Enabled              bool     `json:"enabled"`
+		AllowedEmailDomains  []string `json:"allowedEmailDomains"`
+		AllowedGroups        []string `json:"allowedGroups"`
+		GroupsClaim          string   `json:"groupsClaim"`
+		TrustUnverifiedEmail bool     `json:"trustUnverifiedEmail"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
 		handlers.RenderError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
 		return
 	}
 	view, err := h.service.SaveConfig(r.Context(), SaveConfigInput{
-		Issuer:              requestBody.Issuer,
-		ClientID:            requestBody.ClientID,
-		ClientSecret:        requestBody.ClientSecret,
-		ProviderName:        requestBody.ProviderName,
-		Scopes:              requestBody.Scopes,
-		Enabled:             requestBody.Enabled,
-		AllowedEmailDomains: requestBody.AllowedEmailDomains,
-		AllowedGroups:       requestBody.AllowedGroups,
-		GroupsClaim:         requestBody.GroupsClaim,
+		Issuer:               requestBody.Issuer,
+		ClientID:             requestBody.ClientID,
+		ClientSecret:         requestBody.ClientSecret,
+		ProviderName:         requestBody.ProviderName,
+		Scopes:               requestBody.Scopes,
+		Enabled:              requestBody.Enabled,
+		AllowedEmailDomains:  requestBody.AllowedEmailDomains,
+		AllowedGroups:        requestBody.AllowedGroups,
+		GroupsClaim:          requestBody.GroupsClaim,
+		TrustUnverifiedEmail: requestBody.TrustUnverifiedEmail,
 	})
 	if err != nil {
 		renderSSOServiceError(w, err)

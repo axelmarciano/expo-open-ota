@@ -68,15 +68,16 @@ func resetSSOTables(t *testing.T, pool *pgxpool.Pool) {
 
 func storedTestConfig() SSOConfig {
 	return SSOConfig{
-		Issuer:              "https://login.microsoftonline.com/tenant/v2.0",
-		ClientID:            "client-id",
-		ClientSecret:        "very-confidential",
-		ProviderName:        "Microsoft",
-		Scopes:              "openid profile email",
-		Enabled:             true,
-		AllowedEmailDomains: []string{"acme.com"},
-		AllowedGroups:       []string{"eng", "dashboard-users"},
-		GroupsClaim:         "groups",
+		Issuer:               "https://login.microsoftonline.com/tenant/v2.0",
+		ClientID:             "client-id",
+		ClientSecret:         "very-confidential",
+		ProviderName:         "Microsoft",
+		Scopes:               "openid profile email",
+		Enabled:              true,
+		AllowedEmailDomains:  []string{"acme.com"},
+		AllowedGroups:        []string{"eng", "dashboard-users"},
+		GroupsClaim:          "groups",
+		TrustUnverifiedEmail: true,
 	}
 }
 

@@ -157,6 +157,42 @@ func TestCallbackHandlerMapsIdPDenial(t *testing.T) {
 	assert.Negative(t, cleared.MaxAge)
 }
 
+// An unverified email surfaces to the login page as its own fragment code,
+// distinct from the generic failure, so the page can explain it.
+func TestCallbackHandlerMapsUnverifiedEmail(t *testing.T) {
+	idp := newFakeIdP(t)
+	users := newFakeUserRepo()
+	handler, _, sessions := newTestHandler(t, newFakeSSORepo(users, testConfigFor(idp)), users)
+
+	loginRecorder := httptest.NewRecorder()
+	handler.LoginRedirectHandler(loginRecorder, httptest.NewRequest(http.MethodGet, "/auth/sso/login", nil))
+	loginResponse := loginRecorder.Result()
+	cookie := flowCookieFrom(t, loginResponse)
+	require.NotNil(t, cookie)
+	authURL, err := url.Parse(loginResponse.Header.Get("Location"))
+	require.NoError(t, err)
+	authQuery := authURL.Query()
+	idp.claims = jwt.MapClaims{
+		"iss": idp.issuer, "sub": testSubject, "aud": testClientID,
+		"exp": time.Now().Add(5 * time.Minute).Unix(), "iat": time.Now().Unix(),
+		"nonce": authQuery.Get("nonce"), "email": testEmail,
+		// email_verified deliberately absent.
+	}
+
+	callbackRecorder := httptest.NewRecorder()
+	callbackRequest := httptest.NewRequest(http.MethodGet,
+		"/auth/sso/callback?state="+url.QueryEscape(authQuery.Get("state"))+"&code=test-code", nil)
+	callbackRequest.AddCookie(&http.Cookie{Name: flowCookieName, Value: cookie.Value})
+	handler.CallbackHandler(callbackRecorder, callbackRequest)
+	callbackResponse := callbackRecorder.Result()
+
+	require.Equal(t, http.StatusFound, callbackResponse.StatusCode)
+	fragment := fragmentValues(t, callbackResponse.Header.Get("Location"))
+	assert.Equal(t, ssoErrEmailUnverified, fragment.Get("ssoError"))
+	assert.Empty(t, fragment.Get("ssoToken"))
+	_ = sessions
+}
+
 func TestCallbackHandlerWithoutCookieFails(t *testing.T) {
 	idp := newFakeIdP(t)
 	users := newFakeUserRepo()
@@ -189,13 +225,14 @@ func TestCallbackHandlerHappyPath(t *testing.T) {
 	require.NoError(t, err)
 	authQuery := authURL.Query()
 	idp.claims = jwt.MapClaims{
-		"iss":   idp.issuer,
-		"sub":   testSubject,
-		"aud":   testClientID,
-		"exp":   time.Now().Add(5 * time.Minute).Unix(),
-		"iat":   time.Now().Unix(),
-		"nonce": authQuery.Get("nonce"),
-		"email": testEmail,
+		"iss":            idp.issuer,
+		"sub":            testSubject,
+		"aud":            testClientID,
+		"exp":            time.Now().Add(5 * time.Minute).Unix(),
+		"iat":            time.Now().Unix(),
+		"nonce":          authQuery.Get("nonce"),
+		"email":          testEmail,
+		"email_verified": true,
 	}
 
 	callbackRecorder := httptest.NewRecorder()
@@ -230,7 +267,7 @@ func TestAdminConfigHandlers(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, recorder.Code)
 
 	// A save against the fake IdP persists and echoes the masked view.
-	body := `{"issuer":"` + idp.issuer + `","clientId":"test-client-id","clientSecret":"super-secret","providerName":"Microsoft","enabled":true,"allowedEmailDomains":["@Acme.com"],"allowedGroups":["eng"]}`
+	body := `{"issuer":"` + idp.issuer + `","clientId":"test-client-id","clientSecret":"super-secret","providerName":"Microsoft","enabled":true,"allowedEmailDomains":["@Acme.com"],"allowedGroups":["eng"],"trustUnverifiedEmail":true}`
 	recorder = httptest.NewRecorder()
 	handler.SaveConfigHandler(recorder, httptest.NewRequest(http.MethodPut, "/api/sso", strings.NewReader(body)))
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
@@ -239,6 +276,7 @@ func TestAdminConfigHandlers(t *testing.T) {
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &saved))
 	assert.Equal(t, true, saved["hasClientSecret"])
 	assert.Equal(t, []any{"acme.com"}, saved["allowedEmailDomains"])
+	assert.Equal(t, true, saved["trustUnverifiedEmail"])
 
 	// The GET never carries the secret either, in any field.
 	recorder = httptest.NewRecorder()

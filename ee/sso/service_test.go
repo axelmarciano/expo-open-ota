@@ -303,13 +303,14 @@ func completeFlow(t *testing.T, service *SSOService, idp *fakeIdP, mutate func(c
 	require.NoError(t, err)
 	query := authURL.Query()
 	claims := jwt.MapClaims{
-		"iss":   idp.issuer,
-		"sub":   testSubject,
-		"aud":   testClientID,
-		"exp":   time.Now().Add(5 * time.Minute).Unix(),
-		"iat":   time.Now().Unix(),
-		"nonce": query.Get("nonce"),
-		"email": testEmail,
+		"iss":            idp.issuer,
+		"sub":            testSubject,
+		"aud":            testClientID,
+		"exp":            time.Now().Add(5 * time.Minute).Unix(),
+		"iat":            time.Now().Unix(),
+		"nonce":          query.Get("nonce"),
+		"email":          testEmail,
+		"email_verified": true,
 	}
 	if mutate != nil {
 		mutate(claims)
@@ -543,7 +544,11 @@ func TestLoginFlowGuards(t *testing.T) {
 func TestCompleteLoginFallsBackToPreferredUsername(t *testing.T) {
 	idp := newFakeIdP(t)
 	users := newFakeUserRepo()
-	service, _ := newTestService(t, newFakeSSORepo(users, testConfigFor(idp)), users)
+	// preferred_username is never covered by email_verified, so it is only
+	// usable when the admin trusts the provider (the Entra path).
+	cfg := testConfigFor(idp)
+	cfg.TrustUnverifiedEmail = true
+	service, _ := newTestService(t, newFakeSSORepo(users, cfg), users)
 
 	// Entra without the optional email claim: the address usually lives in
 	// preferred_username. Normalization applies on the way in.
@@ -553,6 +558,70 @@ func TestCompleteLoginFallsBackToPreferredUsername(t *testing.T) {
 	})
 	require.NoError(t, err)
 	_, err = users.GetUserByEmail(context.Background(), testEmail)
+	assert.NoError(t, err)
+}
+
+// The verified-email gate protects domain authorization and account
+// lookup/linking: an unverified email is refused before any of them, so it
+// can neither pass a domain allowlist nor take over an existing account.
+func TestCompleteLoginRejectsUnverifiedEmail(t *testing.T) {
+	idp := newFakeIdP(t)
+	users := newFakeUserRepo()
+	// An existing account an attacker would try to take over by asserting its
+	// address from a tenant they control.
+	victim, err := users.InsertUser(context.Background(), store.InsertUserParameters{
+		ID: "victim", Email: testEmail, PasswordHash: "victim-hash", IsAdmin: true,
+	})
+	require.NoError(t, err)
+	repo := newFakeSSORepo(users, testConfigFor(idp))
+	service, _ := newTestService(t, repo, users)
+
+	// email_verified explicitly false: refused.
+	_, err = completeFlow(t, service, idp, func(claims jwt.MapClaims) {
+		claims["email_verified"] = false
+	})
+	assert.ErrorIs(t, err, ErrSSOEmailUnverified)
+
+	// email_verified absent entirely (the Entra shape): also refused by default.
+	_, err = completeFlow(t, service, idp, func(claims jwt.MapClaims) {
+		delete(claims, "email_verified")
+	})
+	assert.ErrorIs(t, err, ErrSSOEmailUnverified)
+
+	// No identity was linked and the victim account is untouched.
+	assert.Empty(t, repo.identities)
+	stored, err := users.GetUserByID(context.Background(), victim.Id)
+	require.NoError(t, err)
+	assert.Equal(t, "victim-hash", stored.PasswordHash)
+}
+
+func TestCompleteLoginTrustsUnverifiedEmailWhenConfigured(t *testing.T) {
+	idp := newFakeIdP(t)
+	users := newFakeUserRepo()
+	cfg := testConfigFor(idp)
+	cfg.TrustUnverifiedEmail = true
+	service, _ := newTestService(t, newFakeSSORepo(users, cfg), users)
+
+	// With the provider explicitly trusted, an absent email_verified provisions
+	// normally (the documented single-tenant Entra path).
+	_, err := completeFlow(t, service, idp, func(claims jwt.MapClaims) {
+		delete(claims, "email_verified")
+	})
+	require.NoError(t, err)
+	_, err = users.GetUserByEmail(context.Background(), testEmail)
+	assert.NoError(t, err)
+}
+
+// email_verified is accepted both as a JSON boolean and as the string "true",
+// since IdPs differ.
+func TestCompleteLoginAcceptsStringEmailVerified(t *testing.T) {
+	idp := newFakeIdP(t)
+	users := newFakeUserRepo()
+	service, _ := newTestService(t, newFakeSSORepo(users, testConfigFor(idp)), users)
+
+	_, err := completeFlow(t, service, idp, func(claims jwt.MapClaims) {
+		claims["email_verified"] = "true"
+	})
 	assert.NoError(t, err)
 }
 

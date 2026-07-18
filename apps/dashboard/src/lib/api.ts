@@ -151,6 +151,9 @@ export type SsoSettings = {
   allowedEmailDomains: string[];
   allowedGroups: string[];
   groupsClaim: string;
+  // Whether the server accepts an email the provider did not verify
+  // (email_verified false or absent) for account lookup and authorization.
+  trustUnverifiedEmail: boolean;
   redirectUri: string;
 };
 
@@ -165,6 +168,7 @@ export type SaveSsoSettingsPayload = {
   allowedEmailDomains: string[];
   allowedGroups: string[];
   groupsClaim: string;
+  trustUnverifiedEmail: boolean;
 };
 
 // Mirror of the server's SettingsEnv payload (/api/settings). Field names are

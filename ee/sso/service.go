@@ -136,11 +136,11 @@ type PublicConfig struct {
 // AdminConfig is the dashboard-facing view of the stored configuration. The
 // client secret never leaves the server: only the fact that one is stored.
 type AdminConfig struct {
-	Issuer              string
-	ClientID            string
-	HasClientSecret     bool
-	ProviderName        string
-	Scopes              string
+	Issuer               string
+	ClientID             string
+	HasClientSecret      bool
+	ProviderName         string
+	Scopes               string
 	Enabled              bool
 	AllowedEmailDomains  []string
 	AllowedGroups        []string
@@ -153,11 +153,11 @@ type AdminConfig struct {
 // ClientSecret on an update means "keep the stored one" (the dashboard never
 // sees the secret back, so it cannot resubmit it).
 type SaveConfigInput struct {
-	Issuer              string
-	ClientID            string
-	ClientSecret        string
-	ProviderName        string
-	Scopes              string
+	Issuer               string
+	ClientID             string
+	ClientSecret         string
+	ProviderName         string
+	Scopes               string
 	Enabled              bool
 	AllowedEmailDomains  []string
 	AllowedGroups        []string

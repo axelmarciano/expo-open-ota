@@ -29,6 +29,8 @@ const SSO_ERROR_MESSAGES: Record<string, string> = {
   sso_license: 'Single sign-on requires an active enterprise license. Sign in with your password instead.',
   sso_email_missing:
     'Your identity provider did not return an email address for your account. Contact your administrator.',
+  sso_email_unverified:
+    'Your identity provider did not verify your email address. Contact your administrator.',
   sso_forbidden: 'Your account is not allowed to access this dashboard. Contact your administrator.',
   sso_failed: 'SSO sign-in failed. Try again, and contact your administrator if it keeps happening.',
 };

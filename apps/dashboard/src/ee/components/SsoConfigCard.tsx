@@ -31,6 +31,7 @@ type SsoFormState = {
   groupsClaim: string;
   allowedEmailDomains: string[];
   allowedGroups: string[];
+  trustUnverifiedEmail: boolean;
 };
 
 const DEFAULT_SCOPES = 'openid profile email';
@@ -45,6 +46,7 @@ const emptyForm: SsoFormState = {
   groupsClaim: DEFAULT_GROUPS_CLAIM,
   allowedEmailDomains: [],
   allowedGroups: [],
+  trustUnverifiedEmail: false,
 };
 
 const formFromSettings = (settings: SsoSettings): SsoFormState => ({
@@ -58,6 +60,7 @@ const formFromSettings = (settings: SsoSettings): SsoFormState => ({
   groupsClaim: settings.groupsClaim,
   allowedEmailDomains: settings.allowedEmailDomains,
   allowedGroups: settings.allowedGroups,
+  trustUnverifiedEmail: settings.trustUnverifiedEmail,
 });
 
 // Signature of the stored values the form is populated from. The live enabled
@@ -74,6 +77,7 @@ const settingsFormSignature = (settings: SsoSettings | null): string | null =>
         settings.groupsClaim,
         settings.allowedEmailDomains,
         settings.allowedGroups,
+        settings.trustUnverifiedEmail,
       ])
     : null;
 
@@ -236,6 +240,7 @@ export const SsoConfigCard = () => {
         allowedEmailDomains: form.allowedEmailDomains,
         allowedGroups: form.allowedGroups,
         groupsClaim: form.groupsClaim.trim(),
+        trustUnverifiedEmail: form.trustUnverifiedEmail,
       });
       queryClient.setQueryData(['ssoSettings'], saved);
       queryClient.invalidateQueries({ queryKey: ['ssoPublicConfig'] });
@@ -272,6 +277,7 @@ export const SsoConfigCard = () => {
         allowedEmailDomains: settings.allowedEmailDomains,
         allowedGroups: settings.allowedGroups,
         groupsClaim: settings.groupsClaim,
+        trustUnverifiedEmail: settings.trustUnverifiedEmail,
       });
       queryClient.setQueryData(['ssoSettings'], saved);
       queryClient.invalidateQueries({ queryKey: ['ssoPublicConfig'] });
@@ -521,6 +527,25 @@ export const SsoConfigCard = () => {
                   sends group object IDs (GUIDs), not names. Google does not put groups in tokens,
                   so use email domains there instead.
                 </FieldHint>
+              </div>
+
+              <div className="flex items-start justify-between gap-4 border-t pt-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="sso-trust-unverified">Trust emails from this provider</Label>
+                  <FieldHint>
+                    By default an account is only matched by an email the provider marked as
+                    verified (email_verified), which stops an attacker who set someone else's
+                    address at the provider from taking over their account. Turn this on only for a
+                    provider that does not send email_verified — notably Microsoft Entra ID — on a
+                    single tenant where users cannot self-assign addresses (with "Assignment
+                    required" set). Leave it off for a multi-tenant provider.
+                  </FieldHint>
+                </div>
+                <Switch
+                  aria-label="Trust emails from this provider"
+                  checked={form.trustUnverifiedEmail}
+                  onCheckedChange={checked => setField('trustUnverifiedEmail', checked)}
+                />
               </div>
             </div>
 
