@@ -117,7 +117,7 @@ func (s *ApiKeyRestrictionService) AuthorizeCliRequest(ctx context.Context, appI
 		return err
 	}
 	if len(restrictions.AllowedIps) > 0 && !ipAllowed(clientIP, restrictions.AllowedIps) {
-		return ErrIpNotAllowed
+		return ipNotAllowedError(clientIP)
 	}
 	if branchName != "" && !restrictions.CanAccessProtectedBranches {
 		protected, err := s.repo.IsBranchProtected(ctx, appID, branchName)
@@ -129,4 +129,17 @@ func (s *ApiKeyRestrictionService) AuthorizeCliRequest(ctx context.Context, appI
 		}
 	}
 	return nil
+}
+
+// ipNotAllowedError wraps ErrIpNotAllowed (and transitively
+// services.ErrCliAccessDenied, so handlers still map it to a 403) while naming
+// the address the server actually resolved for the caller. Surfacing it turns
+// a blind "denied" into something an operator can debug against the allowlist,
+// and an unresolved address points at the usual cause: a proxy in front of a
+// server that does not trust forwarded headers.
+func ipNotAllowedError(clientIP netip.Addr) error {
+	if clientIP.IsValid() {
+		return fmt.Errorf("%w (resolved client IP: %s)", ErrIpNotAllowed, clientIP)
+	}
+	return fmt.Errorf("%w (the server could not resolve your source IP; if it runs behind a proxy, set TRUST_PROXY_HEADERS)", ErrIpNotAllowed)
 }

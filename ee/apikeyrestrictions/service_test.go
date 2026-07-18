@@ -7,8 +7,10 @@ package apikeyrestrictions
 import (
 	"context"
 	"errors"
+	"expo-open-ota/internal/services"
 	"net/netip"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -174,12 +176,26 @@ func TestAuthorizeEnforcesIpAllowlist(t *testing.T) {
 	if err := service.AuthorizeCliRequest(context.Background(), "app", 1, "", mustAddr(t, "10.1.2.3")); err != nil {
 		t.Fatalf("allowlisted address rejected: %v", err)
 	}
-	if err := service.AuthorizeCliRequest(context.Background(), "app", 1, "", mustAddr(t, "203.0.113.9")); !errors.Is(err, ErrIpNotAllowed) {
+	// The rejection names the resolved caller IP so an operator can debug the
+	// allowlist, while staying an ErrIpNotAllowed (mapped to a 403).
+	err := service.AuthorizeCliRequest(context.Background(), "app", 1, "", mustAddr(t, "203.0.113.9"))
+	if !errors.Is(err, ErrIpNotAllowed) {
 		t.Fatalf("expected ErrIpNotAllowed, got %v", err)
 	}
-	// An allowlist with an unresolvable caller address never passes.
-	if err := service.AuthorizeCliRequest(context.Background(), "app", 1, "", netip.Addr{}); !errors.Is(err, ErrIpNotAllowed) {
+	if !errors.Is(err, services.ErrCliAccessDenied) {
+		t.Fatalf("expected the error to map to a CLI access denial, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "203.0.113.9") {
+		t.Fatalf("expected the rejected IP in the message, got %q", err.Error())
+	}
+	// An allowlist with an unresolvable caller address never passes, and the
+	// message hints at the proxy configuration that usually causes it.
+	err = service.AuthorizeCliRequest(context.Background(), "app", 1, "", netip.Addr{})
+	if !errors.Is(err, ErrIpNotAllowed) {
 		t.Fatalf("expected ErrIpNotAllowed for invalid address, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "TRUST_PROXY_HEADERS") {
+		t.Fatalf("expected a proxy hint for the unresolved IP, got %q", err.Error())
 	}
 }
 
