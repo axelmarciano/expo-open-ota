@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, Plus, Trash2 } from 'lucide-react';
+import { Copy, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import { api, ApiKeyRecord, ApiProblemError } from '@/lib/api';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
 import { useSettings } from '@/lib/SettingsContext';
@@ -13,6 +13,7 @@ import { TimestampCell } from '@/components/ui/timestamp-cell';
 import { DeleteDialog } from '@/components/ui/delete-dialog';
 import { AdminOnlyNote } from '@/components/ui/admin-only-note';
 import { useCurrentUser } from '@/lib/CurrentUserContext';
+import { ApiKeyRestrictionsSheet } from '@/ee/components/ApiKeyRestrictionsSheet';
 
 export const ApiTokens = () => {
   const { CONTROL_PLANE_ENABLED } = useSettings();
@@ -27,12 +28,36 @@ export const ApiTokens = () => {
   const [isCreatingKey, setIsCreatingKey] = useState(false);
   const [keyToRevoke, setKeyToRevoke] = useState<ApiKeyRecord | null>(null);
   const [isRevokingKey, setIsRevokingKey] = useState(false);
+  const [keyToRestrict, setKeyToRestrict] = useState<ApiKeyRecord | null>(null);
 
   const apiKeysQuery = useQuery({
     queryKey: ['apiKeys', selectedAppId],
     queryFn: () => api.getApiKeys(),
     enabled: !!selectedAppId && CONTROL_PLANE_ENABLED,
   });
+
+  // Enterprise access restrictions per token, summarized in the Restrictions
+  // column. The editing itself lives in ApiKeyRestrictionsSheet.
+  const apiKeyRestrictionsQuery = useQuery({
+    queryKey: ['apiKeyRestrictions', selectedAppId],
+    queryFn: () => api.getApiKeyRestrictions(),
+    enabled: !!selectedAppId && CONTROL_PLANE_ENABLED,
+  });
+  const restrictionsByKeyId = new Map(
+    (apiKeyRestrictionsQuery.data ?? []).map(restriction => [restriction.apiKeyId, restriction])
+  );
+
+  const describeRestrictions = (apiKeyId: string) => {
+    const restrictions = restrictionsByKeyId.get(apiKeyId);
+    const parts: string[] = [];
+    if (restrictions?.canAccessProtectedBranches) {
+      parts.push('Protected access');
+    }
+    if (restrictions?.allowedIps.length) {
+      parts.push(`${restrictions.allowedIps.length} IP${restrictions.allowedIps.length > 1 ? 's' : ''}`);
+    }
+    return parts.join(' · ');
+  };
 
   const handleCreateApiKey = async () => {
     if (!newKeyName.trim()) return;
@@ -91,11 +116,11 @@ export const ApiTokens = () => {
       <div className="w-full">
         <PageHeader
           title="API tokens"
-          description="Tokens let external tools — like your CI pipeline — publish updates for this app."
+          description="Tokens let external tools, like your CI pipeline, publish updates for this app."
         />
         <div className="rounded-xl border border-dashed bg-muted/30 p-8 text-center text-sm text-muted-foreground">
-          On a stateless deployment, tokens are configured through environment variables — there is
-          nothing to manage here.
+          On a stateless deployment, tokens are configured through environment variables, so there
+          is nothing to manage here.
         </div>
       </div>
     );
@@ -105,13 +130,13 @@ export const ApiTokens = () => {
     <div className="w-full">
       <PageHeader
         title="API tokens"
-        description="Tokens let external tools — like your CI pipeline — publish updates for this app. Each token is shown only once, at creation."
+        description="Tokens let external tools, like your CI pipeline, publish updates for this app. Each token is shown only once, at creation."
       />
 
       <div className="space-y-4">
         {!isAdmin && (
           <AdminOnlyNote>
-            You are signed in with a member account, which is read-only — ask an admin to create or
+            You are signed in with a member account, which is read-only. Ask an admin to create or
             revoke tokens.
           </AdminOnlyNote>
         )}
@@ -135,7 +160,7 @@ export const ApiTokens = () => {
           <div className="rounded-xl border bg-muted/40 p-4">
             <p className="text-sm font-medium">Here is your new token</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Copy it now — it will not be shown again.
+              Copy it now, it will not be shown again.
             </p>
             <div className="mt-3 flex items-center gap-2">
               <code className="flex-1 select-all break-all rounded-lg border bg-background p-2.5 font-mono text-xs">
@@ -188,6 +213,37 @@ export const ApiTokens = () => {
                 return <TimestampCell dateString={lastUsed} />;
               },
             },
+            {
+              header: 'Restrictions',
+              id: 'restrictions',
+              cell: ({ row }: { row: { original: ApiKeyRecord } }) => {
+                const summary = describeRestrictions(row.original.id);
+                const state = summary ? (
+                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    {summary}
+                  </span>
+                ) : (
+                  <span className="text-sm text-muted-foreground/60">None</span>
+                );
+                if (!isAdmin) {
+                  return state;
+                }
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setKeyToRestrict(row.original)}
+                    className="group inline-flex items-center gap-2.5"
+                    title="Edit the channel and IP restrictions of this token">
+                    {state}
+                    <span className="inline-flex items-center gap-1 text-sm font-medium text-link group-hover:underline">
+                      <Pencil className="h-3 w-3" />
+                      Edit
+                    </span>
+                  </button>
+                );
+              },
+            },
             ...(isAdmin
               ? [
                   {
@@ -214,6 +270,8 @@ export const ApiTokens = () => {
         />
       </div>
 
+      <ApiKeyRestrictionsSheet apiKey={keyToRestrict} onClose={() => setKeyToRestrict(null)} />
+
       <DeleteDialog
         isOpen={!!keyToRevoke}
         onClose={() => setKeyToRevoke(null)}
@@ -221,7 +279,7 @@ export const ApiTokens = () => {
         isDeleting={isRevokingKey}
         title="Revoke token"
         resourceName={keyToRevoke?.name}
-        descriptionText="Anything still using this token — CI jobs, scripts, integrations — will stop working immediately. This cannot be undone."
+        descriptionText="Anything still using this token (CI jobs, scripts, integrations) will stop working immediately. This cannot be undone."
         confirmButtonText="Revoke token"
         isDeletingButtonText="Revoking…"
       />

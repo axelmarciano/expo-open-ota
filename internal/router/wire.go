@@ -3,6 +3,7 @@ package infrastructure
 import (
 	"context"
 	"expo-open-ota/config"
+	"expo-open-ota/ee/apikeyrestrictions"
 	"expo-open-ota/ee/licensing"
 	"expo-open-ota/ee/sso"
 	"expo-open-ota/internal/bucket"
@@ -18,24 +19,25 @@ import (
 )
 
 type AppContainer struct {
-	AuthHandler          *dashhandlers.AuthHandler
-	DashboardAuthService *services.DashboardAuthService
-	CliAuthService       *services.CliAuthService
-	ApiKeyHandler        *dashhandlers.ApiKeyHandler
-	AppHandler           *dashhandlers.AppHandler
-	AppRepo              services.AppRepository
-	BranchHandler        *dashhandlers.BranchHandler
-	ChannelHandler       *dashhandlers.ChannelHandler
-	ExpoProtocolHandler  *handlers.ExpoProtocolHandler
-	LicenseHandler       *licensing.LicenseHandler
-	RollbackHandler      *handlers.RollbackHandler
-	SettingsHandler      *dashhandlers.SettingsHandler
-	SSOHandler           *sso.SSOHandler
-	UpdateHandler        *dashhandlers.UpdateHandler
-	UploadHandler        *handlers.UploadHandler
-	RepublishHandler     *handlers.RepublishHandler
-	UsersHandler         *dashhandlers.UsersHandler
-	UserRepo             services.UserRepository
+	AuthHandler              *dashhandlers.AuthHandler
+	DashboardAuthService     *services.DashboardAuthService
+	CliAuthService           *services.CliAuthService
+	ApiKeyHandler            *dashhandlers.ApiKeyHandler
+	ApiKeyRestrictionHandler *apikeyrestrictions.ApiKeyRestrictionHandler
+	AppHandler               *dashhandlers.AppHandler
+	AppRepo                  services.AppRepository
+	BranchHandler            *dashhandlers.BranchHandler
+	ChannelHandler           *dashhandlers.ChannelHandler
+	ExpoProtocolHandler      *handlers.ExpoProtocolHandler
+	LicenseHandler           *licensing.LicenseHandler
+	RollbackHandler          *handlers.RollbackHandler
+	SettingsHandler          *dashhandlers.SettingsHandler
+	SSOHandler               *sso.SSOHandler
+	UpdateHandler            *dashhandlers.UpdateHandler
+	UploadHandler            *handlers.UploadHandler
+	RepublishHandler         *handlers.RepublishHandler
+	UsersHandler             *dashhandlers.UsersHandler
+	UserRepo                 services.UserRepository
 }
 
 // logLegacyAppIdFallback states, once at boot, which app receives manifest and
@@ -67,6 +69,9 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// Same story: the SSO configuration and identities live in the database,
 	// so in stateless mode the whole feature is inert.
 	var ssoRepo sso.SSORepository
+	// And again: per-key access restrictions and branch protection are an
+	// enterprise feature backed by the database.
+	var apiKeyRestrictionRepo apikeyrestrictions.ApiKeyRestrictionRepository
 
 	cleanup := func() {}
 	dbUrl := config.GetDBURL()
@@ -96,6 +101,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		userRepo = store.NewPostgresUserStore(dbEngine)
 		licenseRepo = licensing.NewPostgresLicenseStore(dbEngine)
 		ssoRepo = sso.NewPostgresSSOStore(dbEngine)
+		apiKeyRestrictionRepo = apikeyrestrictions.NewPostgresApiKeyRestrictionStore(dbEngine)
 		branchRepo = store.NewPostgresBranchStore(dbEngine)
 		channelRepo = store.NewPostgresChannelStore(dbEngine)
 		updateRepo = store.NewPostgresUpdateStore(dbEngine)
@@ -123,8 +129,11 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// than at their next boot.
 	licenseService.StartSync(ctx, 30*time.Second)
 
+	apiKeyRestrictionService := apikeyrestrictions.NewApiKeyRestrictionService(apiKeyRestrictionRepo)
 	dashboardAuthService := services.NewDashboardAuthService(userRepo)
-	cliAuthService := services.NewCliAuthService(authRepo)
+	// The restriction service doubles as the CLI access policy: every CLI
+	// request runs through its enforcement after authenticating.
+	cliAuthService := services.NewCliAuthService(authRepo, apiKeyRestrictionService)
 	userService := services.NewUserService(userRepo)
 	ssoService := sso.NewSSOService(ssoRepo, userRepo, dashboardAuthService)
 	// While SSO is active, members must sign in through it (admins keep the
@@ -140,23 +149,24 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	deploymentService := services.NewDeploymentService(branchService, updateService, updateRepo, resolvedBucket)
 
 	return &AppContainer{
-		AuthHandler:          dashhandlers.NewAuthHandler(dashboardAuthService),
-		DashboardAuthService: dashboardAuthService,
-		CliAuthService:       cliAuthService,
-		ApiKeyHandler:        dashhandlers.NewApiKeyHandler(cliAuthService),
-		AppHandler:           dashhandlers.NewAppHandler(appService),
-		AppRepo:              appRepo,
-		BranchHandler:        dashhandlers.NewBranchHandler(branchService),
-		ChannelHandler:       dashhandlers.NewChannelHandler(channelService),
-		ExpoProtocolHandler:  handlers.NewExpoProtocolHandler(expoProtocolService),
-		LicenseHandler:       licensing.NewLicenseHandler(licenseService),
-		RepublishHandler:     handlers.NewRepublishHandler(cliAuthService, deploymentService),
-		RollbackHandler:      handlers.NewRollbackHandler(cliAuthService, deploymentService),
-		SettingsHandler:      dashhandlers.NewSettingsHandler(appService, ssoService.Enabled),
-		SSOHandler:           sso.NewSSOHandler(ssoService),
-		UpdateHandler:        dashhandlers.NewUpdateHandler(updateService),
-		UploadHandler:        handlers.NewUploadHandler(cliAuthService, deploymentService),
-		UsersHandler:         dashhandlers.NewUsersHandler(userService),
-		UserRepo:             userRepo,
+		AuthHandler:              dashhandlers.NewAuthHandler(dashboardAuthService),
+		DashboardAuthService:     dashboardAuthService,
+		CliAuthService:           cliAuthService,
+		ApiKeyHandler:            dashhandlers.NewApiKeyHandler(cliAuthService),
+		ApiKeyRestrictionHandler: apikeyrestrictions.NewApiKeyRestrictionHandler(apiKeyRestrictionService),
+		AppHandler:               dashhandlers.NewAppHandler(appService),
+		AppRepo:                  appRepo,
+		BranchHandler:            dashhandlers.NewBranchHandler(branchService),
+		ChannelHandler:           dashhandlers.NewChannelHandler(channelService),
+		ExpoProtocolHandler:      handlers.NewExpoProtocolHandler(expoProtocolService),
+		LicenseHandler:           licensing.NewLicenseHandler(licenseService),
+		RepublishHandler:         handlers.NewRepublishHandler(cliAuthService, deploymentService),
+		RollbackHandler:          handlers.NewRollbackHandler(cliAuthService, deploymentService),
+		SettingsHandler:          dashhandlers.NewSettingsHandler(appService, ssoService.Enabled),
+		SSOHandler:               sso.NewSSOHandler(ssoService),
+		UpdateHandler:            dashhandlers.NewUpdateHandler(updateService),
+		UploadHandler:            handlers.NewUploadHandler(cliAuthService, deploymentService),
+		UsersHandler:             dashhandlers.NewUsersHandler(userService),
+		UserRepo:                 userRepo,
 	}, cleanup
 }

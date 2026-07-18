@@ -5,18 +5,22 @@
 package pgdb
 
 import (
+	"net/netip"
+
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type ApiKey struct {
-	ID         int64              `json:"id"`
-	AppID      pgtype.UUID        `json:"app_id"`
-	Name       string             `json:"name"`
-	Hint       string             `json:"hint"`
-	HashedKey  string             `json:"hashed_key"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
-	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
+	ID                         int64              `json:"id"`
+	AppID                      pgtype.UUID        `json:"app_id"`
+	Name                       string             `json:"name"`
+	Hint                       string             `json:"hint"`
+	HashedKey                  string             `json:"hashed_key"`
+	CreatedAt                  pgtype.Timestamptz `json:"created_at"`
+	LastUsedAt                 pgtype.Timestamptz `json:"last_used_at"`
+	RevokedAt                  pgtype.Timestamptz `json:"revoked_at"`
+	AllowedIps                 []netip.Prefix     `json:"allowed_ips"`
+	CanAccessProtectedBranches bool               `json:"can_access_protected_branches"`
 }
 
 type App struct {
@@ -38,6 +42,7 @@ type Branch struct {
 	AppID     pgtype.UUID        `json:"app_id"`
 	Name      string             `json:"name"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	Protected bool               `json:"protected"`
 }
 
 type Channel struct {

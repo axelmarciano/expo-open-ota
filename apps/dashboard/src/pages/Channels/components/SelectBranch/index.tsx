@@ -32,7 +32,7 @@ export const SelectBranch = ({
   // Only branches carrying an id can be mapped to a channel. On the control
   // plane every branch has one; on the bucket backend a branch that exists in
   // storage but has no Expo counterpart has none, and there is nothing to map
-  // it with — so it is left out rather than offered and failing on select.
+  // it with, so it is left out rather than offered and failing on select.
   const allBranches =
     data
       ?.filter(d => !!d.branchId)

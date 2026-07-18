@@ -85,7 +85,7 @@ export const Settings = () => {
     <div className="w-full">
       <PageHeader
         title="Settings"
-        description="How this server is configured. Everything here applies to the whole server — not just the selected app — and comes from its environment, so it is read-only."
+        description="How this server is configured. Everything here applies to the whole server (not just the selected app) and comes from its environment, so it is read-only."
       />
 
       <div className="space-y-6">
@@ -115,7 +115,7 @@ export const Settings = () => {
                 <span className="font-medium">@{settings.EXPO_ACCOUNT_USERNAME}</span>
               ) : (
                 <span className="text-muted-foreground">
-                  Could not be resolved — check the Expo access token
+                  Could not be resolved. Check the Expo access token
                 </span>
               )}
             </Row>

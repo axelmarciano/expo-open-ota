@@ -119,14 +119,14 @@ export function AppSidebar() {
 
         <nav className="flex-1 overflow-y-auto px-3">
           {/* App-scoped pages are meaningless without a selected app (fresh
-              control-plane install with no app yet) — hide the whole section
+              control-plane install with no app yet), so hide the whole section
               until one is selected. */}
           {selectedAppId && (
             <>
               <SectionLabel>Application</SectionLabel>
               <div className="space-y-0.5">
                 <NavLink to="/" icon={HardDriveDownload}>
-                  Updates
+                  Branches & updates
                 </NavLink>
                 <NavLink to="/channels" icon={Box}>
                   Channels

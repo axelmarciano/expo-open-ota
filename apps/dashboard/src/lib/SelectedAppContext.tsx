@@ -36,8 +36,8 @@ export function SelectedAppProvider({ children }: { children: ReactNode }) {
 
   // Gated on auth: /api/settings requires a token, and the provider is
   // mounted above the router so it renders even on /login. Firing the
-  // query unauthenticated either spams console errors or — with a stale
-  // refreshToken — drives the api refresh→logout fallback before the
+  // query unauthenticated either spams console errors or, with a stale
+  // refreshToken, drives the api refresh→logout fallback before the
   // user has a chance to type their password.
   const appsQuery = useQuery({
     queryKey: ['apps'],
@@ -71,8 +71,8 @@ export function SelectedAppProvider({ children }: { children: ReactNode }) {
   // someone re-deployed with a new app list while the dashboard was open).
   // Routing through setSelectedAppId here (not a direct state write) is
   // important: it invalidates any per-app query that was already fired
-  // before settings resolved, so those queries — which threw "No app
-  // selected" from api.appScope() — actually retry with an appId set
+  // before settings resolved, so those queries, which threw "No app
+  // selected" from api.appScope(), actually retry with an appId set
   // instead of waiting for react-query's default retry budget to kick in.
   useEffect(() => {
     if (!apps.length) {
@@ -88,7 +88,7 @@ export function SelectedAppProvider({ children }: { children: ReactNode }) {
     if (initial !== selectedAppId) {
       setSelectedAppId(initial);
     }
-    // `selectedAppId` intentionally omitted from deps — we only want this to
+    // `selectedAppId` intentionally omitted from deps: we only want this to
     // resolve on the (settings data, apps array) change, not on every user
     // selection (which is handled by setSelectedAppId itself).
     // eslint-disable-next-line react-hooks/exhaustive-deps

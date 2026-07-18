@@ -19,27 +19,27 @@ func NewPostgresAuthStore(engine *database.Engine) *PostgresAuthStore {
 	}
 }
 
-func (s *PostgresAuthStore) ValidateCliCredential(ctx context.Context, appId string, auth types.Auth) error {
+func (s *PostgresAuthStore) ValidateCliCredential(ctx context.Context, appId string, auth types.Auth) (int64, error) {
 	pgAppID := ToPgUUID(appId)
 	token := auth.Token
 	if token == nil {
-		return fmt.Errorf("no token provided in auth")
+		return 0, fmt.Errorf("no token provided in auth")
 	}
 	hashedToken, err := crypto.HashPlaintextAPIKey(*token)
 	if err != nil {
-		return fmt.Errorf("failed to hash API key: %w", err)
+		return 0, fmt.Errorf("failed to hash API key: %w", err)
 	}
-	isValid, err := s.engine.Queries.ValidateAndTouchAuth(ctx, pgdb.ValidateAndTouchAuthParams{
+	apiKeyID, err := s.engine.Queries.ValidateAndTouchAuth(ctx, pgdb.ValidateAndTouchAuthParams{
 		AppID:     pgAppID,
 		HashedKey: hashedToken,
 	})
 	if err != nil {
-		return err
+		if database.IsNoRows(err) {
+			return 0, fmt.Errorf("invalid API key")
+		}
+		return 0, err
 	}
-	if !isValid {
-		return fmt.Errorf("invalid API key")
-	}
-	return nil
+	return apiKeyID, nil
 }
 
 func (s *PostgresAuthStore) InsertApiKey(ctx context.Context, appId string, name string, hint string, hashedKey string) error {

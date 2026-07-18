@@ -29,7 +29,7 @@ interface ComboboxProps {
   // Optional action pinned under the options (e.g. "New Application"). Stays
   // visible whatever the search input, since it is not one of the options.
   action?: { label: string; icon?: React.ReactNode; onSelect: () => void };
-  // Extra classes for the trigger button — pass "w-full" to make the combobox
+  // Extra classes for the trigger button; pass "w-full" to make the combobox
   // fill its container (the popover always matches the trigger width).
   className?: string;
 }

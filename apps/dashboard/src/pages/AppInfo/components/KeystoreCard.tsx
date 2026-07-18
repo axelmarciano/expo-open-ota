@@ -56,8 +56,8 @@ export const KeystoreCard = ({ isLoading, appData }: KeystoreCardProps) => {
 
             {appData?.keys?.mode === 'database' && (
               <p className="text-xs leading-relaxed text-muted-foreground">
-                The key pair used to sign updates is stored encrypted in the database — nothing to
-                configure on your side.
+                The key pair used to sign updates is stored encrypted in the database. There is
+                nothing to configure on your side.
               </p>
             )}
           </div>

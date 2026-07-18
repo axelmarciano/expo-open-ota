@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label';
 type CreateBranchModalProps = {
   isOpen: boolean;
   onClose: () => void;
-  // Called once the branch exists so the caller can use it straight away —
+  // Called once the branch exists so the caller can use it straight away:
   // map it to a channel, prefill a form, ...
   onBranchCreated?: (branch: { branchId: string; branchName: string }) => void;
 };

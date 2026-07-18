@@ -9,7 +9,7 @@ import { api } from '@/lib/api';
 import { useSettings } from '@/lib/SettingsContext';
 
 // Sidebar marker of an active Enterprise license. Renders nothing in
-// stateless mode, while loading, or when no valid license is active — the
+// stateless mode, while loading, or when no valid license is active; the
 // community sidebar stays untouched. Shares the ['license'] query with the
 // License page, so activating or removing a key updates it immediately.
 export const EnterpriseBadge = () => {
