@@ -4,6 +4,7 @@ import (
 	"context"
 	"expo-open-ota/config"
 	"expo-open-ota/ee/licensing"
+	"expo-open-ota/ee/sso"
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/database"
 	"expo-open-ota/internal/database/postgres"
@@ -29,6 +30,7 @@ type AppContainer struct {
 	LicenseHandler       *licensing.LicenseHandler
 	RollbackHandler      *handlers.RollbackHandler
 	SettingsHandler      *dashhandlers.SettingsHandler
+	SSOHandler           *sso.SSOHandler
 	UpdateHandler        *dashhandlers.UpdateHandler
 	UploadHandler        *handlers.UploadHandler
 	RepublishHandler     *handlers.RepublishHandler
@@ -62,6 +64,9 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// Stays nil in stateless mode too: the enterprise license lives in the
 	// database, stateless deployments run community edition.
 	var licenseRepo licensing.LicenseRepository
+	// Same story: the SSO configuration and identities live in the database,
+	// so in stateless mode the whole feature is inert.
+	var ssoRepo sso.SSORepository
 
 	cleanup := func() {}
 	dbUrl := config.GetDBURL()
@@ -90,6 +95,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		appRepo = store.NewPostgresAppStore(dbEngine)
 		userRepo = store.NewPostgresUserStore(dbEngine)
 		licenseRepo = licensing.NewPostgresLicenseStore(dbEngine)
+		ssoRepo = sso.NewPostgresSSOStore(dbEngine)
 		branchRepo = store.NewPostgresBranchStore(dbEngine)
 		channelRepo = store.NewPostgresChannelStore(dbEngine)
 		updateRepo = store.NewPostgresUpdateStore(dbEngine)
@@ -120,6 +126,12 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	dashboardAuthService := services.NewDashboardAuthService(userRepo)
 	cliAuthService := services.NewCliAuthService(authRepo)
 	userService := services.NewUserService(userRepo)
+	ssoService := sso.NewSSOService(ssoRepo, userRepo, dashboardAuthService)
+	// While SSO is active, members must sign in through it (admins keep the
+	// password login as a break-glass access) and accounts arrive through JIT
+	// provisioning instead of manual creation.
+	dashboardAuthService.SetSSOEnforced(ssoService.Enabled)
+	userService.SetSSOEnforced(ssoService.Enabled)
 	appService := services.NewAppService(appRepo)
 	branchService := services.NewBranchService(branchRepo, channelRepo, updateRepo, resolvedBucket)
 	channelService := services.NewChannelService(branchRepo, channelRepo)
@@ -140,7 +152,8 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		LicenseHandler:       licensing.NewLicenseHandler(licenseService),
 		RepublishHandler:     handlers.NewRepublishHandler(cliAuthService, deploymentService),
 		RollbackHandler:      handlers.NewRollbackHandler(cliAuthService, deploymentService),
-		SettingsHandler:      dashhandlers.NewSettingsHandler(appService),
+		SettingsHandler:      dashhandlers.NewSettingsHandler(appService, ssoService.Enabled),
+		SSOHandler:           sso.NewSSOHandler(ssoService),
 		UpdateHandler:        dashhandlers.NewUpdateHandler(updateService),
 		UploadHandler:        handlers.NewUploadHandler(cliAuthService, deploymentService),
 		UsersHandler:         dashhandlers.NewUsersHandler(userService),

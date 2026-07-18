@@ -63,6 +63,30 @@ type RuntimeVersion struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
+type SsoConfig struct {
+	Singleton           bool               `json:"singleton"`
+	Issuer              string             `json:"issuer"`
+	ClientID            string             `json:"client_id"`
+	SealedClientSecret  string             `json:"sealed_client_secret"`
+	ProviderName        string             `json:"provider_name"`
+	Scopes              string             `json:"scopes"`
+	Enabled             bool               `json:"enabled"`
+	AllowedEmailDomains []string           `json:"allowed_email_domains"`
+	AllowedGroups       []string           `json:"allowed_groups"`
+	GroupsClaim         string             `json:"groups_claim"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
+type SsoIdentity struct {
+	Issuer      string             `json:"issuer"`
+	Subject     string             `json:"subject"`
+	UserID      pgtype.UUID        `json:"user_id"`
+	Email       string             `json:"email"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	LastLoginAt pgtype.Timestamptz `json:"last_login_at"`
+}
+
 type Update struct {
 	ID               int64              `json:"id"`
 	UpdateUuid       pgtype.UUID        `json:"update_uuid"`

@@ -69,7 +69,8 @@ func renderUserServiceError(w http.ResponseWriter, err error) {
 		errors.Is(err, services.ErrCannotDeleteOwnAccount),
 		errors.Is(err, services.ErrInvalidCurrentPassword):
 		handlers.RenderError(w, http.StatusBadRequest, err.Error())
-	case errors.Is(err, services.ErrLastAdmin):
+	case errors.Is(err, services.ErrLastAdmin),
+		errors.Is(err, services.ErrUserCreationDisabledBySSO):
 		handlers.RenderError(w, http.StatusConflict, err.Error())
 	default:
 		if validationErr := (*services.ValidationError)(nil); errors.As(err, &validationErr) {

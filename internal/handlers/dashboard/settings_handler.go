@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"expo-open-ota/config"
 	"expo-open-ota/internal/cdn"
@@ -13,11 +14,16 @@ import (
 
 type SettingsHandler struct {
 	appService *services.AppService
+	// ssoEnabled reports whether enterprise SSO is currently active; injected
+	// from the wiring so this community handler needs no ee import. Nil-safe
+	// for tests that build the handler directly.
+	ssoEnabled func(context.Context) bool
 }
 
-func NewSettingsHandler(appService *services.AppService) *SettingsHandler {
+func NewSettingsHandler(appService *services.AppService, ssoEnabled func(context.Context) bool) *SettingsHandler {
 	return &SettingsHandler{
 		appService: appService,
+		ssoEnabled: ssoEnabled,
 	}
 }
 
@@ -53,6 +59,10 @@ type SettingsEnv struct {
 	// token. Only resolved in stateless mode (single app, single token) and
 	// best-effort: empty when the token is missing or invalid.
 	EXPO_ACCOUNT_USERNAME string `json:"EXPO_ACCOUNT_USERNAME"`
+	// SSO_ENABLED reports whether enterprise SSO is active right now
+	// (configured, enabled and licensed), so the dashboard can adapt the
+	// account-management UI. Not an env var: the config lives in the database.
+	SSO_ENABLED bool `json:"SSO_ENABLED"`
 	// Apps lists the configured apps — the single flat-env app in stateless
 	// mode, or every app in the database in control-plane mode. Each entry
 	// carries just the id and optional display name — tokens and keys are
@@ -108,6 +118,7 @@ func (h *SettingsHandler) GetSettingsHandler(w http.ResponseWriter, r *http.Requ
 		PROMETHEUS_ENABLED:                     config.GetEnv("PROMETHEUS_ENABLED"),
 		CDN_TYPE:                               resolvedCDNType(),
 		EXPO_ACCOUNT_USERNAME:                  expoAccountUsername,
+		SSO_ENABLED:                            h.ssoEnabled != nil && h.ssoEnabled(r.Context()),
 		Apps:                                   apps,
 	})
 	w.Header().Set("Content-Type", "application/json")

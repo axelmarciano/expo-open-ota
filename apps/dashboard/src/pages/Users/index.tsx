@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Shield, ShieldOff, Trash2 } from 'lucide-react';
+import { KeyRound, Plus, Shield, ShieldOff, Trash2 } from 'lucide-react';
 import { api, UserRecord, describeApiError } from '@/lib/api';
 import { useSettings } from '@/lib/SettingsContext';
 import { useCurrentUser } from '@/lib/CurrentUserContext';
@@ -14,7 +14,7 @@ import { DeleteDialog } from '@/components/ui/delete-dialog';
 import { CreateUserModal } from '@/components/user-creation-modal';
 
 export const Users = () => {
-  const { CONTROL_PLANE_ENABLED } = useSettings();
+  const { CONTROL_PLANE_ENABLED, SSO_ENABLED } = useSettings();
   const { user: currentUser, isAdmin } = useCurrentUser();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -98,12 +98,22 @@ export const Users = () => {
       />
 
       <div className="space-y-4">
-        <div className="flex justify-end">
-          <Button onClick={() => setIsCreateModalOpen(true)}>
-            <Plus className="h-4 w-4" />
-            Create user
-          </Button>
-        </div>
+        {/* While SSO is active, accounts arrive through provisioning on first
+            sign-in; the server refuses manual creation anyway. */}
+        {SSO_ENABLED ? (
+          <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+            <KeyRound className="h-4 w-4 shrink-0" />
+            Single sign-on is active: accounts are created automatically the first time someone
+            signs in with SSO. Promote or remove them from this page.
+          </div>
+        ) : (
+          <div className="flex justify-end">
+            <Button onClick={() => setIsCreateModalOpen(true)}>
+              <Plus className="h-4 w-4" />
+              Create user
+            </Button>
+          </div>
+        )}
 
         <DataTable
           loading={usersQuery.isLoading}

@@ -448,3 +448,40 @@ RETURNING *;
 
 -- name: DeleteEnterpriseLicense :exec
 DELETE FROM enterprise_license;
+
+-- name: GetSSOConfig :one
+SELECT * FROM sso_config
+WHERE singleton;
+
+-- name: UpsertSSOConfig :one
+INSERT INTO sso_config (singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim)
+VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (singleton) DO UPDATE
+SET issuer = EXCLUDED.issuer,
+    client_id = EXCLUDED.client_id,
+    sealed_client_secret = EXCLUDED.sealed_client_secret,
+    provider_name = EXCLUDED.provider_name,
+    scopes = EXCLUDED.scopes,
+    enabled = EXCLUDED.enabled,
+    allowed_email_domains = EXCLUDED.allowed_email_domains,
+    allowed_groups = EXCLUDED.allowed_groups,
+    groups_claim = EXCLUDED.groups_claim,
+    updated_at = CURRENT_TIMESTAMP
+RETURNING *;
+
+-- name: DeleteSSOConfig :exec
+DELETE FROM sso_config;
+
+-- name: GetUserBySSOSubject :one
+SELECT u.* FROM users u
+JOIN sso_identities si ON si.user_id = u.id
+WHERE si.issuer = $1 AND si.subject = $2;
+
+-- name: InsertSSOIdentity :exec
+INSERT INTO sso_identities (issuer, subject, user_id, email)
+VALUES ($1, $2, $3, $4);
+
+-- name: TouchSSOIdentityLastLogin :exec
+UPDATE sso_identities
+SET last_login_at = CURRENT_TIMESTAMP
+WHERE issuer = $1 AND subject = $2;

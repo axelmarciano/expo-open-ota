@@ -23,6 +23,12 @@ import (
 type DashboardAuthService struct {
 	Secret   string
 	userRepo UserRepository
+	// ssoEnforced reports whether SSO is currently active (configured, enabled
+	// and licensed). Injected by the enterprise wiring; nil means never
+	// enforced, so the community edition is untouched. While enforced, member
+	// accounts must sign in through SSO and only admins keep the password
+	// login as a break-glass access.
+	ssoEnforced func(context.Context) bool
 }
 
 // DashboardSession is the JWT pair handed to the dashboard on login or refresh.
@@ -44,6 +50,11 @@ type DashboardPrincipal struct {
 // hitting it needs the instruction, not a generic 401.
 var ErrAdminEmailNotSet = errors.New("ADMIN_EMAIL is not set: stateless mode logs into the dashboard with ADMIN_EMAIL and ADMIN_PASSWORD. Set ADMIN_EMAIL on the server and retry")
 
+// ErrPasswordLoginDisabledBySSO is returned to member accounts that present a
+// valid password while SSO is enforced. It is only surfaced after the
+// password verified, so the actionable message never leaks account existence.
+var ErrPasswordLoginDisabledBySSO = errors.New("password sign-in is disabled while SSO is active: sign in with SSO instead")
+
 // dashboardSubject scopes every dashboard JWT to the dashboard itself. Both
 // validators below reject any other subject, which is what keeps the upload
 // tokens minted by localBucket — signed with the same JWT_SECRET — from being
@@ -57,6 +68,11 @@ func NewDashboardAuthService(userRepo UserRepository) *DashboardAuthService {
 		Secret:   config.GetEnv("JWT_SECRET"),
 		userRepo: userRepo,
 	}
+}
+
+// SetSSOEnforced injects the live "SSO is active" signal (see the field doc).
+func (a *DashboardAuthService) SetSSOEnforced(enforced func(context.Context) bool) {
+	a.ssoEnforced = enforced
 }
 
 func (a *DashboardAuthService) generateSessionToken(principal DashboardPrincipal) (*string, error) {
@@ -163,8 +179,20 @@ func (a *DashboardAuthService) resolveLoginPrincipal(ctx context.Context, email 
 		}
 		return nil, fmt.Errorf("%w: %v", ErrAuthUnavailable, err)
 	}
+	if user.PasswordHash == "" {
+		// SSO-provisioned accounts carry an empty hash and can never sign in
+		// with a password. bcrypt would reject "" instantly, which would make
+		// them enumerable by timing; burn the same cost as any wrong password.
+		crypto.VerifyPassword(unknownUserPasswordHash, password)
+		return nil, errors.New("invalid credentials")
+	}
 	if !crypto.VerifyPassword(user.PasswordHash, password) {
 		return nil, errors.New("invalid credentials")
+	}
+	// Checked only after the password verified, so wrong-password responses
+	// keep a uniform timing and message whether SSO is enforced or not.
+	if a.ssoEnforced != nil && a.ssoEnforced(ctx) && !user.IsAdmin {
+		return nil, ErrPasswordLoginDisabledBySSO
 	}
 	return a.principalForUser(ctx, user), nil
 }
@@ -192,6 +220,16 @@ func (a *DashboardAuthService) LoginWithEmailPassword(ctx context.Context, email
 		return nil, err
 	}
 	return a.generateSessionPair(*principal)
+}
+
+// IssueSession mints the standard dashboard JWT pair for an account that was
+// authenticated by other means than a password (the enterprise SSO callback).
+// It only exists in control-plane mode, where user is always a database row.
+func (a *DashboardAuthService) IssueSession(ctx context.Context, user store.User) (*DashboardSession, error) {
+	if a.userRepo == nil {
+		return nil, errors.New("sessions can only be issued for database-backed accounts")
+	}
+	return a.generateSessionPair(*a.principalForUser(ctx, user))
 }
 
 // ValidateSession accepts only a dashboard session JWT — not a refresh token,

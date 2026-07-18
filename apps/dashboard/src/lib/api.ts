@@ -118,6 +118,43 @@ export type LicenseStatus = {
   activatedAt?: string;
 };
 
+// Pre-auth SSO state (/auth/sso/config), read by the login page to decide
+// whether to render the SSO button. `enabled` is false for every possible
+// reason at once (not configured, toggled off, no valid license, stateless).
+export type SsoPublicConfig = {
+  enabled: boolean;
+  providerName?: string;
+};
+
+// Admin view of the SSO configuration (/api/sso). The client secret never
+// leaves the server: `hasClientSecret` only says whether one is stored, and
+// `redirectUri` is derived from BASE_URL for copy-pasting into the IdP.
+export type SsoSettings = {
+  issuer: string;
+  clientId: string;
+  hasClientSecret: boolean;
+  providerName: string;
+  scopes: string;
+  enabled: boolean;
+  allowedEmailDomains: string[];
+  allowedGroups: string[];
+  groupsClaim: string;
+  redirectUri: string;
+};
+
+// An empty `clientSecret` on an update means "keep the stored secret".
+export type SaveSsoSettingsPayload = {
+  issuer: string;
+  clientId: string;
+  clientSecret?: string;
+  providerName: string;
+  scopes: string;
+  enabled: boolean;
+  allowedEmailDomains: string[];
+  allowedGroups: string[];
+  groupsClaim: string;
+};
+
 // Mirror of the server's SettingsEnv payload (/api/settings). Field names are
 // the raw env-var spellings on purpose — the server is the source of truth.
 export type ServerSettings = {
@@ -145,6 +182,7 @@ export type ServerSettings = {
   PROMETHEUS_ENABLED: string;
   CDN_TYPE: '' | 'cloudfront' | 'gcs-direct' | 's3-cdn-prefix';
   EXPO_ACCOUNT_USERNAME: string;
+  SSO_ENABLED: boolean;
   APPS: { id: string; name?: string }[];
 };
 
@@ -305,6 +343,53 @@ export class ApiClient {
   public async getLicense() {
     return this.request<LicenseStatus>(`/api/license`, {
       method: 'GET',
+    });
+  }
+
+  // Pre-auth: answers whether the SSO button should show on the login page.
+  public async getSsoPublicConfig() {
+    return this.request<SsoPublicConfig>(`/auth/sso/config`, {
+      method: 'GET',
+    });
+  }
+
+  // Entry point of the SSO flow: a plain navigation, not an XHR — the server
+  // answers with a redirect to the identity provider.
+  public ssoLoginUrl(): string {
+    return `${this.baseUrl}/auth/sso/login`;
+  }
+
+  // The callback the IdP must allow. Derived the same way the server derives
+  // it from BASE_URL; the server's value (SsoSettings.redirectUri) stays the
+  // source of truth once a configuration exists.
+  public ssoRedirectUri(): string {
+    return `${this.baseUrl}/auth/sso/callback`;
+  }
+
+  // Admin SSO configuration. `null` means "not configured yet": the card
+  // shows the empty form instead of an error.
+  public async getSsoSettings(): Promise<SsoSettings | null> {
+    try {
+      return await this.request<SsoSettings>(`/api/sso`, { method: 'GET' });
+    } catch (error) {
+      if (error instanceof ApiProblemError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  public async saveSsoSettings(payload: SaveSsoSettingsPayload) {
+    return this.request<SsoSettings>(`/api/sso`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async deleteSsoSettings() {
+    return this.request<void>(`/api/sso`, {
+      method: 'DELETE',
     });
   }
 

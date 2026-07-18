@@ -58,6 +58,15 @@ func (q *Queries) DeleteEnterpriseLicense(ctx context.Context) error {
 	return err
 }
 
+const deleteSSOConfig = `-- name: DeleteSSOConfig :exec
+DELETE FROM sso_config
+`
+
+func (q *Queries) DeleteSSOConfig(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, deleteSSOConfig)
+	return err
+}
+
 const deleteUserByID = `-- name: DeleteUserByID :execresult
 WITH admins AS (
     SELECT id FROM users WHERE is_admin ORDER BY id FOR UPDATE
@@ -479,6 +488,31 @@ func (q *Queries) GetRuntimeVersionsWithUpdateCount(ctx context.Context, arg Get
 	return items, nil
 }
 
+const getSSOConfig = `-- name: GetSSOConfig :one
+SELECT singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim, created_at, updated_at FROM sso_config
+WHERE singleton
+`
+
+func (q *Queries) GetSSOConfig(ctx context.Context) (SsoConfig, error) {
+	row := q.db.QueryRow(ctx, getSSOConfig)
+	var i SsoConfig
+	err := row.Scan(
+		&i.Singleton,
+		&i.Issuer,
+		&i.ClientID,
+		&i.SealedClientSecret,
+		&i.ProviderName,
+		&i.Scopes,
+		&i.Enabled,
+		&i.AllowedEmailDomains,
+		&i.AllowedGroups,
+		&i.GroupsClaim,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getUpdateByBranchNameAndRuntime = `-- name: GetUpdateByBranchNameAndRuntime :one
 SELECT u.id, u.update_uuid, b.app_id, b.name AS branch_name, r.version AS runtime_version, u.update_type, u.commit_hash, u.message, u.platform, u.created_at
 FROM updates u
@@ -755,6 +789,32 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 	return i, err
 }
 
+const getUserBySSOSubject = `-- name: GetUserBySSOSubject :one
+SELECT u.id, u.email, u.password_hash, u.is_admin, u.created_at, u.updated_at, u.last_connected_at FROM users u
+JOIN sso_identities si ON si.user_id = u.id
+WHERE si.issuer = $1 AND si.subject = $2
+`
+
+type GetUserBySSOSubjectParams struct {
+	Issuer  string `json:"issuer"`
+	Subject string `json:"subject"`
+}
+
+func (q *Queries) GetUserBySSOSubject(ctx context.Context, arg GetUserBySSOSubjectParams) (User, error) {
+	row := q.db.QueryRow(ctx, getUserBySSOSubject, arg.Issuer, arg.Subject)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.IsAdmin,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastConnectedAt,
+	)
+	return i, err
+}
+
 const getUsers = `-- name: GetUsers :many
 SELECT id, email, is_admin, created_at, last_connected_at FROM users
 ORDER BY created_at ASC
@@ -904,6 +964,28 @@ func (q *Queries) InsertRuntimeVersion(ctx context.Context, arg InsertRuntimeVer
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertSSOIdentity = `-- name: InsertSSOIdentity :exec
+INSERT INTO sso_identities (issuer, subject, user_id, email)
+VALUES ($1, $2, $3, $4)
+`
+
+type InsertSSOIdentityParams struct {
+	Issuer  string      `json:"issuer"`
+	Subject string      `json:"subject"`
+	UserID  pgtype.UUID `json:"user_id"`
+	Email   string      `json:"email"`
+}
+
+func (q *Queries) InsertSSOIdentity(ctx context.Context, arg InsertSSOIdentityParams) error {
+	_, err := q.db.Exec(ctx, insertSSOIdentity,
+		arg.Issuer,
+		arg.Subject,
+		arg.UserID,
+		arg.Email,
+	)
+	return err
 }
 
 const insertUpdate = `-- name: InsertUpdate :one
@@ -1304,6 +1386,22 @@ func (q *Queries) StoreUpdateUUID(ctx context.Context, arg StoreUpdateUUIDParams
 	)
 }
 
+const touchSSOIdentityLastLogin = `-- name: TouchSSOIdentityLastLogin :exec
+UPDATE sso_identities
+SET last_login_at = CURRENT_TIMESTAMP
+WHERE issuer = $1 AND subject = $2
+`
+
+type TouchSSOIdentityLastLoginParams struct {
+	Issuer  string `json:"issuer"`
+	Subject string `json:"subject"`
+}
+
+func (q *Queries) TouchSSOIdentityLastLogin(ctx context.Context, arg TouchSSOIdentityLastLoginParams) error {
+	_, err := q.db.Exec(ctx, touchSSOIdentityLastLogin, arg.Issuer, arg.Subject)
+	return err
+}
+
 const touchUserLastConnectedAt = `-- name: TouchUserLastConnectedAt :exec
 UPDATE users
 SET last_connected_at = CURRENT_TIMESTAMP
@@ -1406,6 +1504,65 @@ func (q *Queries) UpsertEnterpriseLicense(ctx context.Context, licenseKey string
 	err := row.Scan(
 		&i.Singleton,
 		&i.LicenseKey,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertSSOConfig = `-- name: UpsertSSOConfig :one
+INSERT INTO sso_config (singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim)
+VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (singleton) DO UPDATE
+SET issuer = EXCLUDED.issuer,
+    client_id = EXCLUDED.client_id,
+    sealed_client_secret = EXCLUDED.sealed_client_secret,
+    provider_name = EXCLUDED.provider_name,
+    scopes = EXCLUDED.scopes,
+    enabled = EXCLUDED.enabled,
+    allowed_email_domains = EXCLUDED.allowed_email_domains,
+    allowed_groups = EXCLUDED.allowed_groups,
+    groups_claim = EXCLUDED.groups_claim,
+    updated_at = CURRENT_TIMESTAMP
+RETURNING singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim, created_at, updated_at
+`
+
+type UpsertSSOConfigParams struct {
+	Issuer              string   `json:"issuer"`
+	ClientID            string   `json:"client_id"`
+	SealedClientSecret  string   `json:"sealed_client_secret"`
+	ProviderName        string   `json:"provider_name"`
+	Scopes              string   `json:"scopes"`
+	Enabled             bool     `json:"enabled"`
+	AllowedEmailDomains []string `json:"allowed_email_domains"`
+	AllowedGroups       []string `json:"allowed_groups"`
+	GroupsClaim         string   `json:"groups_claim"`
+}
+
+func (q *Queries) UpsertSSOConfig(ctx context.Context, arg UpsertSSOConfigParams) (SsoConfig, error) {
+	row := q.db.QueryRow(ctx, upsertSSOConfig,
+		arg.Issuer,
+		arg.ClientID,
+		arg.SealedClientSecret,
+		arg.ProviderName,
+		arg.Scopes,
+		arg.Enabled,
+		arg.AllowedEmailDomains,
+		arg.AllowedGroups,
+		arg.GroupsClaim,
+	)
+	var i SsoConfig
+	err := row.Scan(
+		&i.Singleton,
+		&i.Issuer,
+		&i.ClientID,
+		&i.SealedClientSecret,
+		&i.ProviderName,
+		&i.Scopes,
+		&i.Enabled,
+		&i.AllowedEmailDomains,
+		&i.AllowedGroups,
+		&i.GroupsClaim,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

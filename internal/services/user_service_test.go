@@ -197,6 +197,23 @@ func TestChangePassword(t *testing.T) {
 	require.NoError(t, service.ChangePassword(ctx, admin.Id, "N3wSecret!", "0therSecret!"))
 }
 
+// While SSO is enforced, accounts arrive through JIT provisioning: manual
+// creation is refused with an explicit error, and reopens when SSO goes away.
+func TestCreateUserBlockedWhileSSOEnforced(t *testing.T) {
+	service := NewUserService(newFakeUserRepo())
+	ctx := context.Background()
+
+	ssoActive := true
+	service.SetSSOEnforced(func(context.Context) bool { return ssoActive })
+
+	_, err := service.CreateUser(ctx, "user@example.com", "Sup3rSecret!", false)
+	assert.ErrorIs(t, err, ErrUserCreationDisabledBySSO)
+
+	ssoActive = false
+	_, err = service.CreateUser(ctx, "user@example.com", "Sup3rSecret!", false)
+	assert.NoError(t, err)
+}
+
 func TestUserServiceRequiresControlPlane(t *testing.T) {
 	service := NewUserService(nil)
 	ctx := context.Background()
