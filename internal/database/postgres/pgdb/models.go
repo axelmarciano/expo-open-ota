@@ -69,18 +69,19 @@ type RuntimeVersion struct {
 }
 
 type SsoConfig struct {
-	Singleton           bool               `json:"singleton"`
-	Issuer              string             `json:"issuer"`
-	ClientID            string             `json:"client_id"`
-	SealedClientSecret  string             `json:"sealed_client_secret"`
-	ProviderName        string             `json:"provider_name"`
-	Scopes              string             `json:"scopes"`
-	Enabled             bool               `json:"enabled"`
-	AllowedEmailDomains []string           `json:"allowed_email_domains"`
-	AllowedGroups       []string           `json:"allowed_groups"`
-	GroupsClaim         string             `json:"groups_claim"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	Singleton            bool               `json:"singleton"`
+	Issuer               string             `json:"issuer"`
+	ClientID             string             `json:"client_id"`
+	SealedClientSecret   string             `json:"sealed_client_secret"`
+	ProviderName         string             `json:"provider_name"`
+	Scopes               string             `json:"scopes"`
+	Enabled              bool               `json:"enabled"`
+	AllowedEmailDomains  []string           `json:"allowed_email_domains"`
+	AllowedGroups        []string           `json:"allowed_groups"`
+	GroupsClaim          string             `json:"groups_claim"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+	TrustUnverifiedEmail bool               `json:"trust_unverified_email"`
 }
 
 type SsoIdentity struct {

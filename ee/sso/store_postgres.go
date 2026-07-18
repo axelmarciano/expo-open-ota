@@ -39,14 +39,15 @@ func (s *PostgresSSOStore) GetConfig(ctx context.Context) (*SSOConfig, error) {
 		return nil, fmt.Errorf("failed to read the sso configuration from database: %w", err)
 	}
 	cfg := &SSOConfig{
-		Issuer:              row.Issuer,
-		ClientID:            row.ClientID,
-		ProviderName:        row.ProviderName,
-		Scopes:              row.Scopes,
-		Enabled:             row.Enabled,
-		AllowedEmailDomains: row.AllowedEmailDomains,
-		AllowedGroups:       row.AllowedGroups,
-		GroupsClaim:         row.GroupsClaim,
+		Issuer:               row.Issuer,
+		ClientID:             row.ClientID,
+		ProviderName:         row.ProviderName,
+		Scopes:               row.Scopes,
+		Enabled:              row.Enabled,
+		AllowedEmailDomains:  row.AllowedEmailDomains,
+		AllowedGroups:        row.AllowedGroups,
+		GroupsClaim:          row.GroupsClaim,
+		TrustUnverifiedEmail: row.TrustUnverifiedEmail,
 	}
 	secret, err := crypto.UnsealAESGCM(row.SealedClientSecret, []byte(keyStore.ReadDBKeysMasterKey()), clientSecretAAD())
 	if err != nil {
@@ -64,15 +65,16 @@ func (s *PostgresSSOStore) SaveConfig(ctx context.Context, cfg SSOConfig) error 
 		return fmt.Errorf("failed to seal the sso client secret: %w", err)
 	}
 	if _, err := s.engine.Queries.UpsertSSOConfig(ctx, pgdb.UpsertSSOConfigParams{
-		Issuer:              cfg.Issuer,
-		ClientID:            cfg.ClientID,
-		SealedClientSecret:  sealedSecret,
-		ProviderName:        cfg.ProviderName,
-		Scopes:              cfg.Scopes,
-		Enabled:             cfg.Enabled,
-		AllowedEmailDomains: emptyIfNil(cfg.AllowedEmailDomains),
-		AllowedGroups:       emptyIfNil(cfg.AllowedGroups),
-		GroupsClaim:         cfg.GroupsClaim,
+		Issuer:               cfg.Issuer,
+		ClientID:             cfg.ClientID,
+		SealedClientSecret:   sealedSecret,
+		ProviderName:         cfg.ProviderName,
+		Scopes:               cfg.Scopes,
+		Enabled:              cfg.Enabled,
+		AllowedEmailDomains:  emptyIfNil(cfg.AllowedEmailDomains),
+		AllowedGroups:        emptyIfNil(cfg.AllowedGroups),
+		GroupsClaim:          cfg.GroupsClaim,
+		TrustUnverifiedEmail: cfg.TrustUnverifiedEmail,
 	}); err != nil {
 		return fmt.Errorf("failed to store the sso configuration in database: %w", err)
 	}

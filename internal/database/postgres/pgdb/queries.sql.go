@@ -548,7 +548,7 @@ func (q *Queries) GetRuntimeVersionsWithUpdateCount(ctx context.Context, arg Get
 }
 
 const getSSOConfig = `-- name: GetSSOConfig :one
-SELECT singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim, created_at, updated_at FROM sso_config
+SELECT singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim, created_at, updated_at, trust_unverified_email FROM sso_config
 WHERE singleton
 `
 
@@ -568,6 +568,7 @@ func (q *Queries) GetSSOConfig(ctx context.Context) (SsoConfig, error) {
 		&i.GroupsClaim,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TrustUnverifiedEmail,
 	)
 	return i, err
 }
@@ -1633,8 +1634,8 @@ func (q *Queries) UpsertEnterpriseLicense(ctx context.Context, licenseKey string
 }
 
 const upsertSSOConfig = `-- name: UpsertSSOConfig :one
-INSERT INTO sso_config (singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim)
-VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO sso_config (singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim, trust_unverified_email)
+VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 ON CONFLICT (singleton) DO UPDATE
 SET issuer = EXCLUDED.issuer,
     client_id = EXCLUDED.client_id,
@@ -1645,20 +1646,22 @@ SET issuer = EXCLUDED.issuer,
     allowed_email_domains = EXCLUDED.allowed_email_domains,
     allowed_groups = EXCLUDED.allowed_groups,
     groups_claim = EXCLUDED.groups_claim,
+    trust_unverified_email = EXCLUDED.trust_unverified_email,
     updated_at = CURRENT_TIMESTAMP
-RETURNING singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim, created_at, updated_at
+RETURNING singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim, created_at, updated_at, trust_unverified_email
 `
 
 type UpsertSSOConfigParams struct {
-	Issuer              string   `json:"issuer"`
-	ClientID            string   `json:"client_id"`
-	SealedClientSecret  string   `json:"sealed_client_secret"`
-	ProviderName        string   `json:"provider_name"`
-	Scopes              string   `json:"scopes"`
-	Enabled             bool     `json:"enabled"`
-	AllowedEmailDomains []string `json:"allowed_email_domains"`
-	AllowedGroups       []string `json:"allowed_groups"`
-	GroupsClaim         string   `json:"groups_claim"`
+	Issuer               string   `json:"issuer"`
+	ClientID             string   `json:"client_id"`
+	SealedClientSecret   string   `json:"sealed_client_secret"`
+	ProviderName         string   `json:"provider_name"`
+	Scopes               string   `json:"scopes"`
+	Enabled              bool     `json:"enabled"`
+	AllowedEmailDomains  []string `json:"allowed_email_domains"`
+	AllowedGroups        []string `json:"allowed_groups"`
+	GroupsClaim          string   `json:"groups_claim"`
+	TrustUnverifiedEmail bool     `json:"trust_unverified_email"`
 }
 
 func (q *Queries) UpsertSSOConfig(ctx context.Context, arg UpsertSSOConfigParams) (SsoConfig, error) {
@@ -1672,6 +1675,7 @@ func (q *Queries) UpsertSSOConfig(ctx context.Context, arg UpsertSSOConfigParams
 		arg.AllowedEmailDomains,
 		arg.AllowedGroups,
 		arg.GroupsClaim,
+		arg.TrustUnverifiedEmail,
 	)
 	var i SsoConfig
 	err := row.Scan(
@@ -1687,6 +1691,7 @@ func (q *Queries) UpsertSSOConfig(ctx context.Context, arg UpsertSSOConfigParams
 		&i.GroupsClaim,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TrustUnverifiedEmail,
 	)
 	return i, err
 }

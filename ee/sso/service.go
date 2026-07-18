@@ -50,6 +50,14 @@ type SSOConfig struct {
 	AllowedEmailDomains []string
 	AllowedGroups       []string
 	GroupsClaim         string
+	// TrustUnverifiedEmail lifts the email_verified requirement. False by
+	// default: an email is only used for domain authorization and account
+	// lookup/linking when the id_token asserts email_verified=true, so an
+	// attacker who can set an arbitrary unverified email at the IdP cannot
+	// take over an existing account by matching its address. Admins turn it on
+	// for a trusted provider that omits email_verified (notably Entra ID) on a
+	// single tenant where users cannot self-assert addresses.
+	TrustUnverifiedEmail bool
 }
 
 // SSORepository persists the singleton configuration and the mapping from
@@ -74,6 +82,12 @@ var (
 	ErrSSORequiresValidLicense = errors.New("single sign-on requires an active enterprise license")
 	ErrSSONotConfigured        = errors.New("single sign-on is not configured")
 	ErrSSOEmailMissing         = errors.New("the identity provider did not return a usable email address")
+	// ErrSSOEmailUnverified is answered when the id_token carries an email the
+	// provider has not verified (email_verified is false or absent) and the
+	// admin has not opted into trusting unverified emails. Trusting it would
+	// let an attacker who set an arbitrary email at the IdP link to, or
+	// provision under, someone else's address.
+	ErrSSOEmailUnverified = errors.New("the identity provider did not verify this email address")
 	// ErrSSOAccessRestricted is answered when the token verified but the
 	// account falls outside the configured domain/group restrictions.
 	ErrSSOAccessRestricted = errors.New("this account is not allowed to sign in to this dashboard")
@@ -127,11 +141,12 @@ type AdminConfig struct {
 	HasClientSecret     bool
 	ProviderName        string
 	Scopes              string
-	Enabled             bool
-	AllowedEmailDomains []string
-	AllowedGroups       []string
-	GroupsClaim         string
-	RedirectURI         string
+	Enabled              bool
+	AllowedEmailDomains  []string
+	AllowedGroups        []string
+	GroupsClaim          string
+	TrustUnverifiedEmail bool
+	RedirectURI          string
 }
 
 // SaveConfigInput is one admin submission from the dashboard. An empty
@@ -143,10 +158,11 @@ type SaveConfigInput struct {
 	ClientSecret        string
 	ProviderName        string
 	Scopes              string
-	Enabled             bool
-	AllowedEmailDomains []string
-	AllowedGroups       []string
-	GroupsClaim         string
+	Enabled              bool
+	AllowedEmailDomains  []string
+	AllowedGroups        []string
+	GroupsClaim          string
+	TrustUnverifiedEmail bool
 }
 
 // SSOService owns the OIDC sign-in flow (authorization code + PKCE against a
@@ -240,16 +256,17 @@ func (s *SSOService) RedirectURI() string {
 
 func (s *SSOService) adminView(cfg *SSOConfig) *AdminConfig {
 	return &AdminConfig{
-		Issuer:              cfg.Issuer,
-		ClientID:            cfg.ClientID,
-		HasClientSecret:     cfg.ClientSecret != "",
-		ProviderName:        cfg.ProviderName,
-		Scopes:              cfg.Scopes,
-		Enabled:             cfg.Enabled,
-		AllowedEmailDomains: cfg.AllowedEmailDomains,
-		AllowedGroups:       cfg.AllowedGroups,
-		GroupsClaim:         cfg.GroupsClaim,
-		RedirectURI:         s.RedirectURI(),
+		Issuer:               cfg.Issuer,
+		ClientID:             cfg.ClientID,
+		HasClientSecret:      cfg.ClientSecret != "",
+		ProviderName:         cfg.ProviderName,
+		Scopes:               cfg.Scopes,
+		Enabled:              cfg.Enabled,
+		AllowedEmailDomains:  cfg.AllowedEmailDomains,
+		AllowedGroups:        cfg.AllowedGroups,
+		GroupsClaim:          cfg.GroupsClaim,
+		TrustUnverifiedEmail: cfg.TrustUnverifiedEmail,
+		RedirectURI:          s.RedirectURI(),
 	}
 }
 
@@ -402,9 +419,15 @@ func (s *SSOService) CompleteLogin(ctx context.Context, flowToken string, state 
 	if err := idToken.Claims(&claims); err != nil {
 		return nil, fmt.Errorf("could not parse the id_token claims: %w", err)
 	}
-	email, err := emailFromClaims(claims)
+	email, emailVerified, err := emailFromClaims(claims)
 	if err != nil {
 		return nil, err
+	}
+	// The email drives domain authorization and account lookup/linking below,
+	// so it must be one the provider vouches for, not one the user typed.
+	// Gate it before any of those uses.
+	if !emailVerified && !cfg.TrustUnverifiedEmail {
+		return nil, fmt.Errorf("%w: %q is not verified (enable trust for this provider if it does not emit email_verified)", ErrSSOEmailUnverified, email)
 	}
 	if err := checkSignInRestrictions(cfg, email, claims); err != nil {
 		return nil, err
@@ -568,18 +591,45 @@ func (s *SSOService) lookupOrProvision(ctx context.Context, issuer string, subje
 // claim (it is optional in its token configuration) while putting the address
 // in preferred_username, hence the fallback; anything that does not parse as
 // a plain address is ignored.
-func emailFromClaims(claims map[string]any) (string, error) {
-	for _, claimName := range []string{"email", "preferred_username"} {
-		raw, _ := claims[claimName].(string)
-		candidate := store.NormalizeEmail(raw)
-		if candidate == "" {
-			continue
-		}
-		if addr, err := mail.ParseAddress(candidate); err == nil && addr.Address == candidate {
-			return candidate, nil
-		}
+//
+// It also reports whether the address is verified. Only the standard email
+// claim can be, via email_verified; an address recovered from
+// preferred_username is never treated as verified, since email_verified says
+// nothing about that claim.
+func emailFromClaims(claims map[string]any) (email string, verified bool, err error) {
+	if candidate, ok := parseEmailClaim(claims["email"]); ok {
+		return candidate, claimIsTrue(claims["email_verified"]), nil
 	}
-	return "", ErrSSOEmailMissing
+	if candidate, ok := parseEmailClaim(claims["preferred_username"]); ok {
+		return candidate, false, nil
+	}
+	return "", false, ErrSSOEmailMissing
+}
+
+// parseEmailClaim normalizes a claim value and accepts it only if it is a
+// bare email address (no display-name form).
+func parseEmailClaim(value any) (string, bool) {
+	raw, _ := value.(string)
+	candidate := store.NormalizeEmail(raw)
+	if candidate == "" {
+		return "", false
+	}
+	if addr, err := mail.ParseAddress(candidate); err == nil && addr.Address == candidate {
+		return candidate, true
+	}
+	return "", false
+}
+
+// claimIsTrue reads a boolean claim that IdPs encode either as a JSON boolean
+// or as the string "true".
+func claimIsTrue(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.EqualFold(typed, "true")
+	}
+	return false
 }
 
 // checkSignInRestrictions applies the optional domain and group allowlists.
@@ -669,15 +719,16 @@ func normalizeConfigInput(input SaveConfigInput) (*SSOConfig, error) {
 		return nil, err
 	}
 	return &SSOConfig{
-		Issuer:              issuer,
-		ClientID:            clientID,
-		ClientSecret:        strings.TrimSpace(input.ClientSecret),
-		ProviderName:        providerName,
-		Scopes:              scopes,
-		Enabled:             input.Enabled,
-		AllowedEmailDomains: domains,
-		AllowedGroups:       normalizeList(input.AllowedGroups),
-		GroupsClaim:         groupsClaim,
+		Issuer:               issuer,
+		ClientID:             clientID,
+		ClientSecret:         strings.TrimSpace(input.ClientSecret),
+		ProviderName:         providerName,
+		Scopes:               scopes,
+		Enabled:              input.Enabled,
+		AllowedEmailDomains:  domains,
+		AllowedGroups:        normalizeList(input.AllowedGroups),
+		GroupsClaim:          groupsClaim,
+		TrustUnverifiedEmail: input.TrustUnverifiedEmail,
 	}, nil
 }
 

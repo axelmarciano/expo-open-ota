@@ -456,8 +456,8 @@ SELECT * FROM sso_config
 WHERE singleton;
 
 -- name: UpsertSSOConfig :one
-INSERT INTO sso_config (singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim)
-VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO sso_config (singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim, trust_unverified_email)
+VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 ON CONFLICT (singleton) DO UPDATE
 SET issuer = EXCLUDED.issuer,
     client_id = EXCLUDED.client_id,
@@ -468,6 +468,7 @@ SET issuer = EXCLUDED.issuer,
     allowed_email_domains = EXCLUDED.allowed_email_domains,
     allowed_groups = EXCLUDED.allowed_groups,
     groups_claim = EXCLUDED.groups_claim,
+    trust_unverified_email = EXCLUDED.trust_unverified_email,
     updated_at = CURRENT_TIMESTAMP
 RETURNING *;
 
