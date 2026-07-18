@@ -5,7 +5,7 @@
 replicaCount: 1 # Do not use more than 1 replica if storageMode is set to local
 
 image:
-  repository: ghcr.io/axelmarciano/expo-open-ota
+  repository: ghcr.io/mercuretechnologies/expo-open-ota
   tag: latest
   pullPolicy: IfNotPresent
 
@@ -50,7 +50,7 @@ trustProxyDepth: "1"
 # flat-env app. Requires DB_URL and exactly one control-plane master key (see
 # the env vars below). When "false" the server is single-app (stateless) and
 # the flat EXPO_APP_ID / EXPO_ACCESS_TOKEN / key vars are used.
-# See https://github.com/axelmarciano/expo-open-ota/blob/main/apps/docs/docs/advanced/multi-app.mdx
+# See https://github.com/mercuretechnologies/expo-open-ota/blob/main/apps/docs/docs/advanced/multi-app.mdx
 controlPlane: "false"
 # Where the DB keys master key comes from when controlPlane="true": "environment"
 # renders DB_KEYS_MASTER_KEY_B64, "aws-secrets-manager" renders

@@ -10,7 +10,7 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "homepage": "https://github.com/axelmarciano/expo-open-ota/tree/main/eoas",
+  "homepage": "https://github.com/mercuretechnologies/expo-open-ota/tree/main/eoas",
   "keywords": [
     "expo-open-ota",
     "expo",
@@ -19,8 +19,11 @@
   ],
   "author": "Axel Marciano",
   "license": "MIT",
-  "description": "A CLI tool to manage publishing and OTA updates for expo-open-OTA self-hosted server. This is not an official tool from Expo but an open-source project (https://github.com/axelmarciano/expo-open-ota)",
-  "repository": "axelmarciano/expo-open-ota",
+  "description": "A CLI tool to manage publishing and OTA updates for expo-open-OTA self-hosted server. This is not an official tool from Expo but an open-source project (https://github.com/mercuretechnologies/expo-open-ota)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mercuretechnologies/expo-open-ota.git"
+  },
   "dependencies": {
     "@expo/code-signing-certificates": "^0.0.5",
     "@expo/config": "10.0.11",
@@ -82,7 +85,7 @@
     "typescript": "5.3.3"
   },
   "bin": {
-    "eoas": "./bin/run.js"
+    "eoas": "bin/run.js"
   },
   "oclif": {
     "bin": "eoas",

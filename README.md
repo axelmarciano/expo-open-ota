@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://mercure-technologies.gitbook.io/expo-open-ota">Documentation</a> · <a href="https://github.com/axelmarciano/expo-open-ota/issues">Issues</a> · <a href="mailto:contact@mercuretechnologies.com">Contact</a>
+  <a href="https://mercure-technologies.gitbook.io/expo-open-ota">Documentation</a> · <a href="https://github.com/mercuretechnologies/expo-open-ota/issues">Issues</a> · <a href="mailto:contact@mercuretechnologies.com">Contact</a>
 </p>
 
 ---

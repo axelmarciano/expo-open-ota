@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
 
     container:
-      image: ghcr.io/axelmarciano/expo-open-ota-ci:latest
+      image: ghcr.io/mercuretechnologies/expo-open-ota-ci:latest
       credentials:
         username: axelmarciano
         password: ${{  secrets.DOCKER_GITHUB_CONTAINER_REGISTRY_TOKEN }}

@@ -18,6 +18,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
+COPY ee ./ee
 COPY keys ./keys
 COPY config ./config
 COPY updates ./updates
