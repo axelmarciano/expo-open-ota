@@ -5,7 +5,7 @@ import { DataTable } from '@/components/DataTable';
 import { GitBranch, Lock, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import { useSearchParams } from 'react-router';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
@@ -71,19 +71,7 @@ export const BranchesTable = () => {
     enabled: !!selectedAppId,
   });
 
-  const handleToggleProtection = (branch: BranchRecord, nextProtected: boolean) => {
-    if (!isEnterprise) {
-      setIsExplainerOpen(true);
-      return;
-    }
-    if (nextProtected) {
-      setBranchToProtect(branch);
-      return;
-    }
-    applyProtection(branch, false);
-  };
-
-  const applyProtection = async (branch: BranchRecord, nextProtected: boolean) => {
+   const applyProtection = useCallback(async (branch: BranchRecord, nextProtected: boolean) => {
     setBranchBeingToggled(branch.branchName);
     setIsProtecting(true);
     try {
@@ -103,7 +91,21 @@ export const BranchesTable = () => {
       setBranchBeingToggled(null);
       setIsProtecting(false);
     }
-  };
+  }, [queryClient, selectedAppId, toast]);
+
+  const handleToggleProtection = useCallback((branch: BranchRecord, nextProtected: boolean) => {
+    if (!isEnterprise) {
+      setIsExplainerOpen(true);
+      return;
+    }
+    if (nextProtected) {
+      setBranchToProtect(branch);
+      return;
+    }
+    applyProtection(branch, false);
+  }, [isEnterprise, applyProtection]);
+
+ 
 
   const handleCreateBranch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -258,7 +260,7 @@ export const BranchesTable = () => {
           ]
         : []),
     ];
-  }, [CONTROL_PLANE_ENABLED, isAdmin, branchBeingToggled]);
+  }, [CONTROL_PLANE_ENABLED, isAdmin, branchBeingToggled, handleToggleProtection]);
 
   return (
     <div className="w-full flex-1 space-y-4">

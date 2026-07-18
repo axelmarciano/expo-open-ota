@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -12,24 +13,37 @@ import (
 //
 // By default it is the TCP peer (RemoteAddr): unforgeable, but behind a load
 // balancer every request carries the balancer's address. When
-// TRUST_PROXY_HEADERS=true the rightmost X-Forwarded-For entry wins instead:
-// that is the value appended by the proxy directly in front of the server,
-// the only entry of the list a client cannot forge. Only enable it when the
-// server is reachable exclusively through that proxy.
+// TRUST_PROXY_HEADERS=true the client is read from X-Forwarded-For instead.
 //
-// Returns the zero Addr when nothing parses; callers with an IP allowlist
-// must treat an unresolvable address as a mismatch, not as a pass.
-// The env var is read with os.Getenv rather than config.GetEnv because the
-// config package imports helpers (import cycle); TRUST_PROXY_HEADERS has no
-// default value, so the behavior is identical.
+// X-Forwarded-For is a comma-separated list to which every proxy appends the
+// address it received the connection from, so the entries a client can forge
+// always sit to the LEFT of the one your outermost trusted proxy added. We
+// therefore count trusted proxies from the RIGHT: with N proxies in front of
+// the server, the real client is the entry N positions from the end.
+// TRUST_PROXY_DEPTH sets N (default 1, the single load-balancer case). Counting
+// from the right keeps the choice unspoofable, because extra entries a client
+// injects only grow the left of the list and never shift the Nth-from-right
+// entry.
+//
+// If the header carries fewer entries than TRUST_PROXY_DEPTH, the request did
+// not traverse the whole trusted chain, so we fall back to RemoteAddr (the
+// immediate peer), which a client allowlist will reject. Returns the zero Addr
+// when nothing parses; callers with an IP allowlist must treat an unresolvable
+// address as a mismatch, not as a pass.
+//
+// The env vars are read with os.Getenv rather than config.GetEnv because the
+// config package imports helpers (import cycle); neither var has a config
+// default, so the behavior is identical.
 func ClientIP(r *http.Request) netip.Addr {
 	if os.Getenv("TRUST_PROXY_HEADERS") == "true" {
 		forwardedFor := r.Header.Get("X-Forwarded-For")
 		if forwardedFor != "" {
 			entries := strings.Split(forwardedFor, ",")
-			candidate := strings.TrimSpace(entries[len(entries)-1])
-			if addr, err := netip.ParseAddr(candidate); err == nil {
-				return addr.Unmap()
+			if idx := len(entries) - trustedProxyDepth(); idx >= 0 {
+				candidate := strings.TrimSpace(entries[idx])
+				if addr, err := netip.ParseAddr(candidate); err == nil {
+					return addr.Unmap()
+				}
 			}
 		}
 	}
@@ -42,4 +56,17 @@ func ClientIP(r *http.Request) netip.Addr {
 		return netip.Addr{}
 	}
 	return addr.Unmap()
+}
+
+// trustedProxyDepth is the number of trusted proxies in front of the server,
+// from TRUST_PROXY_DEPTH. It defaults to 1 and is never below 1: a value of 0
+// or less, or an unparseable one, would mean "trust the rightmost entry, which
+// a client can influence in a multi-proxy chain", so it is clamped up to 1.
+func trustedProxyDepth() int {
+	if raw := os.Getenv("TRUST_PROXY_DEPTH"); raw != "" {
+		if depth, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && depth >= 1 {
+			return depth
+		}
+	}
+	return 1
 }

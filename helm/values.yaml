@@ -32,6 +32,19 @@ useGenericCDN: "false"
 cacheMode: "redis"
 useDashboard: "false"
 useRedisTLS: "false"
+# Set to "true" when the server sits behind a trusted proxy or ingress so the
+# client IP used for API-token IP allowlists is read from X-Forwarded-For
+# instead of the proxy's connection address. Behind an ingress (the usual Helm
+# setup) leave this on; only enable it when the server is reachable exclusively
+# through that proxy, since a direct client could otherwise forge the header.
+trustProxyHeaders: "false"
+# Number of trusted proxies in front of the server, used only when
+# trustProxyHeaders is "true". The client IP is read that many entries from the
+# right of X-Forwarded-For, so a single ingress uses 1, a CDN in front of a load
+# balancer uses 2, and so on. Set it to the exact number of proxies you control:
+# too low reads an intermediate proxy IP, too high would trust a client-supplied
+# entry.
+trustProxyDepth: "1"
 # Set to "true" to run the server as a Control Plane (DB mode): apps live in
 # Postgres and are created/managed from the dashboard instead of the single
 # flat-env app. Requires DB_URL and exactly one control-plane master key (see
@@ -266,6 +279,16 @@ environment:
   - name: "BASE_URL"
     value: ""
     required: true
+  - name: "TRUST_PROXY_HEADERS"
+    key: "trustProxyHeaders"
+    required: true
+    computed: true
+  - name: "TRUST_PROXY_DEPTH"
+    key: "trustProxyDepth"
+    computed: true
+    enabled:
+      - key: "trustProxyHeaders"
+        is: "true"
   - name: "EXPO_ACCESS_TOKEN"
     value: ""
     required:

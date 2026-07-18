@@ -60,6 +60,13 @@ export const ApiKeyRestrictionsSheet = ({
                 <Skeleton className="h-4 w-1/2" />
                 <Skeleton className="h-24 w-full" />
               </div>
+            ) : restrictionsQuery.isError ? (
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>Could not load this token’s restrictions.</p>
+                <Button variant="outline" onClick={() => restrictionsQuery.refetch()}>
+                  Try again
+                </Button>
+              </div>
             ) : (
               apiKey && (
                 <RestrictionsForm

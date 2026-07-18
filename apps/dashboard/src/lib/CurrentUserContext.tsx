@@ -33,7 +33,7 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
   if (isError) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
-        <p>Could not load your account: the server did not answer.</p>
+        <p>Could not load your account.</p>
         <Button variant="outline" size="sm" onClick={() => refetch()}>
           Try again
         </Button>

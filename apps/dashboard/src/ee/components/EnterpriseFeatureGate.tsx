@@ -29,7 +29,12 @@ export const EnterpriseFeatureGate = ({ children }: { children: ReactNode }) => 
 
   return (
     <div className="relative">
-      <div aria-hidden className="pointer-events-none select-none opacity-60">
+      {/* react-dom 18 drops inert={true}; the attribute is only set when given a
+          string, hence the cast (our @types/react is v19, which types it as boolean). */}
+      <div
+        aria-hidden
+        inert={'' as unknown as boolean}
+        className="pointer-events-none select-none opacity-60">
         {children}
       </div>
       <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/55 backdrop-blur-[3px]">

@@ -78,7 +78,7 @@ func (h *UploadHandler) MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *ht
 	err = h.deploymentService.ProcessUploadedUpdate(r.Context(), params)
 	if err != nil {
 		if errors.Is(err, services.ErrUnauthorized) {
-			http.Error(w, "Error validating auth", http.StatusUnauthorized)
+			RenderCliAuthError(w, err)
 			return
 		}
 		if errors.Is(err, services.ErrInvalidUpdate) {
