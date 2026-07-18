@@ -19,6 +19,8 @@ Advanced and organization-level capabilities are commercial. They live in `ee/` 
 - API key scoping per release channel
 - SSO / SAML authentication
 - Audit logs
+- Expo Observe Support
+- Automatic rollbacks
 - IP whitelisting
 - Priority support
 
