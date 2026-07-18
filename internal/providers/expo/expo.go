@@ -28,9 +28,20 @@ type UserAccount struct {
 	Email    string `json:"email"`
 }
 
+// ChannelRolloutInfo is the active channel rollout folded into a ChannelMapping in
+// control-plane mode. ID doubles as the bucketing salt. The stateless (Expo) provider
+// never sets it, so rollouts stay a control-plane-only feature.
+type ChannelRolloutInfo struct {
+	ID         string `json:"id"`
+	BranchName string `json:"branchName"`
+	Percentage int    `json:"percentage"`
+}
+
 type ChannelMapping struct {
 	Id         string `json:"id"`
 	BranchName string `json:"branchName"`
+	// Set only by the Postgres channel store when the channel has an active rollout.
+	Rollout *ChannelRolloutInfo `json:"rollout,omitempty"`
 }
 
 type BranchMapping struct {

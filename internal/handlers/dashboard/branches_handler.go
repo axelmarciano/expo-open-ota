@@ -90,6 +90,10 @@ func (h *BranchHandler) DeleteBranchHandler(w http.ResponseWriter, r *http.Reque
 			handlers.RenderError(w, http.StatusConflict, branchErr.Error())
 			return
 		}
+		if rolloutErr := (*store.ErrBranchInActiveRollout)(nil); errors.As(err, &rolloutErr) {
+			handlers.RenderError(w, http.StatusConflict, rolloutErr.Error())
+			return
+		}
 		handlers.RenderError(w, http.StatusInternalServerError, "An internal error occurred while deleting the branch.")
 		return
 	}
@@ -193,7 +197,7 @@ func (h *BranchHandler) UpdateChannelBranchMappingHandler(w http.ResponseWriter,
 		handlers.RenderError(w, http.StatusBadRequest, "Branch ID is empty")
 		return
 	}
-	err = h.branchService.UpdateChannelBranchMapping(r.Context(), appId, releaseChannelId, branchId)
+	err = h.branchService.UpdateChannelBranchMapping(r.Context(), appId, releaseChannelId, releaseChannelName, branchId)
 	if err != nil {
 		var valErr *validation.Error
 		if errors.As(err, &valErr) {
@@ -202,6 +206,10 @@ func (h *BranchHandler) UpdateChannelBranchMappingHandler(w http.ResponseWriter,
 		}
 		if notFoundErr := (*store.ErrResourceNotFound)(nil); errors.As(err, &notFoundErr) {
 			handlers.RenderError(w, http.StatusNotFound, notFoundErr.Error())
+			return
+		}
+		if rolloutErr := (*store.ErrChannelHasActiveRollout)(nil); errors.As(err, &rolloutErr) {
+			handlers.RenderError(w, http.StatusConflict, rolloutErr.Error())
 			return
 		}
 		handlers.RenderError(w, http.StatusInternalServerError, "An internal error occurred while updating the channel-branch mapping.")

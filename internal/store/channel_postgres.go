@@ -81,13 +81,25 @@ func (s *PostgresChannelStore) GetChannels(ctx context.Context, appId string) ([
 			timeStr := channel.CreatedAt.Time.Format(time.RFC3339)
 			createdAtStr = &timeStr
 		}
-		channels[i] = types.ChannelMapping{
+		mapping := types.ChannelMapping{
 			ReleaseChannelName: channel.Name,
 			ReleaseChannelId:   strconv.FormatInt(channel.ID, 10),
 			BranchName:         channel.BranchName,
 			BranchId:           branchIdPtr,
 			CreatedAt:          createdAtStr,
 		}
+		if channel.RolloutID.Valid && channel.BranchName != nil && channel.RolloutBranchName != nil && channel.RolloutPercentage != nil {
+			mapping.Rollout = &types.ChannelRollout{
+				ID:                channel.RolloutID.String(),
+				ChannelName:       channel.Name,
+				DefaultBranchName: *channel.BranchName,
+				RolloutBranchName: *channel.RolloutBranchName,
+				Percentage:        int(*channel.RolloutPercentage),
+				CreatedAt:         channel.RolloutCreatedAt.Time.Format(time.RFC3339),
+				UpdatedAt:         channel.RolloutUpdatedAt.Time.Format(time.RFC3339),
+			}
+		}
+		channels[i] = mapping
 	}
 	return channels, nil
 }
@@ -119,8 +131,16 @@ func (s *PostgresChannelStore) GetChannelBranchMapping(ctx context.Context, appI
 		return nil, fmt.Errorf("failed to retrieve channel mapping from database: %w", err)
 	}
 	mappingStr := strconv.FormatInt(mapping.ID, 10)
-	return &expo.ChannelMapping{
+	result := &expo.ChannelMapping{
 		Id:         mappingStr,
 		BranchName: mapping.BranchName,
-	}, nil
+	}
+	if mapping.RolloutID.Valid && mapping.RolloutBranchName != nil && mapping.RolloutPercentage != nil {
+		result.Rollout = &expo.ChannelRolloutInfo{
+			ID:         mapping.RolloutID.String(),
+			BranchName: *mapping.RolloutBranchName,
+			Percentage: int(*mapping.RolloutPercentage),
+		}
+	}
+	return result, nil
 }

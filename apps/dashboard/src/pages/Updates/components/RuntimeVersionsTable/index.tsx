@@ -34,6 +34,11 @@ export const RuntimeVersionsTable = ({ branch }: { branch: string }) => {
                   <Milestone className="h-3.5 w-3.5" />
                 </span>
                 <span className="font-medium">{row.original.runtimeVersion}</span>
+                {row.original.activeRollout && (
+                  <Badge className="border-transparent bg-emerald-100 text-emerald-700">
+                    Rollout
+                  </Badge>
+                )}
               </span>
             ),
           },

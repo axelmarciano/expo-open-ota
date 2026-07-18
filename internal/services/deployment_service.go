@@ -7,6 +7,8 @@ import (
 	"expo-open-ota/internal/cache"
 	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/dashboard"
+	"expo-open-ota/internal/database"
+	"expo-open-ota/internal/store"
 	"expo-open-ota/internal/types"
 	update2 "expo-open-ota/internal/update"
 	"fmt"
@@ -23,6 +25,14 @@ var (
 	ErrInvalidToken      = errors.New("the provided upload token is invalid or expired")
 	ErrTokenAppMismatch  = errors.New("upload token does not match the requested application context")
 	ErrUploadFailed      = errors.New("failed to write upload file stream to destination storage")
+	// ErrActiveRolloutBlocksPublish refuses any publish, republish or rollback on a
+	// (branch, runtime version) that has an active per-update rollout. Handlers map it
+	// to a 409; RolloutService bypasses it through the unexported internal helpers.
+	ErrActiveRolloutBlocksPublish = errors.New("a progressive rollout is active on this branch and runtime version; finish or revert it from the dashboard first")
+	// ErrRolloutSuperseded refuses the activation of a rollout update when a newer
+	// checked update landed on the same (branch, runtime version, platform) during
+	// its upload: activating it would advertise a rollout that is never served.
+	ErrRolloutSuperseded = errors.New("a newer update was published while this one was uploading; the rollout was not started")
 )
 
 type ProcessUpdateParams struct {
@@ -52,6 +62,9 @@ type RequestUploadURLParams struct {
 	RuntimeVersion string
 	FileNames      []string
 	Message        string
+	// Non-nil publishes the update as a progressive rollout served to this share of
+	// devices (1-99, validated by the handler, which also requires a platform).
+	RolloutPercentage *int
 }
 
 type RequestUploadURLResponse struct {
@@ -185,6 +198,21 @@ func (s *DeploymentService) MarkUpdateAsChecked(ctx context.Context, update type
 	// a stale manifest for up to 30 minutes after a publish or rollback.
 	err = s.updateRepo.MarkUpdateAsChecked(ctx, update)
 	if err != nil {
+		// The partial unique index on active rollout rows is the transactional
+		// close of the publish race: a second rollout update reaching checked
+		// state on the same (branch, rtv, platform) violates it here.
+		if database.IsUniqueViolation(err) {
+			return ErrActiveRolloutBlocksPublish
+		}
+		// The conditional stamp covers the other two race directions: a plain
+		// update racing an in-flight rollout activation, and a rollout update
+		// superseded by a newer publish during its upload.
+		if errors.Is(err, store.ErrPublishBlockedByActiveRollout) {
+			return ErrActiveRolloutBlocksPublish
+		}
+		if errors.Is(err, store.ErrRolloutSupersededByNewerUpdate) {
+			return ErrRolloutSuperseded
+		}
 		return err
 	}
 	cacheKeys := []string{update2.ComputeLastUpdateCacheKey(update.AppId, update.Branch, update.RuntimeVersion, storedMetadata.Platform), branchesCacheKey, runTimeVersionsCacheKey, updatesCacheKey}
@@ -193,6 +221,11 @@ func (s *DeploymentService) MarkUpdateAsChecked(ctx context.Context, update type
 	}
 	go PreWarmManifestCache(s.updateService, update.AppId, update.Branch, update.RuntimeVersion, "ios")
 	go PreWarmManifestCache(s.updateService, update.AppId, update.Branch, update.RuntimeVersion, "android")
+	// When the checked update activated a per-update rollout, its out-of-bucket
+	// cohort is served the control update: warm that manifest too, or the first
+	// such client re-hashes every control asset. No-op without an active rollout.
+	go PreWarmControlManifest(s.updateService, update.AppId, update.Branch, update.RuntimeVersion, "ios")
+	go PreWarmControlManifest(s.updateService, update.AppId, update.Branch, update.RuntimeVersion, "android")
 	return nil
 }
 
@@ -232,6 +265,18 @@ func (s *DeploymentService) RequestUploadURLs(ctx context.Context, params Reques
 		return nil, err
 	}
 
+	// Fail fast on every publish while a per-update rollout is active; the partial
+	// unique index closes the remaining race at MarkUpdateAsChecked time.
+	hasActiveRollout, err := s.updateRepo.HasActiveRolloutUpdate(ctx, params.AppID, params.BranchName, params.RuntimeVersion)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error checking active rollout state: %v", params.RequestID, err)
+		return nil, err
+	}
+	if hasActiveRollout {
+		log.Printf("[RequestID: %s] Publish blocked: active rollout on branch %s (runtime version %s)", params.RequestID, params.BranchName, params.RuntimeVersion)
+		return nil, ErrActiveRolloutBlocksPublish
+	}
+
 	updateId := update2.GenerateUpdateTimestamp(params.Platform)
 	updateStr := update2.ConvertUpdateTimestampToString(updateId)
 
@@ -247,16 +292,31 @@ func (s *DeploymentService) RequestUploadURLs(ctx context.Context, params Reques
 		return nil, err
 	}
 
-	newUpdate, err := s.updateRepo.CreateUpdate(
-		ctx,
-		params.AppID,
-		updateId,
-		params.BranchName,
-		params.RuntimeVersion,
-		params.Platform,
-		params.CommitHash,
-		params.Message,
-	)
+	var newUpdate *types.Update
+	if params.RolloutPercentage != nil {
+		newUpdate, err = s.updateRepo.CreateUpdateWithRollout(
+			ctx,
+			params.AppID,
+			updateId,
+			params.BranchName,
+			params.RuntimeVersion,
+			params.Platform,
+			params.CommitHash,
+			params.Message,
+			*params.RolloutPercentage,
+		)
+	} else {
+		newUpdate, err = s.updateRepo.CreateUpdate(
+			ctx,
+			params.AppID,
+			updateId,
+			params.BranchName,
+			params.RuntimeVersion,
+			params.Platform,
+			params.CommitHash,
+			params.Message,
+		)
+	}
 	if err != nil {
 		log.Printf("[RequestID: %s] Error uploading file update metadata: %v", params.RequestID, err)
 		return nil, err
@@ -275,6 +335,20 @@ func (s *DeploymentService) RequestUploadURLs(ctx context.Context, params Reques
 }
 
 func (s *DeploymentService) CreateRollback(ctx context.Context, appId, platform, commitHash, runtimeVersion, branchName string) (*types.Update, error) {
+	hasActiveRollout, err := s.updateRepo.HasActiveRolloutUpdate(ctx, appId, branchName, runtimeVersion)
+	if err != nil {
+		return nil, err
+	}
+	if hasActiveRollout {
+		return nil, ErrActiveRolloutBlocksPublish
+	}
+	return s.createRollbackInternal(ctx, appId, platform, commitHash, runtimeVersion, branchName)
+}
+
+// createRollbackInternal is CreateRollback without the active-rollout guard; the
+// guard-free path exists for RolloutService, whose revert legitimately writes while
+// the rollout is still active.
+func (s *DeploymentService) createRollbackInternal(ctx context.Context, appId, platform, commitHash, runtimeVersion, branchName string) (*types.Update, error) {
 	updateId := update2.GenerateUpdateTimestamp(platform)
 	rollback, err := s.updateRepo.CreateRollback(ctx, appId, updateId, branchName, runtimeVersion, platform, commitHash)
 	if err != nil {
@@ -301,6 +375,19 @@ type RepublishError struct {
 func (e *RepublishError) Error() string { return e.Message }
 
 func (s *DeploymentService) RepublishUpdate(ctx context.Context, previousUpdate *types.Update, platform, commitHash string) (*types.Update, error) {
+	hasActiveRollout, err := s.updateRepo.HasActiveRolloutUpdate(ctx, previousUpdate.AppId, previousUpdate.Branch, previousUpdate.RuntimeVersion)
+	if err != nil {
+		return nil, err
+	}
+	if hasActiveRollout {
+		return nil, ErrActiveRolloutBlocksPublish
+	}
+	return s.republishUpdateInternal(ctx, previousUpdate, platform, commitHash)
+}
+
+// republishUpdateInternal is RepublishUpdate without the active-rollout guard; see
+// createRollbackInternal.
+func (s *DeploymentService) republishUpdateInternal(ctx context.Context, previousUpdate *types.Update, platform, commitHash string) (*types.Update, error) {
 	// Validate the source update before cloning it. Done through the injected
 	// repo so it is correct on both backends: type/metadata/validity come from
 	// Postgres on the DB control plane and from the stored files on the bucket

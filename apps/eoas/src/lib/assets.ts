@@ -98,6 +98,10 @@ export interface RequestUploadUrlItem {
   filePath: string;
 }
 
+export function activeRolloutConflictMessage(branch: string): string {
+  return `A progressive rollout is already active for branch "${branch}" on this runtime version. End or revert it from the dashboard before publishing a new update.`;
+}
+
 export async function requestUploadUrls({
   body,
   requestUploadUrl,
@@ -106,6 +110,8 @@ export async function requestUploadUrls({
   platform,
   commitHash,
   message,
+  rolloutPercentage,
+  branch,
 }: {
   body: { fileNames: string[] };
   requestUploadUrl: string;
@@ -114,11 +120,20 @@ export async function requestUploadUrls({
   platform: string;
   commitHash?: string;
   message?: string;
-}): Promise<{ uploadRequests: RequestUploadUrlItem[]; updateId: string }> {
+  rolloutPercentage?: number;
+  branch: string;
+}): Promise<{
+  uploadRequests: RequestUploadUrlItem[];
+  updateId: string;
+  rolloutPercentage?: number;
+}> {
   const uploadUrl = new URL(requestUploadUrl);
   uploadUrl.searchParams.set('runtimeVersion', runtimeVersion);
   uploadUrl.searchParams.set('platform', platform);
   uploadUrl.searchParams.set('commitHash', commitHash ?? '');
+  if (rolloutPercentage !== undefined) {
+    uploadUrl.searchParams.set('rolloutPercentage', String(rolloutPercentage));
+  }
 
   const requestBody: { fileNames: string[]; message?: string } = { ...body };
   if (message) {
@@ -133,9 +148,18 @@ export async function requestUploadUrls({
     },
     body: JSON.stringify(requestBody),
   });
+  if (response.status === 409) {
+    throw new Error(activeRolloutConflictMessage(branch));
+  }
   if (!response.ok) {
     const text = await response.text();
     throw new Error(`Failed to request upload URL: ${text}`);
   }
-  return await response.json();
+  const json = await response.json();
+  // An old server silently ignores unknown query params, so a missing echo means
+  // the rollout was not applied even though the flag was set.
+  if (rolloutPercentage !== undefined && json.rolloutPercentage === undefined) {
+    Log.warn('server ignored --rollout-percentage (server may be too old)');
+  }
+  return json;
 }

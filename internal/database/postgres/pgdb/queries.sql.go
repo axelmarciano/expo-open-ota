@@ -13,6 +13,34 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearUpdateRollout = `-- name: ClearUpdateRollout :execrows
+UPDATE updates
+SET rollout_percentage = NULL
+WHERE branch_id = (SELECT branches.id FROM branches WHERE branches.app_id = $1 AND branches.name = $2)
+  AND runtime_version_id = (SELECT runtime_versions.id FROM runtime_versions WHERE runtime_versions.app_id = $1 AND runtime_versions.version = $3)
+  AND rollout_percentage IS NOT NULL
+  AND checked_at IS NOT NULL
+`
+
+type ClearUpdateRolloutParams struct {
+	AppID   pgtype.UUID `json:"app_id"`
+	Name    string      `json:"name"`
+	Version string      `json:"version"`
+}
+
+// Ends the per-update rollout for (branch, rtv) by clearing the percentage on every
+// active row. Used by both "finish" (progress to 100) and "revert". control_update_id
+// is deliberately retained: it is the historical marker the dashboard uses to render
+// the finished-rollout state, and serving only ever reads it together with a non-NULL
+// rollout_percentage.
+func (q *Queries) ClearUpdateRollout(ctx context.Context, arg ClearUpdateRolloutParams) (int64, error) {
+	result, err := q.db.Exec(ctx, clearUpdateRollout, arg.AppID, arg.Name, arg.Version)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteAppByID = `-- name: DeleteAppByID :execresult
 DELETE FROM apps
 WHERE id = $1
@@ -50,6 +78,24 @@ func (q *Queries) DeleteChannelByName(ctx context.Context, arg DeleteChannelByNa
 	return q.db.Exec(ctx, deleteChannelByName, arg.Name, arg.AppID)
 }
 
+const deleteChannelRollout = `-- name: DeleteChannelRollout :execrows
+DELETE FROM channel_rollouts
+WHERE channel_id = (SELECT id FROM channels WHERE app_id = $1 AND name = $2)
+`
+
+type DeleteChannelRolloutParams struct {
+	AppID pgtype.UUID `json:"app_id"`
+	Name  string      `json:"name"`
+}
+
+func (q *Queries) DeleteChannelRollout(ctx context.Context, arg DeleteChannelRolloutParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteChannelRollout, arg.AppID, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteEnterpriseLicense = `-- name: DeleteEnterpriseLicense :exec
 DELETE FROM enterprise_license
 `
@@ -82,6 +128,60 @@ WHERE users.id = $1
 // dashboard without any admin.
 func (q *Queries) DeleteUserByID(ctx context.Context, id pgtype.UUID) (pgconn.CommandTag, error) {
 	return q.db.Exec(ctx, deleteUserByID, id)
+}
+
+const getActiveRolloutUpdates = `-- name: GetActiveRolloutUpdates :many
+SELECT u.id, u.platform, u.rollout_percentage, u.control_update_id, u.created_at
+FROM updates u
+JOIN branches b ON u.branch_id = b.id
+JOIN runtime_versions rv ON u.runtime_version_id = rv.id
+WHERE b.app_id = $1
+  AND b.name = $2
+  AND rv.version = $3
+  AND u.rollout_percentage IS NOT NULL
+  AND u.checked_at IS NOT NULL
+ORDER BY u.platform ASC
+`
+
+type GetActiveRolloutUpdatesParams struct {
+	AppID   pgtype.UUID `json:"app_id"`
+	Name    string      `json:"name"`
+	Version string      `json:"version"`
+}
+
+type GetActiveRolloutUpdatesRow struct {
+	ID                int64              `json:"id"`
+	Platform          string             `json:"platform"`
+	RolloutPercentage *int32             `json:"rollout_percentage"`
+	ControlUpdateID   *int64             `json:"control_update_id"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+// The active per-update rollout rows for (branch, rtv), one per platform.
+func (q *Queries) GetActiveRolloutUpdates(ctx context.Context, arg GetActiveRolloutUpdatesParams) ([]GetActiveRolloutUpdatesRow, error) {
+	rows, err := q.db.Query(ctx, getActiveRolloutUpdates, arg.AppID, arg.Name, arg.Version)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetActiveRolloutUpdatesRow
+	for rows.Next() {
+		var i GetActiveRolloutUpdatesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Platform,
+			&i.RolloutPercentage,
+			&i.ControlUpdateID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getApiKeyRestrictions = `-- name: GetApiKeyRestrictions :one
@@ -300,9 +400,14 @@ func (q *Queries) GetBranchesByAppID(ctx context.Context, appID pgtype.UUID) ([]
 }
 
 const getChannelBranchMapping = `-- name: GetChannelBranchMapping :one
-SELECT c.id, b.name AS branch_name
+SELECT c.id, b.name AS branch_name,
+    cr.id AS rollout_id,
+    rb.name AS rollout_branch_name,
+    cr.percentage AS rollout_percentage
 FROM channels c
 JOIN branches b ON c.branch_id = b.id AND b.app_id = c.app_id
+LEFT JOIN channel_rollouts cr ON cr.channel_id = c.id
+LEFT JOIN branches rb ON cr.rollout_branch_id = rb.id
 WHERE c.app_id = $1 AND c.name = $2
 `
 
@@ -312,14 +417,25 @@ type GetChannelBranchMappingParams struct {
 }
 
 type GetChannelBranchMappingRow struct {
-	ID         int64  `json:"id"`
-	BranchName string `json:"branch_name"`
+	ID                int64       `json:"id"`
+	BranchName        string      `json:"branch_name"`
+	RolloutID         pgtype.UUID `json:"rollout_id"`
+	RolloutBranchName *string     `json:"rollout_branch_name"`
+	RolloutPercentage *int32      `json:"rollout_percentage"`
 }
 
+// Hot path (manifest resolution). The LEFT JOINs fold the channel's active rollout
+// (if any) into the single mapping read so branch resolution stays ONE query.
 func (q *Queries) GetChannelBranchMapping(ctx context.Context, arg GetChannelBranchMappingParams) (GetChannelBranchMappingRow, error) {
 	row := q.db.QueryRow(ctx, getChannelBranchMapping, arg.AppID, arg.Name)
 	var i GetChannelBranchMappingRow
-	err := row.Scan(&i.ID, &i.BranchName)
+	err := row.Scan(
+		&i.ID,
+		&i.BranchName,
+		&i.RolloutID,
+		&i.RolloutBranchName,
+		&i.RolloutPercentage,
+	)
 	return i, err
 }
 
@@ -356,21 +472,111 @@ func (q *Queries) GetChannelNamesByBranchName(ctx context.Context, arg GetChanne
 	return items, nil
 }
 
+const getChannelRollout = `-- name: GetChannelRollout :one
+SELECT cr.id, cr.channel_id, ch.name AS channel_name,
+    db.name AS default_branch_name,
+    rb.name AS rollout_branch_name,
+    cr.percentage, cr.created_at, cr.updated_at
+FROM channel_rollouts cr
+JOIN channels ch ON cr.channel_id = ch.id
+JOIN branches db ON ch.branch_id = db.id
+JOIN branches rb ON cr.rollout_branch_id = rb.id
+WHERE ch.app_id = $1 AND ch.name = $2
+`
+
+type GetChannelRolloutParams struct {
+	AppID pgtype.UUID `json:"app_id"`
+	Name  string      `json:"name"`
+}
+
+type GetChannelRolloutRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	ChannelID         int64              `json:"channel_id"`
+	ChannelName       string             `json:"channel_name"`
+	DefaultBranchName string             `json:"default_branch_name"`
+	RolloutBranchName string             `json:"rollout_branch_name"`
+	Percentage        int32              `json:"percentage"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetChannelRollout(ctx context.Context, arg GetChannelRolloutParams) (GetChannelRolloutRow, error) {
+	row := q.db.QueryRow(ctx, getChannelRollout, arg.AppID, arg.Name)
+	var i GetChannelRolloutRow
+	err := row.Scan(
+		&i.ID,
+		&i.ChannelID,
+		&i.ChannelName,
+		&i.DefaultBranchName,
+		&i.RolloutBranchName,
+		&i.Percentage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getChannelRolloutsByBranch = `-- name: GetChannelRolloutsByBranch :many
+SELECT ch.name AS channel_name
+FROM channel_rollouts cr
+JOIN channels ch ON cr.channel_id = ch.id
+WHERE cr.rollout_branch_id = (SELECT branches.id FROM branches WHERE branches.app_id = $1 AND branches.name = $2)
+`
+
+type GetChannelRolloutsByBranchParams struct {
+	AppID pgtype.UUID `json:"app_id"`
+	Name  string      `json:"name"`
+}
+
+// Branch-delete guard: the channels whose active rollout serves this branch. FK RESTRICT
+// already blocks the delete; this yields the friendly channel list for the error message.
+func (q *Queries) GetChannelRolloutsByBranch(ctx context.Context, arg GetChannelRolloutsByBranchParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, getChannelRolloutsByBranch, arg.AppID, arg.Name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var channel_name string
+		if err := rows.Scan(&channel_name); err != nil {
+			return nil, err
+		}
+		items = append(items, channel_name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getChannelsByAppID = `-- name: GetChannelsByAppID :many
-SELECT channels.id, channels.app_id, channels.branch_id, channels.name, channels.created_at, branches.name as branch_name 
+SELECT channels.id, channels.app_id, channels.branch_id, channels.name, channels.created_at, branches.name as branch_name,
+    cr.id AS rollout_id,
+    rb.name AS rollout_branch_name,
+    cr.percentage AS rollout_percentage,
+    cr.created_at AS rollout_created_at,
+    cr.updated_at AS rollout_updated_at
 FROM channels
 LEFT JOIN branches ON channels.branch_id = branches.id AND branches.app_id = channels.app_id
+LEFT JOIN channel_rollouts cr ON cr.channel_id = channels.id
+LEFT JOIN branches rb ON cr.rollout_branch_id = rb.id
 WHERE channels.app_id = $1
 ORDER BY channels.created_at ASC
 `
 
 type GetChannelsByAppIDRow struct {
-	ID         int64              `json:"id"`
-	AppID      pgtype.UUID        `json:"app_id"`
-	BranchID   *int64             `json:"branch_id"`
-	Name       string             `json:"name"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	BranchName *string            `json:"branch_name"`
+	ID                int64              `json:"id"`
+	AppID             pgtype.UUID        `json:"app_id"`
+	BranchID          *int64             `json:"branch_id"`
+	Name              string             `json:"name"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	BranchName        *string            `json:"branch_name"`
+	RolloutID         pgtype.UUID        `json:"rollout_id"`
+	RolloutBranchName *string            `json:"rollout_branch_name"`
+	RolloutPercentage *int32             `json:"rollout_percentage"`
+	RolloutCreatedAt  pgtype.Timestamptz `json:"rollout_created_at"`
+	RolloutUpdatedAt  pgtype.Timestamptz `json:"rollout_updated_at"`
 }
 
 func (q *Queries) GetChannelsByAppID(ctx context.Context, appID pgtype.UUID) ([]GetChannelsByAppIDRow, error) {
@@ -389,6 +595,11 @@ func (q *Queries) GetChannelsByAppID(ctx context.Context, appID pgtype.UUID) ([]
 			&i.Name,
 			&i.CreatedAt,
 			&i.BranchName,
+			&i.RolloutID,
+			&i.RolloutBranchName,
+			&i.RolloutPercentage,
+			&i.RolloutCreatedAt,
+			&i.RolloutUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -477,6 +688,89 @@ func (q *Queries) GetLatestUpdate(ctx context.Context, arg GetLatestUpdateParams
 		&i.Message,
 		&i.Platform,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getLatestUpdateWithRollout = `-- name: GetLatestUpdateWithRollout :one
+SELECT
+    u.id,
+    u.update_uuid,
+    u.branch_id,
+    u.runtime_version_id,
+    u.update_type,
+    u.commit_hash,
+    u.message,
+    u.platform,
+    u.created_at,
+    u.rollout_percentage,
+    u.control_update_id,
+    c.id AS control_id,
+    c.created_at AS control_created_at,
+    c.update_type AS control_update_type
+FROM updates u
+JOIN branches b ON u.branch_id = b.id
+JOIN runtime_versions rv ON u.runtime_version_id = rv.id
+LEFT JOIN updates c ON c.branch_id = u.branch_id AND c.id = u.control_update_id
+WHERE b.app_id = $1
+  AND b.name = $2
+  AND rv.version = $3
+  AND u.platform = $4
+  AND u.checked_at IS NOT NULL
+ORDER BY u.id DESC
+LIMIT 1
+`
+
+type GetLatestUpdateWithRolloutParams struct {
+	AppID    pgtype.UUID `json:"app_id"`
+	Name     string      `json:"name"`
+	Version  string      `json:"version"`
+	Platform string      `json:"platform"`
+}
+
+type GetLatestUpdateWithRolloutRow struct {
+	ID                int64              `json:"id"`
+	UpdateUuid        pgtype.UUID        `json:"update_uuid"`
+	BranchID          int64              `json:"branch_id"`
+	RuntimeVersionID  int64              `json:"runtime_version_id"`
+	UpdateType        int32              `json:"update_type"`
+	CommitHash        string             `json:"commit_hash"`
+	Message           *string            `json:"message"`
+	Platform          string             `json:"platform"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	RolloutPercentage *int32             `json:"rollout_percentage"`
+	ControlUpdateID   *int64             `json:"control_update_id"`
+	ControlID         *int64             `json:"control_id"`
+	ControlCreatedAt  pgtype.Timestamptz `json:"control_created_at"`
+	ControlUpdateType *int32             `json:"control_update_type"`
+}
+
+// Latest checked update for (branch, rtv, platform) plus its control, resolved through
+// the explicit control_update_id pointer (a LEFT JOIN on the composite PK, NOT a LIMIT-2
+// heuristic). Control fields are NULL when the update carries no rollout.
+func (q *Queries) GetLatestUpdateWithRollout(ctx context.Context, arg GetLatestUpdateWithRolloutParams) (GetLatestUpdateWithRolloutRow, error) {
+	row := q.db.QueryRow(ctx, getLatestUpdateWithRollout,
+		arg.AppID,
+		arg.Name,
+		arg.Version,
+		arg.Platform,
+	)
+	var i GetLatestUpdateWithRolloutRow
+	err := row.Scan(
+		&i.ID,
+		&i.UpdateUuid,
+		&i.BranchID,
+		&i.RuntimeVersionID,
+		&i.UpdateType,
+		&i.CommitHash,
+		&i.Message,
+		&i.Platform,
+		&i.CreatedAt,
+		&i.RolloutPercentage,
+		&i.ControlUpdateID,
+		&i.ControlID,
+		&i.ControlCreatedAt,
+		&i.ControlUpdateType,
 	)
 	return i, err
 }
@@ -574,7 +868,7 @@ func (q *Queries) GetSSOConfig(ctx context.Context) (SsoConfig, error) {
 }
 
 const getUpdateByBranchNameAndRuntime = `-- name: GetUpdateByBranchNameAndRuntime :one
-SELECT u.id, u.update_uuid, b.app_id, b.name AS branch_name, r.version AS runtime_version, u.update_type, u.commit_hash, u.message, u.platform, u.created_at
+SELECT u.id, u.update_uuid, b.app_id, b.name AS branch_name, r.version AS runtime_version, u.update_type, u.commit_hash, u.message, u.platform, u.created_at, u.rollout_percentage, u.control_update_id
 FROM updates u
 INNER JOIN branches b ON u.branch_id = b.id
 INNER JOIN runtime_versions r ON u.runtime_version_id = r.id
@@ -593,16 +887,18 @@ type GetUpdateByBranchNameAndRuntimeParams struct {
 }
 
 type GetUpdateByBranchNameAndRuntimeRow struct {
-	ID             int64              `json:"id"`
-	UpdateUuid     pgtype.UUID        `json:"update_uuid"`
-	AppID          pgtype.UUID        `json:"app_id"`
-	BranchName     string             `json:"branch_name"`
-	RuntimeVersion string             `json:"runtime_version"`
-	UpdateType     int32              `json:"update_type"`
-	CommitHash     string             `json:"commit_hash"`
-	Message        *string            `json:"message"`
-	Platform       string             `json:"platform"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	ID                int64              `json:"id"`
+	UpdateUuid        pgtype.UUID        `json:"update_uuid"`
+	AppID             pgtype.UUID        `json:"app_id"`
+	BranchName        string             `json:"branch_name"`
+	RuntimeVersion    string             `json:"runtime_version"`
+	UpdateType        int32              `json:"update_type"`
+	CommitHash        string             `json:"commit_hash"`
+	Message           *string            `json:"message"`
+	Platform          string             `json:"platform"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	RolloutPercentage *int32             `json:"rollout_percentage"`
+	ControlUpdateID   *int64             `json:"control_update_id"`
 }
 
 // app_id is load-bearing, not redundant: pk_updates is (branch_id, id), so an
@@ -628,6 +924,64 @@ func (q *Queries) GetUpdateByBranchNameAndRuntime(ctx context.Context, arg GetUp
 		&i.Message,
 		&i.Platform,
 		&i.CreatedAt,
+		&i.RolloutPercentage,
+		&i.ControlUpdateID,
+	)
+	return i, err
+}
+
+const getUpdateByUUID = `-- name: GetUpdateByUUID :one
+
+SELECT u.id, u.update_uuid, b.app_id, b.name AS branch_name, r.version AS runtime_version, u.update_type, u.commit_hash, u.message, u.platform, u.created_at, u.rollout_percentage, u.control_update_id
+FROM updates u
+INNER JOIN branches b ON u.branch_id = b.id
+INNER JOIN runtime_versions r ON u.runtime_version_id = r.id
+WHERE b.app_id = $1
+  AND u.update_uuid = $2
+  AND u.checked_at IS NOT NULL
+LIMIT 1
+`
+
+type GetUpdateByUUIDParams struct {
+	AppID      pgtype.UUID `json:"app_id"`
+	UpdateUuid pgtype.UUID `json:"update_uuid"`
+}
+
+type GetUpdateByUUIDRow struct {
+	ID                int64              `json:"id"`
+	UpdateUuid        pgtype.UUID        `json:"update_uuid"`
+	AppID             pgtype.UUID        `json:"app_id"`
+	BranchName        string             `json:"branch_name"`
+	RuntimeVersion    string             `json:"runtime_version"`
+	UpdateType        int32              `json:"update_type"`
+	CommitHash        string             `json:"commit_hash"`
+	Message           *string            `json:"message"`
+	Platform          string             `json:"platform"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	RolloutPercentage *int32             `json:"rollout_percentage"`
+	ControlUpdateID   *int64             `json:"control_update_id"`
+}
+
+// The queries below back progressive rollouts (MIT core, control-plane mode only).
+// App-scoped, checked-only lookup by the persistent update UUID. Backs the /assets
+// rollout fix: expo-updates sends Expo-Requested-Update-ID on every asset request, so
+// the exact update it is running can be served regardless of the rollout decision.
+func (q *Queries) GetUpdateByUUID(ctx context.Context, arg GetUpdateByUUIDParams) (GetUpdateByUUIDRow, error) {
+	row := q.db.QueryRow(ctx, getUpdateByUUID, arg.AppID, arg.UpdateUuid)
+	var i GetUpdateByUUIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.UpdateUuid,
+		&i.AppID,
+		&i.BranchName,
+		&i.RuntimeVersion,
+		&i.UpdateType,
+		&i.CommitHash,
+		&i.Message,
+		&i.Platform,
+		&i.CreatedAt,
+		&i.RolloutPercentage,
+		&i.ControlUpdateID,
 	)
 	return i, err
 }
@@ -713,7 +1067,7 @@ func (q *Queries) GetUpdateType(ctx context.Context, arg GetUpdateTypeParams) (i
 }
 
 const getUpdatesByByBranchNameAndRuntimeVersion = `-- name: GetUpdatesByByBranchNameAndRuntimeVersion :many
-SELECT u.id, u.update_uuid, u.update_type, u.created_at, u.commit_hash, u.platform, u.message, u.checked_at
+SELECT u.id, u.update_uuid, u.update_type, u.created_at, u.commit_hash, u.platform, u.message, u.checked_at, u.rollout_percentage, u.control_update_id
 FROM updates u
 JOIN runtime_versions rv ON u.runtime_version_id = rv.id
 JOIN branches b ON u.branch_id = b.id
@@ -732,14 +1086,16 @@ type GetUpdatesByByBranchNameAndRuntimeVersionParams struct {
 }
 
 type GetUpdatesByByBranchNameAndRuntimeVersionRow struct {
-	ID         int64              `json:"id"`
-	UpdateUuid pgtype.UUID        `json:"update_uuid"`
-	UpdateType int32              `json:"update_type"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	CommitHash string             `json:"commit_hash"`
-	Platform   string             `json:"platform"`
-	Message    *string            `json:"message"`
-	CheckedAt  pgtype.Timestamptz `json:"checked_at"`
+	ID                int64              `json:"id"`
+	UpdateUuid        pgtype.UUID        `json:"update_uuid"`
+	UpdateType        int32              `json:"update_type"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	CommitHash        string             `json:"commit_hash"`
+	Platform          string             `json:"platform"`
+	Message           *string            `json:"message"`
+	CheckedAt         pgtype.Timestamptz `json:"checked_at"`
+	RolloutPercentage *int32             `json:"rollout_percentage"`
+	ControlUpdateID   *int64             `json:"control_update_id"`
 }
 
 func (q *Queries) GetUpdatesByByBranchNameAndRuntimeVersion(ctx context.Context, arg GetUpdatesByByBranchNameAndRuntimeVersionParams) ([]GetUpdatesByByBranchNameAndRuntimeVersionRow, error) {
@@ -760,6 +1116,8 @@ func (q *Queries) GetUpdatesByByBranchNameAndRuntimeVersion(ctx context.Context,
 			&i.Platform,
 			&i.Message,
 			&i.CheckedAt,
+			&i.RolloutPercentage,
+			&i.ControlUpdateID,
 		); err != nil {
 			return nil, err
 		}
@@ -914,6 +1272,35 @@ func (q *Queries) GetUsers(ctx context.Context) ([]GetUsersRow, error) {
 	return items, nil
 }
 
+const hasActiveRolloutUpdate = `-- name: HasActiveRolloutUpdate :one
+SELECT EXISTS (
+    SELECT 1
+    FROM updates u
+    JOIN branches b ON u.branch_id = b.id
+    JOIN runtime_versions rv ON u.runtime_version_id = rv.id
+    WHERE b.app_id = $1
+      AND b.name = $2
+      AND rv.version = $3
+      AND u.rollout_percentage IS NOT NULL
+      AND u.checked_at IS NOT NULL
+)
+`
+
+type HasActiveRolloutUpdateParams struct {
+	AppID   pgtype.UUID `json:"app_id"`
+	Name    string      `json:"name"`
+	Version string      `json:"version"`
+}
+
+// Fail-fast publish guard: reports whether (branch, rtv) already has an active
+// per-update rollout on any platform.
+func (q *Queries) HasActiveRolloutUpdate(ctx context.Context, arg HasActiveRolloutUpdateParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasActiveRolloutUpdate, arg.AppID, arg.Name, arg.Version)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const insertApiKey = `-- name: InsertApiKey :exec
 INSERT INTO api_keys (app_id, name, hint, hashed_key)
 VALUES ($1, $2, $3, $4)
@@ -1006,6 +1393,43 @@ func (q *Queries) InsertChannel(ctx context.Context, arg InsertChannelParams) (i
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertChannelRollout = `-- name: InsertChannelRollout :execrows
+INSERT INTO channel_rollouts (id, channel_id, rollout_branch_id, percentage)
+SELECT $1, c.id, rb.id, $2
+FROM channels c
+JOIN branches rb ON rb.app_id = c.app_id AND rb.name = $5
+WHERE c.app_id = $3
+  AND c.name = $4
+  AND c.branch_id IS NOT NULL
+  AND rb.id <> c.branch_id
+`
+
+type InsertChannelRolloutParams struct {
+	ID         pgtype.UUID `json:"id"`
+	Percentage int32       `json:"percentage"`
+	AppID      pgtype.UUID `json:"app_id"`
+	Name       string      `json:"name"`
+	Name_2     string      `json:"name_2"`
+}
+
+// App-scoped INSERT...SELECT that refuses an unmapped channel (branch_id IS NULL) and a
+// rollout branch equal to the channel's current default. 0 rows inserted => the service
+// disambiguates (404 unknown channel / 400 unmapped or same branch). 23505 on channel_id
+// => 409 already active.
+func (q *Queries) InsertChannelRollout(ctx context.Context, arg InsertChannelRolloutParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertChannelRollout,
+		arg.ID,
+		arg.Percentage,
+		arg.AppID,
+		arg.Name,
+		arg.Name_2,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const insertRuntimeVersion = `-- name: InsertRuntimeVersion :one
@@ -1137,6 +1561,120 @@ func (q *Queries) InsertUpdate(ctx context.Context, arg InsertUpdateParams) (Ins
 	return i, err
 }
 
+const insertUpdateWithRollout = `-- name: InsertUpdateWithRollout :one
+WITH resolved_names AS (
+    SELECT
+        b.id AS resolved_branch_id,
+        rv.id AS resolved_runtime_version_id,
+        b.app_id,
+        b.name AS branch_name,
+        rv.version AS runtime_version
+    FROM branches b
+    INNER JOIN runtime_versions rv ON rv.app_id = b.app_id
+    WHERE b.name = $2
+      AND rv.version = $4
+      AND b.app_id = $3
+),
+resolved_control AS (
+    SELECT u.id AS control_id
+    FROM updates u
+    WHERE u.branch_id = (SELECT resolved_branch_id FROM resolved_names)
+      AND u.runtime_version_id = (SELECT resolved_runtime_version_id FROM resolved_names)
+      AND u.platform = $6
+      AND u.checked_at IS NOT NULL
+    ORDER BY u.id DESC
+    LIMIT 1
+)
+INSERT INTO updates (
+    id,
+    branch_id,
+    runtime_version_id,
+    update_type,
+    platform,
+    commit_hash,
+    message,
+    rollout_percentage,
+    control_update_id
+) VALUES (
+    $1,
+    (SELECT resolved_branch_id FROM resolved_names),
+    (SELECT resolved_runtime_version_id FROM resolved_names),
+    $5,
+    $6,
+    $7,
+    $8,
+    $9,
+    (SELECT control_id FROM resolved_control)
+)
+RETURNING
+    id,
+    platform,
+    commit_hash,
+    message,
+    created_at,
+    rollout_percentage,
+    control_update_id,
+    (SELECT app_id FROM resolved_names) AS app_id,
+    (SELECT branch_name FROM resolved_names) AS branch_name,
+    (SELECT runtime_version FROM resolved_names) AS runtime_version
+`
+
+type InsertUpdateWithRolloutParams struct {
+	ID                int64       `json:"id"`
+	Name              string      `json:"name"`
+	AppID             pgtype.UUID `json:"app_id"`
+	Version           string      `json:"version"`
+	UpdateType        int32       `json:"update_type"`
+	Platform          string      `json:"platform"`
+	CommitHash        string      `json:"commit_hash"`
+	Message           *string     `json:"message"`
+	RolloutPercentage *int32      `json:"rollout_percentage"`
+}
+
+type InsertUpdateWithRolloutRow struct {
+	ID                int64              `json:"id"`
+	Platform          string             `json:"platform"`
+	CommitHash        string             `json:"commit_hash"`
+	Message           *string            `json:"message"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	RolloutPercentage *int32             `json:"rollout_percentage"`
+	ControlUpdateID   *int64             `json:"control_update_id"`
+	AppID             pgtype.UUID        `json:"app_id"`
+	BranchName        string             `json:"branch_name"`
+	RuntimeVersion    string             `json:"runtime_version"`
+}
+
+// Publishes an update carrying a rollout percentage. The resolved_control CTE resolves
+// the control (latest checked update of the same branch/rtv/platform) in the same
+// statement; control_id may be NULL for the first update of a branch.
+func (q *Queries) InsertUpdateWithRollout(ctx context.Context, arg InsertUpdateWithRolloutParams) (InsertUpdateWithRolloutRow, error) {
+	row := q.db.QueryRow(ctx, insertUpdateWithRollout,
+		arg.ID,
+		arg.Name,
+		arg.AppID,
+		arg.Version,
+		arg.UpdateType,
+		arg.Platform,
+		arg.CommitHash,
+		arg.Message,
+		arg.RolloutPercentage,
+	)
+	var i InsertUpdateWithRolloutRow
+	err := row.Scan(
+		&i.ID,
+		&i.Platform,
+		&i.CommitHash,
+		&i.Message,
+		&i.CreatedAt,
+		&i.RolloutPercentage,
+		&i.ControlUpdateID,
+		&i.AppID,
+		&i.BranchName,
+		&i.RuntimeVersion,
+	)
+	return i, err
+}
+
 const insertUser = `-- name: InsertUser :one
 INSERT INTO users (id, email, password_hash, is_admin)
 VALUES ($1, $2, $3, $4)
@@ -1191,22 +1729,43 @@ func (q *Queries) IsBranchProtected(ctx context.Context, arg IsBranchProtectedPa
 	return protected, err
 }
 
-const markUpdateAsChecked = `-- name: MarkUpdateAsChecked :exec
-WITH updated_rows AS (
+const markUpdateAsChecked = `-- name: MarkUpdateAsChecked :execrows
+WITH target AS (
+    SELECT u.id, u.branch_id, u.runtime_version_id, u.platform, u.rollout_percentage
+    FROM updates u
+    JOIN branches b ON u.branch_id = b.id
+    WHERE u.id = $1 AND b.app_id = $2 AND b.name = $3
+),
+updated_rows AS (
     UPDATE updates
     SET checked_at = CURRENT_TIMESTAMP
-    WHERE updates.id = $1
-      AND updates.branch_id = (
-          SELECT branches.id 
-          FROM branches 
-          WHERE branches.app_id = $2
-            AND branches.name = $3
+    FROM target
+    WHERE updates.id = target.id
+      AND updates.branch_id = target.branch_id
+      AND (
+        (target.rollout_percentage IS NULL AND NOT EXISTS (
+            SELECT 1 FROM updates a
+            WHERE a.branch_id = target.branch_id
+              AND a.runtime_version_id = target.runtime_version_id
+              AND a.platform = target.platform
+              AND a.rollout_percentage IS NOT NULL
+              AND a.checked_at IS NOT NULL
+        ))
+        OR
+        (target.rollout_percentage IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM updates n
+            WHERE n.branch_id = target.branch_id
+              AND n.runtime_version_id = target.runtime_version_id
+              AND n.platform = target.platform
+              AND n.checked_at IS NOT NULL
+              AND n.id > target.id
+        ))
       )
-    RETURNING runtime_version_id
+    RETURNING updates.runtime_version_id
 )
 UPDATE runtime_versions
 SET updated_at = CURRENT_TIMESTAMP
-WHERE id = (SELECT runtime_version_id FROM updated_rows)
+WHERE id IN (SELECT runtime_version_id FROM updated_rows)
 `
 
 type MarkUpdateAsCheckedParams struct {
@@ -1215,9 +1774,17 @@ type MarkUpdateAsCheckedParams struct {
 	Name  string      `json:"name"`
 }
 
-func (q *Queries) MarkUpdateAsChecked(ctx context.Context, arg MarkUpdateAsCheckedParams) error {
-	_, err := q.db.Exec(ctx, markUpdateAsChecked, arg.ID, arg.AppID, arg.Name)
-	return err
+// Stamps the "complete and pickable" sentinel. The stamp is refused (0 rows) when it
+// would break a rollout invariant, which closes the publish/activation races
+// transactionally: a plain update cannot become visible while a rollout is active on
+// its (branch, rtv, platform), and a rollout update cannot activate once a newer
+// checked update superseded it during upload.
+func (q *Queries) MarkUpdateAsChecked(ctx context.Context, arg MarkUpdateAsCheckedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markUpdateAsChecked, arg.ID, arg.AppID, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const migrateLegacyApp = `-- name: MigrateLegacyApp :exec
@@ -1421,6 +1988,31 @@ func (q *Queries) MigrateLegacyUpdate(ctx context.Context, arg MigrateLegacyUpda
 	return err
 }
 
+const repointChannelToRolloutBranch = `-- name: RepointChannelToRolloutBranch :execrows
+UPDATE channels
+SET branch_id = (
+    SELECT rollout_branch_id FROM channel_rollouts WHERE channel_id = channels.id
+)
+WHERE app_id = $1 AND name = $2
+  AND EXISTS (SELECT 1 FROM channel_rollouts WHERE channel_id = channels.id)
+`
+
+type RepointChannelToRolloutBranchParams struct {
+	AppID pgtype.UUID `json:"app_id"`
+	Name  string      `json:"name"`
+}
+
+// Promote step: repoints the channel to its rollout branch. Runs with DeleteChannelRollout
+// inside a single transaction (Engine.WithTx). Not blocked by UpdateChannelBranchMapping's
+// rollout guard because it is a distinct statement.
+func (q *Queries) RepointChannelToRolloutBranch(ctx context.Context, arg RepointChannelToRolloutBranchParams) (int64, error) {
+	result, err := q.db.Exec(ctx, repointChannelToRolloutBranch, arg.AppID, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const revokeApiKeyByID = `-- name: RevokeApiKeyByID :execresult
 UPDATE api_keys
 SET revoked_at = CURRENT_TIMESTAMP
@@ -1450,6 +2042,41 @@ type SetBranchProtectedParams struct {
 
 func (q *Queries) SetBranchProtected(ctx context.Context, arg SetBranchProtectedParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setBranchProtected, arg.Protected, arg.AppID, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setUpdateRolloutPercentage = `-- name: SetUpdateRolloutPercentage :execrows
+UPDATE updates
+SET rollout_percentage = $4
+WHERE branch_id = (SELECT branches.id FROM branches WHERE branches.app_id = $1 AND branches.name = $2)
+  AND runtime_version_id = (SELECT runtime_versions.id FROM runtime_versions WHERE runtime_versions.app_id = $1 AND runtime_versions.version = $3)
+  AND rollout_percentage IS NOT NULL
+  AND rollout_percentage < $4
+  AND checked_at IS NOT NULL
+`
+
+type SetUpdateRolloutPercentageParams struct {
+	AppID             pgtype.UUID `json:"app_id"`
+	Name              string      `json:"name"`
+	Version           string      `json:"version"`
+	RolloutPercentage *int32      `json:"rollout_percentage"`
+}
+
+// Dashboard progression: sets the new percentage on every active rollout row for
+// (branch, rtv). The rollout_percentage < $4 guard enforces monotonic increase inside
+// the UPDATE itself so concurrent progressions cannot lower the percentage; the service
+// pre-reads only to produce a friendly 400. 0 rows means the rollout ended or was
+// progressed past $4 in a concurrent edit.
+func (q *Queries) SetUpdateRolloutPercentage(ctx context.Context, arg SetUpdateRolloutPercentageParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setUpdateRolloutPercentage,
+		arg.AppID,
+		arg.Name,
+		arg.Version,
+		arg.RolloutPercentage,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -1560,6 +2187,10 @@ WHERE channels.app_id = $2
       SELECT 1 FROM branches
       WHERE branches.id = $1 AND branches.app_id = $2
   )
+  AND NOT EXISTS (
+      SELECT 1 FROM channel_rollouts
+      WHERE channel_rollouts.channel_id = channels.id
+  )
 `
 
 type UpdateChannelBranchMappingParams struct {
@@ -1570,8 +2201,31 @@ type UpdateChannelBranchMappingParams struct {
 
 // The EXISTS clause scopes the *target* branch to the caller's app. fk_channels_branch
 // only references branches(id), so without it any tenant's branch id satisfies the FK.
+// The NOT EXISTS clause refuses to remap a channel while it has an active rollout
+// (the mapping is locked until the rollout is promoted or reverted). Promotion repoints
+// the channel through RepointChannelToRolloutBranch instead, so it is not blocked here.
 func (q *Queries) UpdateChannelBranchMapping(ctx context.Context, arg UpdateChannelBranchMappingParams) (pgconn.CommandTag, error) {
 	return q.db.Exec(ctx, updateChannelBranchMapping, arg.BranchID, arg.AppID, arg.ID)
+}
+
+const updateChannelRolloutPercentage = `-- name: UpdateChannelRolloutPercentage :execrows
+UPDATE channel_rollouts
+SET percentage = $1, updated_at = CURRENT_TIMESTAMP
+WHERE channel_id = (SELECT id FROM channels WHERE app_id = $2 AND name = $3)
+`
+
+type UpdateChannelRolloutPercentageParams struct {
+	Percentage int32       `json:"percentage"`
+	AppID      pgtype.UUID `json:"app_id"`
+	Name       string      `json:"name"`
+}
+
+func (q *Queries) UpdateChannelRolloutPercentage(ctx context.Context, arg UpdateChannelRolloutPercentageParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateChannelRolloutPercentage, arg.Percentage, arg.AppID, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateUserIsAdminByID = `-- name: UpdateUserIsAdminByID :execresult

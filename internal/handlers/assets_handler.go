@@ -30,6 +30,10 @@ func (h *ExpoProtocolHandler) HandleAssets(w http.ResponseWriter, r *http.Reques
 		RuntimeVersion:        r.URL.Query().Get("runtimeVersion"),
 		Platform:              r.URL.Query().Get("platform"),
 		PreventCDNRedirection: r.Header.Get("prevent-cdn-redirection") == "true",
+		ClientID:              r.Header.Get("EAS-Client-ID"),
+		Branch:                r.URL.Query().Get("branch"),
+		UpdateID:              r.URL.Query().Get("updateId"),
+		RequestedUpdateID:     r.Header.Get("Expo-Requested-Update-ID"),
 	}
 
 	result, err := h.protocolService.ResolveAssetBundle(r.Context(), params)

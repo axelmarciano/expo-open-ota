@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"expo-open-ota/config"
 	"expo-open-ota/internal/assets"
 	cdn2 "expo-open-ota/internal/cdn"
 	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/keyStore"
 	"expo-open-ota/internal/metrics"
+	"expo-open-ota/internal/providers/expo"
 	"expo-open-ota/internal/types"
 	update2 "expo-open-ota/internal/update"
 	"fmt"
@@ -24,6 +26,7 @@ type ExpoProtocolService struct {
 	channelRepo   ChannelRepository
 	updateRepo    UpdateRepository
 	updateService *UpdateService
+	branchRules   []BranchRule
 }
 
 type ManifestRequestParams struct {
@@ -58,6 +61,16 @@ type AssetResolutionParams struct {
 	RuntimeVersion        string
 	Platform              string
 	PreventCDNRedirection bool
+	// ClientID is the device's EAS-Client-ID header; asset requests carry it too, so
+	// the rollout fallback decision matches the manifest decision for the device.
+	ClientID string
+	// Branch and UpdateID are the query params baked into manifest asset URLs; when
+	// both are present (and valid) they pin the exact update the asset belongs to.
+	Branch   string
+	UpdateID string
+	// RequestedUpdateID is the Expo-Requested-Update-ID header expo-updates sends on
+	// every asset request: the UUID of the update the client is downloading.
+	RequestedUpdateID string
 }
 
 type ExpoAssetError struct {
@@ -77,12 +90,13 @@ func (e *ExpoProtocolError) Error() string { return e.Message }
 
 func (e *ExpoAssetError) Error() string { return e.Message }
 
-func NewExpoProtocolService(appRepo AppRepository, channelRepo ChannelRepository, updateRepo UpdateRepository, updateService *UpdateService) *ExpoProtocolService {
+func NewExpoProtocolService(appRepo AppRepository, channelRepo ChannelRepository, updateRepo UpdateRepository, updateService *UpdateService, branchRules []BranchRule) *ExpoProtocolService {
 	return &ExpoProtocolService{
 		appRepo:       appRepo,
 		channelRepo:   channelRepo,
 		updateRepo:    updateRepo,
 		updateService: updateService,
+		branchRules:   branchRules,
 	}
 }
 
@@ -249,26 +263,27 @@ func (s *ExpoProtocolService) ResolveManifestBundle(ctx context.Context, params 
 		return ManifestResult{}, &ExpoProtocolError{StatusCode: http.StatusNotFound, Message: "No branch mapping found"}
 	}
 
-	branchName := branchMap.BranchName
+	servedBranch, lastUpdate, err := s.resolveUpdateForDevice(ctx, params.RequestID, params.AppID, params.ChannelName, params.ClientID, params.Platform, params.RuntimeVersion, branchMap)
+	if err != nil {
+		return ManifestResult{}, err
+	}
 
+	// Tracked AFTER resolution with the branch actually served: under a channel
+	// rollout, attributing the in-bucket cohort to the default branch would make the
+	// rollout invisible in the metrics it is meant to be judged from.
 	if params.ExpoFatalError != "" {
 		if params.CurrentUpdateID != "" {
-			metrics.TrackUpdateErrorUsers(params.AppID, params.ClientID, params.Platform, params.RuntimeVersion, branchName, params.CurrentUpdateID)
+			metrics.TrackUpdateErrorUsers(params.AppID, params.ClientID, params.Platform, params.RuntimeVersion, servedBranch, params.CurrentUpdateID)
 		} else if params.RecentFailedUpdateIDs != "" {
-			metrics.TrackUpdateErrorUsers(params.AppID, params.ClientID, params.Platform, params.RuntimeVersion, branchName, params.RecentFailedUpdateIDs)
+			metrics.TrackUpdateErrorUsers(params.AppID, params.ClientID, params.Platform, params.RuntimeVersion, servedBranch, params.RecentFailedUpdateIDs)
 		}
 	}
-	metrics.TrackActiveUser(params.AppID, params.ClientID, params.Platform, params.RuntimeVersion, branchName, params.CurrentUpdateID)
+	metrics.TrackActiveUser(params.AppID, params.ClientID, params.Platform, params.RuntimeVersion, servedBranch, params.CurrentUpdateID)
 
-	lastUpdate, err := s.updateService.GetLatestUpdate(ctx, params.AppID, branchName, params.RuntimeVersion, params.Platform)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error getting latest update: %v", params.RequestID, err)
-		return ManifestResult{}, &ExpoProtocolError{StatusCode: http.StatusInternalServerError, Message: "Error getting latest update"}
-	}
 	if lastUpdate == nil {
 		return ManifestResult{
 			Update:     nil,
-			BranchName: branchName,
+			BranchName: servedBranch,
 		}, nil
 	}
 	updateType, err := s.updateRepo.GetUpdateType(ctx, *lastUpdate)
@@ -277,7 +292,41 @@ func (s *ExpoProtocolService) ResolveManifestBundle(ctx context.Context, params 
 		return ManifestResult{}, &ExpoProtocolError{StatusCode: http.StatusInternalServerError, Message: "Error determining update type"}
 	}
 
-	return ManifestResult{Update: lastUpdate, BranchName: branchName, UpdateType: updateType}, nil
+	return ManifestResult{Update: lastUpdate, BranchName: servedBranch, UpdateType: updateType}, nil
+}
+
+// resolveUpdateForDevice runs the branch rule chain, then serves the first candidate
+// branch that resolves for the device. A branch "resolves" as soon as it has any
+// checked update for (runtime version, platform), even when the per-device answer is
+// nil (out-of-bucket with no control => noUpdateAvailable, deliberately no fallback to
+// the next candidate). Shared by manifest and asset resolution so the two paths take
+// the same rollout decision for a device.
+func (s *ExpoProtocolService) resolveUpdateForDevice(ctx context.Context, requestID string, appId string, channelName string, clientID string, platform string, runtimeVersion string, branchMap *expo.ChannelMapping) (string, *types.Update, error) {
+	req := &BranchResolutionRequest{
+		AppID:          appId,
+		ChannelName:    channelName,
+		ClientID:       clientID,
+		Platform:       platform,
+		RuntimeVersion: runtimeVersion,
+		Mapping:        branchMap,
+	}
+	candidates, err := ResolveBranchCandidates(ctx, s.branchRules, req)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error resolving branch candidates: %v", requestID, err)
+		return "", nil, &ExpoProtocolError{StatusCode: http.StatusInternalServerError, Message: "Error resolving branch"}
+	}
+	servedBranch := branchMap.BranchName
+	for _, candidate := range candidates {
+		resolution, err := s.updateService.GetLatestUpdateForClient(ctx, appId, candidate, runtimeVersion, platform, clientID)
+		if err != nil {
+			log.Printf("[RequestID: %s] Error getting latest update: %v", requestID, err)
+			return "", nil, &ExpoProtocolError{StatusCode: http.StatusInternalServerError, Message: "Error getting latest update"}
+		}
+		if resolution.BranchHasUpdate {
+			return candidate, resolution.Update, nil
+		}
+	}
+	return servedBranch, nil, nil
 }
 
 func (s *ExpoProtocolService) ResolveAssetBundle(ctx context.Context, params AssetResolutionParams) (*ExpoAssetResult, error) {
@@ -298,13 +347,10 @@ func (s *ExpoProtocolService) ResolveAssetBundle(ctx context.Context, params Ass
 		log.Printf("[RequestID: %s] No branch mapping found for channel: %s", params.RequestID, params.ChannelName)
 		return &ExpoAssetResult{}, &ExpoProtocolError{StatusCode: http.StatusNotFound, Message: "No branch mapping found"}
 	}
-	lastUpdate, err := s.updateService.GetLatestUpdate(ctx, params.AppID, branchMap.BranchName, params.RuntimeVersion, params.Platform)
+	branchName, lastUpdate, err := s.resolveAssetUpdate(ctx, params, branchMap)
 	if err != nil {
-		log.Printf("[RequestID: %s] Error getting latest update: %v", params.RequestID, err)
-		return &ExpoAssetResult{}, &ExpoProtocolError{StatusCode: http.StatusInternalServerError, Message: "Error getting latest update"}
+		return &ExpoAssetResult{}, err
 	}
-
-	branchName := branchMap.BranchName
 
 	req := assets.AssetsRequest{
 		AppId:          params.AppID,
@@ -353,4 +399,56 @@ func (s *ExpoProtocolService) ResolveAssetBundle(ctx context.Context, params Ass
 	return &ExpoAssetResult{
 		RedirectToURL: resp.URL,
 	}, nil
+}
+
+// resolveAssetUpdate picks the update an asset request is served from, in three tiers:
+//
+//  1. The updateId/branch query params baked into manifest asset URLs, validated
+//     app-scoped and against the channel's default and rollout branches.
+//  2. The Expo-Requested-Update-ID header (the UUID of the update the client is
+//     downloading), resolved app-scoped over checked updates only.
+//  3. The same rule-engine decision as /manifest, so a client that carries neither
+//     hint still lands on the update its manifest resolution chose.
+//
+// Tiers 1 and 2 only exist on the control plane; in stateless mode resolution goes
+// straight to tier 3, which with no rollout state degrades to exactly today's
+// latest-update behavior.
+func (s *ExpoProtocolService) resolveAssetUpdate(ctx context.Context, params AssetResolutionParams, branchMap *expo.ChannelMapping) (string, *types.Update, error) {
+	if config.IsDBMode() {
+		if params.UpdateID != "" && params.Branch != "" && s.isAssetBranchAllowed(params.Branch, branchMap) {
+			pinnedUpdate, err := s.updateRepo.GetUpdate(ctx, params.AppID, params.Branch, params.RuntimeVersion, params.UpdateID)
+			if err != nil {
+				log.Printf("[RequestID: %s] Ignoring invalid updateId param %q: %v", params.RequestID, params.UpdateID, err)
+			} else if pinnedUpdate != nil {
+				valid, err := s.updateRepo.IsUpdateValid(ctx, *pinnedUpdate)
+				if err != nil {
+					log.Printf("[RequestID: %s] Error checking update validity: %v", params.RequestID, err)
+					return "", nil, &ExpoProtocolError{StatusCode: http.StatusInternalServerError, Message: "Error getting latest update"}
+				}
+				if valid {
+					return params.Branch, pinnedUpdate, nil
+				}
+			}
+		}
+		if params.RequestedUpdateID != "" {
+			requestedUpdate, err := s.updateRepo.GetUpdateByUUID(ctx, params.AppID, params.RequestedUpdateID)
+			if err != nil {
+				log.Printf("[RequestID: %s] Ignoring invalid Expo-Requested-Update-ID %q: %v", params.RequestID, params.RequestedUpdateID, err)
+			} else if requestedUpdate != nil {
+				return requestedUpdate.Branch, requestedUpdate, nil
+			}
+		}
+	}
+	return s.resolveUpdateForDevice(ctx, params.RequestID, params.AppID, params.ChannelName, params.ClientID, params.Platform, params.RuntimeVersion, branchMap)
+}
+
+// isAssetBranchAllowed restricts the branch query param to the branches the channel
+// can legitimately serve: its mapped branch and, during a channel rollout, the rollout
+// branch. Anything else falls through to the later tiers instead of letting a crafted
+// URL read another branch's files.
+func (s *ExpoProtocolService) isAssetBranchAllowed(branch string, branchMap *expo.ChannelMapping) bool {
+	if branch == branchMap.BranchName {
+		return true
+	}
+	return branchMap.Rollout != nil && branch == branchMap.Rollout.BranchName
 }

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api.ts';
+import { api, UpdateRecord } from '@/lib/api.ts';
 import { ApiError } from '@/components/APIError';
 import { DataTable } from '@/components/DataTable';
 import { Badge } from '@/components/ui/badge.tsx';
@@ -8,8 +8,11 @@ import android from '@/assets/android.svg';
 import { UpdateDetailsRef, UpdateDetailsSheet } from '@/components/UpdateDetailsSheet';
 import { useRef } from 'react';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
+import { useSettings } from '@/lib/SettingsContext';
+import { useCurrentUser } from '@/lib/CurrentUserContext';
 import { TimestampCell } from '@/components/ui/timestamp-cell';
 import { UpdatesBreadcrumb } from '@/pages/Updates/components/UpdatesBreadcrumb';
+import { UpdateRolloutCard } from '@/pages/Updates/components/UpdateRolloutCard';
 
 export const UpdatesTable = ({
   branch,
@@ -20,16 +23,36 @@ export const UpdatesTable = ({
 }) => {
   const sheetRef = useRef<UpdateDetailsRef>(null);
   const { selectedAppId } = useSelectedApp();
+  const { CONTROL_PLANE_ENABLED } = useSettings();
+  const { isAdmin } = useCurrentUser();
   const { data, isLoading, error } = useQuery({
     queryKey: ['updates', selectedAppId, branch, runtimeVersion],
     queryFn: () => api.getUpdates(branch, runtimeVersion),
     enabled: !!selectedAppId,
   });
 
+  // Rollout state is read fresh (control-plane only). It drives the card above
+  // the table and the "Control" markers in the passive Rollout column.
+  const rolloutQuery = useQuery({
+    queryKey: ['update-rollout', selectedAppId, branch, runtimeVersion],
+    queryFn: () => api.getUpdateRollout(branch, runtimeVersion),
+    enabled: !!selectedAppId && CONTROL_PLANE_ENABLED,
+  });
+  const activeRollout = rolloutQuery.data?.active ? rolloutQuery.data.updates : [];
+  const controlIds = new Set(activeRollout.map(u => u.controlUpdateId).filter(Boolean));
+
   return (
     <div className="w-full flex-1">
       <UpdatesBreadcrumb branch={branch} runtimeVersion={runtimeVersion} />
       {!!error && <ApiError error={error} />}
+      {CONTROL_PLANE_ENABLED && activeRollout.length > 0 && (
+        <UpdateRolloutCard
+          branch={branch}
+          runtimeVersion={runtimeVersion}
+          updates={activeRollout}
+          isAdmin={isAdmin}
+        />
+      )}
       <UpdateDetailsSheet ref={sheetRef} branch={branch} runtimeVersion={runtimeVersion} />
       <DataTable
         loading={isLoading}
@@ -89,6 +112,33 @@ export const UpdatesTable = ({
               );
             },
           },
+          ...(CONTROL_PLANE_ENABLED
+            ? [
+                {
+                  header: 'Rollout',
+                  id: 'rollout',
+                  cell: ({ row }: { row: { original: UpdateRecord } }) => {
+                    const update = row.original;
+                    if (update.rolloutPercentage != null) {
+                      return (
+                        <Badge className="border-transparent bg-emerald-100 text-emerald-700">
+                          {update.rolloutPercentage}% rollout
+                        </Badge>
+                      );
+                    }
+                    // A rollout used to run on this update but has ended.
+                    if (update.controlUpdateId != null) {
+                      return <span className="text-xs text-muted-foreground/60">Rolled out</span>;
+                    }
+                    // This update is the control an active rollout falls back to.
+                    if (controlIds.has(update.updateId)) {
+                      return <Badge variant="outline">Control</Badge>;
+                    }
+                    return <span className="text-muted-foreground/40">None</span>;
+                  },
+                },
+              ]
+            : []),
           {
             header: 'Published',
             accessorKey: 'createdAt',

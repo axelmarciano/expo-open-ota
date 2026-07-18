@@ -61,14 +61,16 @@ func (h *UpdateHandler) GetUpdateDetailsHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 	updatesResponse := types.UpdateDetails{
-		UpdateUUID: update.UpdateUUID,
-		UpdateId:   update.UpdateId,
-		CreatedAt:  update.CreatedAt,
-		CommitHash: update.CommitHash,
-		Platform:   update.Platform,
-		Message:    update.Message,
-		Type:       update.Type,
-		ExpoConfig: update.ExpoConfig,
+		UpdateUUID:        update.UpdateUUID,
+		UpdateId:          update.UpdateId,
+		CreatedAt:         update.CreatedAt,
+		CommitHash:        update.CommitHash,
+		Platform:          update.Platform,
+		Message:           update.Message,
+		Type:              update.Type,
+		ExpoConfig:        update.ExpoConfig,
+		RolloutPercentage: update.RolloutPercentage,
+		ControlUpdateId:   update.ControlUpdateId,
 	}
 	marshaledResponse, _ := json.Marshal(updatesResponse)
 	w.Header().Set("Content-Type", "application/json")

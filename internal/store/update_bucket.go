@@ -318,3 +318,34 @@ func (s *BucketUpdateStore) CreateRollback(ctx context.Context, appId string, up
 func (s *BucketUpdateStore) GetUpdateByBranchNameAndRuntime(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string) (pgdb.GetUpdateByBranchNameAndRuntimeRow, error) {
 	return pgdb.GetUpdateByBranchNameAndRuntimeRow{}, ErrNotSupportedInStatelessMode
 }
+
+// GetLatestUpdateWithRollout wraps GetLatestUpdate with an empty rollout envelope:
+// stateless mode has no rollouts, so the resolution path degrades to plain
+// latest-update behavior, byte-identical to today.
+func (s *BucketUpdateStore) GetLatestUpdateWithRollout(ctx context.Context, appId string, branchName string, runtimeVersion string, platform string) (*types.UpdateWithRollout, error) {
+	latest, err := s.GetLatestUpdate(ctx, appId, branchName, runtimeVersion, platform)
+	if err != nil {
+		return nil, err
+	}
+	if latest == nil {
+		return nil, nil
+	}
+	return &types.UpdateWithRollout{Update: *latest}, nil
+}
+
+// HasActiveRolloutUpdate is always false in stateless mode: rollouts never exist here,
+// so the publish pre-check never blocks.
+func (s *BucketUpdateStore) HasActiveRolloutUpdate(ctx context.Context, appId string, branchName string, runtimeVersion string) (bool, error) {
+	return false, nil
+}
+
+func (s *BucketUpdateStore) CreateUpdateWithRollout(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string, rolloutPercentage int) (*types.Update, error) {
+	return nil, ErrNotSupportedInStatelessMode
+}
+
+// GetUpdateByUUID returns (nil, nil) in stateless mode rather than an error so the assets
+// fallback keeps its current path: no Expo-Requested-Update-ID resolution, straight to the
+// latest-update decision, byte-identical to today.
+func (s *BucketUpdateStore) GetUpdateByUUID(ctx context.Context, appId string, updateUUID string) (*types.Update, error) {
+	return nil, nil
+}

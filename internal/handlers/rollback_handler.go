@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/services"
 	"log"
@@ -55,6 +56,11 @@ func (h *RollbackHandler) HandleRollback(w http.ResponseWriter, r *http.Request)
 	commitHash := r.URL.Query().Get("commitHash")
 	rollback, err := h.deploymentService.CreateRollback(r.Context(), appId, platform, commitHash, runtimeVersion, branchName)
 	if err != nil {
+		if errors.Is(err, services.ErrActiveRolloutBlocksPublish) {
+			log.Printf("[RequestID: %s] Rollback blocked by active rollout: %v", requestID, err)
+			http.Error(w, activeRolloutConflictMessage, http.StatusConflict)
+			return
+		}
 		log.Printf("[RequestID: %s] Error creating rollback: %v", requestID, err)
 		http.Error(w, "Error creating rollback", http.StatusInternalServerError)
 		return

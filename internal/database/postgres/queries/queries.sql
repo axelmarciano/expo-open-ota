@@ -31,9 +31,16 @@ DELETE FROM channels
 WHERE name = $1 AND app_id = $2;
 
 -- name: GetChannelsByAppID :many
-SELECT channels.*, branches.name as branch_name 
+SELECT channels.*, branches.name as branch_name,
+    cr.id AS rollout_id,
+    rb.name AS rollout_branch_name,
+    cr.percentage AS rollout_percentage,
+    cr.created_at AS rollout_created_at,
+    cr.updated_at AS rollout_updated_at
 FROM channels
 LEFT JOIN branches ON channels.branch_id = branches.id AND branches.app_id = channels.app_id
+LEFT JOIN channel_rollouts cr ON cr.channel_id = channels.id
+LEFT JOIN branches rb ON cr.rollout_branch_id = rb.id
 WHERE channels.app_id = $1
 ORDER BY channels.created_at ASC;
 
@@ -45,9 +52,16 @@ WHERE b.name = $1 AND b.app_id = $2
 ORDER BY c.created_at ASC;
 
 -- name: GetChannelBranchMapping :one
-SELECT c.id, b.name AS branch_name
+-- Hot path (manifest resolution). The LEFT JOINs fold the channel's active rollout
+-- (if any) into the single mapping read so branch resolution stays ONE query.
+SELECT c.id, b.name AS branch_name,
+    cr.id AS rollout_id,
+    rb.name AS rollout_branch_name,
+    cr.percentage AS rollout_percentage
 FROM channels c
 JOIN branches b ON c.branch_id = b.id AND b.app_id = c.app_id
+LEFT JOIN channel_rollouts cr ON cr.channel_id = c.id
+LEFT JOIN branches rb ON cr.rollout_branch_id = rb.id
 WHERE c.app_id = $1 AND c.name = $2;
 
 -- name: InsertBranch :one
@@ -75,6 +89,9 @@ WHERE branches.app_id = $1;
 -- name: UpdateChannelBranchMapping :execresult
 -- The EXISTS clause scopes the *target* branch to the caller's app. fk_channels_branch
 -- only references branches(id), so without it any tenant's branch id satisfies the FK.
+-- The NOT EXISTS clause refuses to remap a channel while it has an active rollout
+-- (the mapping is locked until the rollout is promoted or reverted). Promotion repoints
+-- the channel through RepointChannelToRolloutBranch instead, so it is not blocked here.
 UPDATE channels
 SET branch_id = $1
 WHERE channels.app_id = $2
@@ -82,6 +99,10 @@ WHERE channels.app_id = $2
   AND EXISTS (
       SELECT 1 FROM branches
       WHERE branches.id = $1 AND branches.app_id = $2
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM channel_rollouts
+      WHERE channel_rollouts.channel_id = channels.id
   );
 
 -- name: GetRuntimeVersionsWithUpdateCount :many
@@ -116,7 +137,7 @@ VALUES ($1, $2)
 RETURNING id;
 
 -- name: GetUpdatesByByBranchNameAndRuntimeVersion :many
-SELECT u.id, u.update_uuid, u.update_type, u.created_at, u.commit_hash, u.platform, u.message, u.checked_at
+SELECT u.id, u.update_uuid, u.update_type, u.created_at, u.commit_hash, u.platform, u.message, u.checked_at, u.rollout_percentage, u.control_update_id
 FROM updates u
 JOIN runtime_versions rv ON u.runtime_version_id = rv.id
 JOIN branches b ON u.branch_id = b.id
@@ -188,7 +209,7 @@ LIMIT 1;
 -- update id is only unique per branch, and branch names are only unique per app.
 -- Without the app filter the same (id, branch, runtime) triple matches another
 -- tenant's row.
-SELECT u.id, u.update_uuid, b.app_id, b.name AS branch_name, r.version AS runtime_version, u.update_type, u.commit_hash, u.message, u.platform, u.created_at
+SELECT u.id, u.update_uuid, b.app_id, b.name AS branch_name, r.version AS runtime_version, u.update_type, u.commit_hash, u.message, u.platform, u.created_at, u.rollout_percentage, u.control_update_id
 FROM updates u
 INNER JOIN branches b ON u.branch_id = b.id
 INNER JOIN runtime_versions r ON u.runtime_version_id = r.id
@@ -205,22 +226,48 @@ INNER JOIN branches b ON u.branch_id = b.id
 INNER JOIN runtime_versions rv ON u.runtime_version_id = rv.id
 WHERE b.name = $1 AND b.app_id = $2;
 
--- name: MarkUpdateAsChecked :exec
-WITH updated_rows AS (
+-- name: MarkUpdateAsChecked :execrows
+-- Stamps the "complete and pickable" sentinel. The stamp is refused (0 rows) when it
+-- would break a rollout invariant, which closes the publish/activation races
+-- transactionally: a plain update cannot become visible while a rollout is active on
+-- its (branch, rtv, platform), and a rollout update cannot activate once a newer
+-- checked update superseded it during upload.
+WITH target AS (
+    SELECT u.id, u.branch_id, u.runtime_version_id, u.platform, u.rollout_percentage
+    FROM updates u
+    JOIN branches b ON u.branch_id = b.id
+    WHERE u.id = $1 AND b.app_id = $2 AND b.name = $3
+),
+updated_rows AS (
     UPDATE updates
     SET checked_at = CURRENT_TIMESTAMP
-    WHERE updates.id = $1
-      AND updates.branch_id = (
-          SELECT branches.id 
-          FROM branches 
-          WHERE branches.app_id = $2
-            AND branches.name = $3
+    FROM target
+    WHERE updates.id = target.id
+      AND updates.branch_id = target.branch_id
+      AND (
+        (target.rollout_percentage IS NULL AND NOT EXISTS (
+            SELECT 1 FROM updates a
+            WHERE a.branch_id = target.branch_id
+              AND a.runtime_version_id = target.runtime_version_id
+              AND a.platform = target.platform
+              AND a.rollout_percentage IS NOT NULL
+              AND a.checked_at IS NOT NULL
+        ))
+        OR
+        (target.rollout_percentage IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM updates n
+            WHERE n.branch_id = target.branch_id
+              AND n.runtime_version_id = target.runtime_version_id
+              AND n.platform = target.platform
+              AND n.checked_at IS NOT NULL
+              AND n.id > target.id
+        ))
       )
-    RETURNING runtime_version_id
+    RETURNING updates.runtime_version_id
 )
 UPDATE runtime_versions
 SET updated_at = CURRENT_TIMESTAMP
-WHERE id = (SELECT runtime_version_id FROM updated_rows);
+WHERE id IN (SELECT runtime_version_id FROM updated_rows);
 
 -- name: InsertUpdate :one
 WITH resolved_names AS (
@@ -518,3 +565,217 @@ WHERE app_id = $2 AND name = $3;
 -- name: IsBranchProtected :one
 SELECT protected FROM branches
 WHERE app_id = $1 AND name = $2;
+
+-- The queries below back progressive rollouts (MIT core, control-plane mode only).
+
+-- name: GetUpdateByUUID :one
+-- App-scoped, checked-only lookup by the persistent update UUID. Backs the /assets
+-- rollout fix: expo-updates sends Expo-Requested-Update-ID on every asset request, so
+-- the exact update it is running can be served regardless of the rollout decision.
+SELECT u.id, u.update_uuid, b.app_id, b.name AS branch_name, r.version AS runtime_version, u.update_type, u.commit_hash, u.message, u.platform, u.created_at, u.rollout_percentage, u.control_update_id
+FROM updates u
+INNER JOIN branches b ON u.branch_id = b.id
+INNER JOIN runtime_versions r ON u.runtime_version_id = r.id
+WHERE b.app_id = $1
+  AND u.update_uuid = $2
+  AND u.checked_at IS NOT NULL
+LIMIT 1;
+
+-- name: GetLatestUpdateWithRollout :one
+-- Latest checked update for (branch, rtv, platform) plus its control, resolved through
+-- the explicit control_update_id pointer (a LEFT JOIN on the composite PK, NOT a LIMIT-2
+-- heuristic). Control fields are NULL when the update carries no rollout.
+SELECT
+    u.id,
+    u.update_uuid,
+    u.branch_id,
+    u.runtime_version_id,
+    u.update_type,
+    u.commit_hash,
+    u.message,
+    u.platform,
+    u.created_at,
+    u.rollout_percentage,
+    u.control_update_id,
+    c.id AS control_id,
+    c.created_at AS control_created_at,
+    c.update_type AS control_update_type
+FROM updates u
+JOIN branches b ON u.branch_id = b.id
+JOIN runtime_versions rv ON u.runtime_version_id = rv.id
+LEFT JOIN updates c ON c.branch_id = u.branch_id AND c.id = u.control_update_id
+WHERE b.app_id = $1
+  AND b.name = $2
+  AND rv.version = $3
+  AND u.platform = $4
+  AND u.checked_at IS NOT NULL
+ORDER BY u.id DESC
+LIMIT 1;
+
+-- name: HasActiveRolloutUpdate :one
+-- Fail-fast publish guard: reports whether (branch, rtv) already has an active
+-- per-update rollout on any platform.
+SELECT EXISTS (
+    SELECT 1
+    FROM updates u
+    JOIN branches b ON u.branch_id = b.id
+    JOIN runtime_versions rv ON u.runtime_version_id = rv.id
+    WHERE b.app_id = $1
+      AND b.name = $2
+      AND rv.version = $3
+      AND u.rollout_percentage IS NOT NULL
+      AND u.checked_at IS NOT NULL
+);
+
+-- name: GetActiveRolloutUpdates :many
+-- The active per-update rollout rows for (branch, rtv), one per platform.
+SELECT u.id, u.platform, u.rollout_percentage, u.control_update_id, u.created_at
+FROM updates u
+JOIN branches b ON u.branch_id = b.id
+JOIN runtime_versions rv ON u.runtime_version_id = rv.id
+WHERE b.app_id = $1
+  AND b.name = $2
+  AND rv.version = $3
+  AND u.rollout_percentage IS NOT NULL
+  AND u.checked_at IS NOT NULL
+ORDER BY u.platform ASC;
+
+-- name: SetUpdateRolloutPercentage :execrows
+-- Dashboard progression: sets the new percentage on every active rollout row for
+-- (branch, rtv). The rollout_percentage < $4 guard enforces monotonic increase inside
+-- the UPDATE itself so concurrent progressions cannot lower the percentage; the service
+-- pre-reads only to produce a friendly 400. 0 rows means the rollout ended or was
+-- progressed past $4 in a concurrent edit.
+UPDATE updates
+SET rollout_percentage = $4
+WHERE branch_id = (SELECT branches.id FROM branches WHERE branches.app_id = $1 AND branches.name = $2)
+  AND runtime_version_id = (SELECT runtime_versions.id FROM runtime_versions WHERE runtime_versions.app_id = $1 AND runtime_versions.version = $3)
+  AND rollout_percentage IS NOT NULL
+  AND rollout_percentage < $4
+  AND checked_at IS NOT NULL;
+
+-- name: ClearUpdateRollout :execrows
+-- Ends the per-update rollout for (branch, rtv) by clearing the percentage on every
+-- active row. Used by both "finish" (progress to 100) and "revert". control_update_id
+-- is deliberately retained: it is the historical marker the dashboard uses to render
+-- the finished-rollout state, and serving only ever reads it together with a non-NULL
+-- rollout_percentage.
+UPDATE updates
+SET rollout_percentage = NULL
+WHERE branch_id = (SELECT branches.id FROM branches WHERE branches.app_id = $1 AND branches.name = $2)
+  AND runtime_version_id = (SELECT runtime_versions.id FROM runtime_versions WHERE runtime_versions.app_id = $1 AND runtime_versions.version = $3)
+  AND rollout_percentage IS NOT NULL
+  AND checked_at IS NOT NULL;
+
+-- name: InsertUpdateWithRollout :one
+-- Publishes an update carrying a rollout percentage. The resolved_control CTE resolves
+-- the control (latest checked update of the same branch/rtv/platform) in the same
+-- statement; control_id may be NULL for the first update of a branch.
+WITH resolved_names AS (
+    SELECT
+        b.id AS resolved_branch_id,
+        rv.id AS resolved_runtime_version_id,
+        b.app_id,
+        b.name AS branch_name,
+        rv.version AS runtime_version
+    FROM branches b
+    INNER JOIN runtime_versions rv ON rv.app_id = b.app_id
+    WHERE b.name = $2
+      AND rv.version = $4
+      AND b.app_id = $3
+),
+resolved_control AS (
+    SELECT u.id AS control_id
+    FROM updates u
+    WHERE u.branch_id = (SELECT resolved_branch_id FROM resolved_names)
+      AND u.runtime_version_id = (SELECT resolved_runtime_version_id FROM resolved_names)
+      AND u.platform = $6
+      AND u.checked_at IS NOT NULL
+    ORDER BY u.id DESC
+    LIMIT 1
+)
+INSERT INTO updates (
+    id,
+    branch_id,
+    runtime_version_id,
+    update_type,
+    platform,
+    commit_hash,
+    message,
+    rollout_percentage,
+    control_update_id
+) VALUES (
+    $1,
+    (SELECT resolved_branch_id FROM resolved_names),
+    (SELECT resolved_runtime_version_id FROM resolved_names),
+    $5,
+    $6,
+    $7,
+    $8,
+    $9,
+    (SELECT control_id FROM resolved_control)
+)
+RETURNING
+    id,
+    platform,
+    commit_hash,
+    message,
+    created_at,
+    rollout_percentage,
+    control_update_id,
+    (SELECT app_id FROM resolved_names) AS app_id,
+    (SELECT branch_name FROM resolved_names) AS branch_name,
+    (SELECT runtime_version FROM resolved_names) AS runtime_version;
+
+-- name: InsertChannelRollout :execrows
+-- App-scoped INSERT...SELECT that refuses an unmapped channel (branch_id IS NULL) and a
+-- rollout branch equal to the channel's current default. 0 rows inserted => the service
+-- disambiguates (404 unknown channel / 400 unmapped or same branch). 23505 on channel_id
+-- => 409 already active.
+INSERT INTO channel_rollouts (id, channel_id, rollout_branch_id, percentage)
+SELECT $1, c.id, rb.id, $2
+FROM channels c
+JOIN branches rb ON rb.app_id = c.app_id AND rb.name = $5
+WHERE c.app_id = $3
+  AND c.name = $4
+  AND c.branch_id IS NOT NULL
+  AND rb.id <> c.branch_id;
+
+-- name: GetChannelRollout :one
+SELECT cr.id, cr.channel_id, ch.name AS channel_name,
+    db.name AS default_branch_name,
+    rb.name AS rollout_branch_name,
+    cr.percentage, cr.created_at, cr.updated_at
+FROM channel_rollouts cr
+JOIN channels ch ON cr.channel_id = ch.id
+JOIN branches db ON ch.branch_id = db.id
+JOIN branches rb ON cr.rollout_branch_id = rb.id
+WHERE ch.app_id = $1 AND ch.name = $2;
+
+-- name: UpdateChannelRolloutPercentage :execrows
+UPDATE channel_rollouts
+SET percentage = $1, updated_at = CURRENT_TIMESTAMP
+WHERE channel_id = (SELECT id FROM channels WHERE app_id = $2 AND name = $3);
+
+-- name: DeleteChannelRollout :execrows
+DELETE FROM channel_rollouts
+WHERE channel_id = (SELECT id FROM channels WHERE app_id = $1 AND name = $2);
+
+-- name: RepointChannelToRolloutBranch :execrows
+-- Promote step: repoints the channel to its rollout branch. Runs with DeleteChannelRollout
+-- inside a single transaction (Engine.WithTx). Not blocked by UpdateChannelBranchMapping's
+-- rollout guard because it is a distinct statement.
+UPDATE channels
+SET branch_id = (
+    SELECT rollout_branch_id FROM channel_rollouts WHERE channel_id = channels.id
+)
+WHERE app_id = $1 AND name = $2
+  AND EXISTS (SELECT 1 FROM channel_rollouts WHERE channel_id = channels.id);
+
+-- name: GetChannelRolloutsByBranch :many
+-- Branch-delete guard: the channels whose active rollout serves this branch. FK RESTRICT
+-- already blocks the delete; this yields the friendly channel list for the error message.
+SELECT ch.name AS channel_name
+FROM channel_rollouts cr
+JOIN channels ch ON cr.channel_id = ch.id
+WHERE cr.rollout_branch_id = (SELECT branches.id FROM branches WHERE branches.app_id = $1 AND branches.name = $2);
