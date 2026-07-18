@@ -13,24 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const deleteApiKeyChannelsByKey = `-- name: DeleteApiKeyChannelsByKey :exec
-DELETE FROM api_key_channels
-USING api_keys ak
-WHERE api_key_channels.api_key_id = ak.id
-  AND ak.id = $1
-  AND ak.app_id = $2
-`
-
-type DeleteApiKeyChannelsByKeyParams struct {
-	ID    int64       `json:"id"`
-	AppID pgtype.UUID `json:"app_id"`
-}
-
-func (q *Queries) DeleteApiKeyChannelsByKey(ctx context.Context, arg DeleteApiKeyChannelsByKeyParams) error {
-	_, err := q.db.Exec(ctx, deleteApiKeyChannelsByKey, arg.ID, arg.AppID)
-	return err
-}
-
 const deleteAppByID = `-- name: DeleteAppByID :execresult
 DELETE FROM apps
 WHERE id = $1
@@ -93,64 +75,52 @@ func (q *Queries) DeleteUserByID(ctx context.Context, id pgtype.UUID) (pgconn.Co
 	return q.db.Exec(ctx, deleteUserByID, id)
 }
 
-const getApiKeyChannelsByAppID = `-- name: GetApiKeyChannelsByAppID :many
+const getApiKeyRestrictions = `-- name: GetApiKeyRestrictions :one
 
-SELECT akc.api_key_id, akc.channel_id
-FROM api_key_channels akc
-JOIN api_keys ak ON ak.id = akc.api_key_id
-WHERE ak.app_id = $1 AND ak.revoked_at IS NULL
-ORDER BY akc.api_key_id, akc.channel_id
+SELECT allowed_ips, can_access_protected_branches
+FROM api_keys
+WHERE id = $1
 `
 
-type GetApiKeyChannelsByAppIDRow struct {
-	ApiKeyID  int64 `json:"api_key_id"`
-	ChannelID int64 `json:"channel_id"`
+type GetApiKeyRestrictionsRow struct {
+	AllowedIps                 []netip.Prefix `json:"allowed_ips"`
+	CanAccessProtectedBranches bool           `json:"can_access_protected_branches"`
 }
 
 // The queries below back the Enterprise Edition per-key access restrictions
-// (ee/apikeyscopes). sqlc generates a single package for the whole schema, so
-// the EE feature's SQL lives here like the enterprise license queries above.
-func (q *Queries) GetApiKeyChannelsByAppID(ctx context.Context, appID pgtype.UUID) ([]GetApiKeyChannelsByAppIDRow, error) {
-	rows, err := q.db.Query(ctx, getApiKeyChannelsByAppID, appID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GetApiKeyChannelsByAppIDRow
-	for rows.Next() {
-		var i GetApiKeyChannelsByAppIDRow
-		if err := rows.Scan(&i.ApiKeyID, &i.ChannelID); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+// (ee/apikeyrestrictions). sqlc generates a single package for the whole
+// schema, so the EE feature's SQL lives here like the enterprise license
+// queries above.
+// Enforcement read for one authenticated key on the CLI request hot path.
+func (q *Queries) GetApiKeyRestrictions(ctx context.Context, id int64) (GetApiKeyRestrictionsRow, error) {
+	row := q.db.QueryRow(ctx, getApiKeyRestrictions, id)
+	var i GetApiKeyRestrictionsRow
+	err := row.Scan(&i.AllowedIps, &i.CanAccessProtectedBranches)
+	return i, err
 }
 
-const getApiKeysAllowedIpsByAppID = `-- name: GetApiKeysAllowedIpsByAppID :many
-SELECT id, allowed_ips
+const getApiKeyRestrictionsByAppID = `-- name: GetApiKeyRestrictionsByAppID :many
+SELECT id, allowed_ips, can_access_protected_branches
 FROM api_keys
-WHERE app_id = $1 AND revoked_at IS NULL AND allowed_ips IS NOT NULL
+WHERE app_id = $1 AND revoked_at IS NULL
 `
 
-type GetApiKeysAllowedIpsByAppIDRow struct {
-	ID         int64          `json:"id"`
-	AllowedIps []netip.Prefix `json:"allowed_ips"`
+type GetApiKeyRestrictionsByAppIDRow struct {
+	ID                         int64          `json:"id"`
+	AllowedIps                 []netip.Prefix `json:"allowed_ips"`
+	CanAccessProtectedBranches bool           `json:"can_access_protected_branches"`
 }
 
-func (q *Queries) GetApiKeysAllowedIpsByAppID(ctx context.Context, appID pgtype.UUID) ([]GetApiKeysAllowedIpsByAppIDRow, error) {
-	rows, err := q.db.Query(ctx, getApiKeysAllowedIpsByAppID, appID)
+func (q *Queries) GetApiKeyRestrictionsByAppID(ctx context.Context, appID pgtype.UUID) ([]GetApiKeyRestrictionsByAppIDRow, error) {
+	rows, err := q.db.Query(ctx, getApiKeyRestrictionsByAppID, appID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetApiKeysAllowedIpsByAppIDRow
+	var items []GetApiKeyRestrictionsByAppIDRow
 	for rows.Next() {
-		var i GetApiKeysAllowedIpsByAppIDRow
-		if err := rows.Scan(&i.ID, &i.AllowedIps); err != nil {
+		var i GetApiKeyRestrictionsByAppIDRow
+		if err := rows.Scan(&i.ID, &i.AllowedIps, &i.CanAccessProtectedBranches); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -277,7 +247,7 @@ func (q *Queries) GetBranchByName(ctx context.Context, arg GetBranchByNameParams
 
 const getBranchesByAppID = `-- name: GetBranchesByAppID :many
 SELECT DISTINCT ON (branches.id) 
-    branches.id, branches.app_id, branches.name, branches.created_at, 
+    branches.id, branches.app_id, branches.name, branches.created_at, branches.protected, 
     channels.name AS channel_name 
 FROM branches
 LEFT JOIN channels ON branches.id = channels.branch_id AND channels.app_id = branches.app_id
@@ -289,6 +259,7 @@ type GetBranchesByAppIDRow struct {
 	AppID       pgtype.UUID        `json:"app_id"`
 	Name        string             `json:"name"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	Protected   bool               `json:"protected"`
 	ChannelName *string            `json:"channel_name"`
 }
 
@@ -306,6 +277,7 @@ func (q *Queries) GetBranchesByAppID(ctx context.Context, appID pgtype.UUID) ([]
 			&i.AppID,
 			&i.Name,
 			&i.CreatedAt,
+			&i.Protected,
 			&i.ChannelName,
 		); err != nil {
 			return nil, err
@@ -903,31 +875,6 @@ func (q *Queries) InsertApiKey(ctx context.Context, arg InsertApiKeyParams) erro
 	return err
 }
 
-const insertApiKeyChannels = `-- name: InsertApiKeyChannels :execrows
-INSERT INTO api_key_channels (api_key_id, channel_id)
-SELECT $1, c.id
-FROM channels c
-WHERE c.app_id = $2
-  AND c.id = ANY($3::BIGINT[])
-`
-
-type InsertApiKeyChannelsParams struct {
-	ApiKeyID   int64       `json:"api_key_id"`
-	AppID      pgtype.UUID `json:"app_id"`
-	ChannelIds []int64     `json:"channel_ids"`
-}
-
-// The join against channels pins each channel id to the caller's app: a
-// channel from another app inserts nothing, which the store surfaces as a
-// row-count mismatch instead of silently granting a cross-tenant scope.
-func (q *Queries) InsertApiKeyChannels(ctx context.Context, arg InsertApiKeyChannelsParams) (int64, error) {
-	result, err := q.db.Exec(ctx, insertApiKeyChannels, arg.ApiKeyID, arg.AppID, arg.ChannelIds)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const insertApp = `-- name: InsertApp :one
 INSERT INTO apps (id, name, keys_mode, sealed_public_key, sealed_private_key, path_public_key, path_private_key, aws_secret_id_public, aws_secret_id_private)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -1142,6 +1089,23 @@ func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) (InsertU
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const isBranchProtected = `-- name: IsBranchProtected :one
+SELECT protected FROM branches
+WHERE app_id = $1 AND name = $2
+`
+
+type IsBranchProtectedParams struct {
+	AppID pgtype.UUID `json:"app_id"`
+	Name  string      `json:"name"`
+}
+
+func (q *Queries) IsBranchProtected(ctx context.Context, arg IsBranchProtectedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isBranchProtected, arg.AppID, arg.Name)
+	var protected bool
+	err := row.Scan(&protected)
+	return protected, err
 }
 
 const markUpdateAsChecked = `-- name: MarkUpdateAsChecked :exec
@@ -1389,6 +1353,26 @@ func (q *Queries) RevokeApiKeyByID(ctx context.Context, arg RevokeApiKeyByIDPara
 	return q.db.Exec(ctx, revokeApiKeyByID, arg.ID, arg.AppID)
 }
 
+const setBranchProtected = `-- name: SetBranchProtected :execrows
+UPDATE branches
+SET protected = $1
+WHERE app_id = $2 AND name = $3
+`
+
+type SetBranchProtectedParams struct {
+	Protected bool        `json:"protected"`
+	AppID     pgtype.UUID `json:"app_id"`
+	Name      string      `json:"name"`
+}
+
+func (q *Queries) SetBranchProtected(ctx context.Context, arg SetBranchProtectedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setBranchProtected, arg.Protected, arg.AppID, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const storeUpdateUUID = `-- name: StoreUpdateUUID :execresult
 UPDATE updates
 SET update_uuid = $2
@@ -1427,20 +1411,26 @@ func (q *Queries) TouchUserLastConnectedAt(ctx context.Context, id pgtype.UUID) 
 	return err
 }
 
-const updateApiKeyAllowedIps = `-- name: UpdateApiKeyAllowedIps :execrows
+const updateApiKeyRestrictions = `-- name: UpdateApiKeyRestrictions :execrows
 UPDATE api_keys
-SET allowed_ips = $1
-WHERE id = $2 AND app_id = $3 AND revoked_at IS NULL
+SET allowed_ips = $1, can_access_protected_branches = $2
+WHERE id = $3 AND app_id = $4 AND revoked_at IS NULL
 `
 
-type UpdateApiKeyAllowedIpsParams struct {
-	AllowedIps []netip.Prefix `json:"allowed_ips"`
-	ID         int64          `json:"id"`
-	AppID      pgtype.UUID    `json:"app_id"`
+type UpdateApiKeyRestrictionsParams struct {
+	AllowedIps                 []netip.Prefix `json:"allowed_ips"`
+	CanAccessProtectedBranches bool           `json:"can_access_protected_branches"`
+	ID                         int64          `json:"id"`
+	AppID                      pgtype.UUID    `json:"app_id"`
 }
 
-func (q *Queries) UpdateApiKeyAllowedIps(ctx context.Context, arg UpdateApiKeyAllowedIpsParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateApiKeyAllowedIps, arg.AllowedIps, arg.ID, arg.AppID)
+func (q *Queries) UpdateApiKeyRestrictions(ctx context.Context, arg UpdateApiKeyRestrictionsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateApiKeyRestrictions,
+		arg.AllowedIps,
+		arg.CanAccessProtectedBranches,
+		arg.ID,
+		arg.AppID,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -1550,7 +1540,7 @@ SET last_used_at = CURRENT_TIMESTAMP
 WHERE app_id = $1
   AND hashed_key = $2
   AND revoked_at IS NULL
-RETURNING TRUE AS is_valid
+RETURNING id
 `
 
 type ValidateAndTouchAuthParams struct {
@@ -1558,9 +1548,11 @@ type ValidateAndTouchAuthParams struct {
 	HashedKey string      `json:"hashed_key"`
 }
 
-func (q *Queries) ValidateAndTouchAuth(ctx context.Context, arg ValidateAndTouchAuthParams) (bool, error) {
+// Returns the matched key id so the caller can enforce per-key restrictions
+// (enterprise) on top of the authentication itself.
+func (q *Queries) ValidateAndTouchAuth(ctx context.Context, arg ValidateAndTouchAuthParams) (int64, error) {
 	row := q.db.QueryRow(ctx, validateAndTouchAuth, arg.AppID, arg.HashedKey)
-	var is_valid bool
-	err := row.Scan(&is_valid)
-	return is_valid, err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }

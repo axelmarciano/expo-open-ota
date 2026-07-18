@@ -70,6 +70,8 @@ export type BranchRecord = {
   branchId: string;
   releaseChannel?: string | null;
   createdAt: string | null;
+  // Enterprise branch protection; always false in stateless mode.
+  protected: boolean;
 };
 
 export type ChannelRecord = {
@@ -92,13 +94,13 @@ export type CreateApiKeyResponse = {
   apiKey: string;
 };
 
-// Enterprise per-token access restrictions (/apiKeys/scopes, control-plane
-// only). A token absent from the list is unrestricted. Empty channelIds means
-// the token can publish to every channel; empty allowedIps means it can be
-// used from any source address.
-export type ApiKeyScopeRecord = {
+// Enterprise per-token access restrictions (/apiKeys/restrictions,
+// control-plane only). A token absent from the list is in the default state:
+// no access to protected branches and no IP allowlist. Empty allowedIps means
+// the token can be used from any source address.
+export type ApiKeyRestrictionsRecord = {
   apiKeyId: string;
-  channelIds: string[];
+  canAccessProtectedBranches: boolean;
   allowedIps: string[];
 };
 
@@ -386,22 +388,33 @@ export class ApiClient {
     });
   }
 
-  public async getApiKeyScopes() {
-    return this.request<ApiKeyScopeRecord[]>(`${this.appScope()}/apiKeys/scopes`, {
+  public async getApiKeyRestrictions() {
+    return this.request<ApiKeyRestrictionsRecord[]>(`${this.appScope()}/apiKeys/restrictions`, {
       method: 'GET',
     });
   }
 
-  public async setApiKeyScopes(
+  public async setApiKeyRestrictions(
     apiKeyId: string,
-    scopes: { channelIds: string[]; allowedIps: string[] }
+    restrictions: { canAccessProtectedBranches: boolean; allowedIps: string[] }
   ) {
     return this.request<void>(
-      `${this.appScope()}/apiKeys/${encodeURIComponent(apiKeyId)}/scopes`,
+      `${this.appScope()}/apiKeys/${encodeURIComponent(apiKeyId)}/restrictions`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(scopes),
+        body: JSON.stringify(restrictions),
+      }
+    );
+  }
+
+  public async setBranchProtection(branchName: string, isProtected: boolean) {
+    return this.request<void>(
+      `${this.appScope()}/branches/${encodeURIComponent(branchName)}/protection`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ protected: isProtected }),
       }
     );
   }

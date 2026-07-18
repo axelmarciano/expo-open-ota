@@ -42,10 +42,10 @@ func (h *RepublishHandler) HandleRepublish(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	auth := helpers.GetAuth(r)
-	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth)
+	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth, branchName, helpers.ClientIP(r))
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
-		http.Error(w, "Error validating auth", http.StatusUnauthorized)
+		RenderCliAuthError(w, err)
 		return
 	}
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")

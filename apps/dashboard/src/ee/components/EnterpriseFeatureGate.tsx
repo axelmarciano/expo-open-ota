@@ -5,26 +5,16 @@
 
 import { ReactNode, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router';
-import { Lock, Mail, Sparkles } from 'lucide-react';
+import { Lock, Sparkles } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-
-const CONTACT_EMAIL = 'contact@mercuretechnologies.com';
+import { EnterpriseExplainerDialog } from '@/ee/components/EnterpriseExplainerDialog';
 
 // Wraps an enterprise-only block. With a valid license the children render
 // untouched. Without one they stay visible (never hidden) but inert behind a
-// frosted overlay with an upsell card; its button opens a dialog explaining
-// how to get a license. Shares the ['license'] query with the License page
-// and EnterpriseBadge, so activating a key unlocks the block immediately.
+// frosted overlay with an upsell card; its button opens the enterprise
+// explainer dialog. Shares the ['license'] query with the License page and
+// EnterpriseBadge, so activating a key unlocks the block immediately.
 export const EnterpriseFeatureGate = ({ children }: { children: ReactNode }) => {
   const [isExplainerOpen, setIsExplainerOpen] = useState(false);
 
@@ -63,52 +53,7 @@ export const EnterpriseFeatureGate = ({ children }: { children: ReactNode }) => 
         </div>
       </div>
 
-      <Dialog open={isExplainerOpen} onOpenChange={setIsExplainerOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <div className="mb-1 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-sm">
-              <Lock className="h-5 w-5 text-white" strokeWidth={2.2} />
-            </div>
-            <DialogTitle>Unlock Enterprise features</DialogTitle>
-            <DialogDescription>
-              This feature is part of the Enterprise edition of Expo Open OTA. Your deployment
-              currently runs the community edition, so it stays visible here but locked.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 text-sm text-muted-foreground">
-            <p>
-              Want to know more or get a license? Write to us at{' '}
-              <a href={`mailto:${CONTACT_EMAIL}`} className="font-medium text-link hover:underline">
-                {CONTACT_EMAIL}
-              </a>{' '}
-              and we will get back to you quickly.
-            </p>
-            <p>
-              Already have a key? Activate it on the{' '}
-              <Link
-                to="/license"
-                onClick={() => setIsExplainerOpen(false)}
-                className="font-medium text-link hover:underline">
-                License page
-              </Link>
-              .
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsExplainerOpen(false)}>
-              Close
-            </Button>
-            <Button
-              asChild
-              className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-700 hover:to-teal-700">
-              <a href={`mailto:${CONTACT_EMAIL}?subject=Expo%20Open%20OTA%20Enterprise`}>
-                <Mail className="h-4 w-4" />
-                Contact us
-              </a>
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <EnterpriseExplainerDialog open={isExplainerOpen} onOpenChange={setIsExplainerOpen} />
     </div>
   );
 };

@@ -38,21 +38,23 @@ export const ApiTokens = () => {
 
   // Enterprise access restrictions per token, summarized in the Restrictions
   // column. The editing itself lives in ApiKeyRestrictionsSheet.
-  const apiKeyScopesQuery = useQuery({
-    queryKey: ['apiKeyScopes', selectedAppId],
-    queryFn: () => api.getApiKeyScopes(),
+  const apiKeyRestrictionsQuery = useQuery({
+    queryKey: ['apiKeyRestrictions', selectedAppId],
+    queryFn: () => api.getApiKeyRestrictions(),
     enabled: !!selectedAppId && CONTROL_PLANE_ENABLED,
   });
-  const scopesByKeyId = new Map((apiKeyScopesQuery.data ?? []).map(scope => [scope.apiKeyId, scope]));
+  const restrictionsByKeyId = new Map(
+    (apiKeyRestrictionsQuery.data ?? []).map(restriction => [restriction.apiKeyId, restriction])
+  );
 
   const describeRestrictions = (apiKeyId: string) => {
-    const scope = scopesByKeyId.get(apiKeyId);
+    const restrictions = restrictionsByKeyId.get(apiKeyId);
     const parts: string[] = [];
-    if (scope?.channelIds.length) {
-      parts.push(`${scope.channelIds.length} channel${scope.channelIds.length > 1 ? 's' : ''}`);
+    if (restrictions?.canAccessProtectedBranches) {
+      parts.push('Protected access');
     }
-    if (scope?.allowedIps.length) {
-      parts.push(`${scope.allowedIps.length} IP${scope.allowedIps.length > 1 ? 's' : ''}`);
+    if (restrictions?.allowedIps.length) {
+      parts.push(`${restrictions.allowedIps.length} IP${restrictions.allowedIps.length > 1 ? 's' : ''}`);
     }
     return parts.join(' · ');
   };

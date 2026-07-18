@@ -23,7 +23,7 @@ export const Updates = () => {
   return (
     <div className="w-full">
       <PageHeader
-        title="Updates"
+        title="Branches & updates"
         description="Browse your release branches, drill into a runtime version, and audit every OTA update you have published."
       />
       {component}

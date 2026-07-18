@@ -7,45 +7,69 @@ import (
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/validation"
 	"fmt"
+	"net/netip"
 	"strconv"
 	"time"
 )
 
 var ErrUnauthorized = fmt.Errorf("unauthorized")
 
+// ErrCliAccessDenied marks a CLI request whose credential authenticated fine
+// but is rejected by per-key access restrictions (enterprise). Handlers map
+// it to a 403 with the wrapped reason, instead of the generic auth 401.
+var ErrCliAccessDenied = fmt.Errorf("access denied")
+
 // CliAuthRepository validates the credential a CLI client presents for an app,
 // and stores the API keys that back it. ValidateCliCredential means a different
 // thing per mode, which is why it is the repository's job and not the service's:
 //   - Postgres (DB mode): hashes the presented eoo_ key and looks it up in the
-//     api_keys table, scoped to appId.
+//     api_keys table, scoped to appId. Returns the matched key's id.
 //   - Bucket (stateless mode): no API keys exist; the credential is an Expo
-//     token or session, verified against the Expo API.
+//     token or session, verified against the Expo API. Returns 0 as the id.
 type CliAuthRepository interface {
-	ValidateCliCredential(ctx context.Context, appId string, auth types.Auth) error
+	ValidateCliCredential(ctx context.Context, appId string, auth types.Auth) (int64, error)
 	InsertApiKey(ctx context.Context, appId string, name string, hint string, hashedKey string) error
 	GetApiKeysMetadataByAppID(ctx context.Context, appId string) ([]pgdb.GetApiKeysMetadataByAppIDRow, error)
 	RevokeApiKeyByID(ctx context.Context, apiKeyId int64, appId string) error
 }
 
-// CliAuthService authenticates CLI clients (eoas) against a given app and
-// manages the API keys backing that access in DB mode. The dashboard's own
-// login and session tokens are a separate concern — see DashboardAuthService.
-type CliAuthService struct {
-	authRepo CliAuthRepository
+// CliAccessPolicy authorizes an authenticated CLI request against per-key
+// access restrictions. It is the enterprise hook point: the community edition
+// runs without one (nil policy, everything allowed); the implementation lives
+// in ee/apikeyrestrictions and is wired in from wire.go. branchName is empty for
+// requests that do not target a branch (reads, local file uploads); clientIP
+// is the zero Addr when the caller's address could not be resolved.
+type CliAccessPolicy interface {
+	AuthorizeCliRequest(ctx context.Context, appId string, apiKeyID int64, branchName string, clientIP netip.Addr) error
 }
 
-func NewCliAuthService(authRepo CliAuthRepository) *CliAuthService {
+// CliAuthService authenticates CLI clients (eoas) against a given app and
+// manages the API keys backing that access in DB mode. The dashboard's own
+// login and session tokens are a separate concern; see DashboardAuthService.
+type CliAuthService struct {
+	authRepo CliAuthRepository
+	policy   CliAccessPolicy
+}
+
+func NewCliAuthService(authRepo CliAuthRepository, policy CliAccessPolicy) *CliAuthService {
 	return &CliAuthService{
 		authRepo: authRepo,
+		policy:   policy,
 	}
 }
 
-func (s *CliAuthService) ValidateCliCredential(ctx context.Context, appId string, auth types.Auth) error {
-	err := s.authRepo.ValidateCliCredential(ctx, appId, auth)
+// ValidateCliCredential authenticates the credential, then runs the access
+// policy on the authenticated key. A key id of 0 (stateless mode) carries no
+// restrictions, so the policy is skipped.
+func (s *CliAuthService) ValidateCliCredential(ctx context.Context, appId string, auth types.Auth, branchName string, clientIP netip.Addr) error {
+	apiKeyID, err := s.authRepo.ValidateCliCredential(ctx, appId, auth)
 	if err != nil {
 		return fmt.Errorf("failed to validate auth: %w", err)
 	}
-	return nil
+	if s.policy == nil || apiKeyID == 0 {
+		return nil
+	}
+	return s.policy.AuthorizeCliRequest(ctx, appId, apiKeyID, branchName, clientIP)
 }
 
 func (s *CliAuthService) GenerateAPIKey(ctx context.Context, appId string, name string) (string, error) {

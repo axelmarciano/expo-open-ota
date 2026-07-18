@@ -133,6 +133,8 @@ type BranchMapping struct {
 	BranchId       *string `json:"branchId"`
 	ReleaseChannel *string `json:"releaseChannel"`
 	CreatedAt      *string `json:"createdAt"`
+	// Enterprise branch protection; always false in stateless mode.
+	Protected bool `json:"protected"`
 }
 
 type RuntimeVersionWithStats struct {

@@ -49,10 +49,10 @@ func (h *UploadHandler) MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *ht
 		return
 	}
 	auth := helpers.GetAuth(r)
-	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth)
+	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth, branchName, helpers.ClientIP(r))
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
-		http.Error(w, "Error validating auth", http.StatusUnauthorized)
+		RenderCliAuthError(w, err)
 		return
 	}
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")
@@ -108,10 +108,12 @@ func (h *UploadHandler) RequestUploadLocalFileHandler(w http.ResponseWriter, r *
 	appId := mux.Vars(r)["APP_ID"]
 
 	auth := helpers.GetAuth(r)
-	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth)
+	// No branch here: the signed upload token already binds the file path to
+	// the branch that went through RequestUploadUrlHandler's branch check.
+	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth, "", helpers.ClientIP(r))
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
-		http.Error(w, "Error validating auth", http.StatusUnauthorized)
+		RenderCliAuthError(w, err)
 		return
 	}
 
@@ -183,10 +185,10 @@ func (h *UploadHandler) RequestUploadUrlHandler(w http.ResponseWriter, r *http.R
 	}
 
 	auth := helpers.GetAuth(r)
-	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth)
+	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth, branchName, helpers.ClientIP(r))
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
-		http.Error(w, "Error validating auth", http.StatusUnauthorized)
+		RenderCliAuthError(w, err)
 		return
 	}
 

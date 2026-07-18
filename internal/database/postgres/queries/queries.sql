@@ -279,12 +279,14 @@ SET revoked_at = CURRENT_TIMESTAMP
 WHERE id = $1 AND app_id = $2;
 
 -- name: ValidateAndTouchAuth :one
+-- Returns the matched key id so the caller can enforce per-key restrictions
+-- (enterprise) on top of the authentication itself.
 UPDATE api_keys
 SET last_used_at = CURRENT_TIMESTAMP
 WHERE app_id = $1
   AND hashed_key = $2
   AND revoked_at IS NULL
-RETURNING TRUE AS is_valid;
+RETURNING id;
 
 -- name: InsertUser :one
 INSERT INTO users (id, email, password_hash, is_admin)
@@ -450,39 +452,31 @@ RETURNING *;
 DELETE FROM enterprise_license;
 
 -- The queries below back the Enterprise Edition per-key access restrictions
--- (ee/apikeyscopes). sqlc generates a single package for the whole schema, so
--- the EE feature's SQL lives here like the enterprise license queries above.
+-- (ee/apikeyrestrictions). sqlc generates a single package for the whole
+-- schema, so the EE feature's SQL lives here like the enterprise license
+-- queries above.
 
--- name: GetApiKeyChannelsByAppID :many
-SELECT akc.api_key_id, akc.channel_id
-FROM api_key_channels akc
-JOIN api_keys ak ON ak.id = akc.api_key_id
-WHERE ak.app_id = $1 AND ak.revoked_at IS NULL
-ORDER BY akc.api_key_id, akc.channel_id;
-
--- name: GetApiKeysAllowedIpsByAppID :many
-SELECT id, allowed_ips
+-- name: GetApiKeyRestrictions :one
+-- Enforcement read for one authenticated key on the CLI request hot path.
+SELECT allowed_ips, can_access_protected_branches
 FROM api_keys
-WHERE app_id = $1 AND revoked_at IS NULL AND allowed_ips IS NOT NULL;
+WHERE id = $1;
 
--- name: UpdateApiKeyAllowedIps :execrows
+-- name: GetApiKeyRestrictionsByAppID :many
+SELECT id, allowed_ips, can_access_protected_branches
+FROM api_keys
+WHERE app_id = $1 AND revoked_at IS NULL;
+
+-- name: UpdateApiKeyRestrictions :execrows
 UPDATE api_keys
-SET allowed_ips = $1
-WHERE id = $2 AND app_id = $3 AND revoked_at IS NULL;
+SET allowed_ips = $1, can_access_protected_branches = $2
+WHERE id = $3 AND app_id = $4 AND revoked_at IS NULL;
 
--- name: DeleteApiKeyChannelsByKey :exec
-DELETE FROM api_key_channels
-USING api_keys ak
-WHERE api_key_channels.api_key_id = ak.id
-  AND ak.id = $1
-  AND ak.app_id = $2;
+-- name: SetBranchProtected :execrows
+UPDATE branches
+SET protected = $1
+WHERE app_id = $2 AND name = $3;
 
--- name: InsertApiKeyChannels :execrows
--- The join against channels pins each channel id to the caller's app: a
--- channel from another app inserts nothing, which the store surfaces as a
--- row-count mismatch instead of silently granting a cross-tenant scope.
-INSERT INTO api_key_channels (api_key_id, channel_id)
-SELECT sqlc.arg(api_key_id), c.id
-FROM channels c
-WHERE c.app_id = sqlc.arg(app_id)
-  AND c.id = ANY(sqlc.arg(channel_ids)::BIGINT[]);
+-- name: IsBranchProtected :one
+SELECT protected FROM branches
+WHERE app_id = $1 AND name = $2;

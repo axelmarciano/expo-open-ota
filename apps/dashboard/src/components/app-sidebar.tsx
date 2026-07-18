@@ -114,7 +114,7 @@ export function AppSidebar() {
               <SectionLabel>Application</SectionLabel>
               <div className="space-y-0.5">
                 <NavLink to="/" icon={HardDriveDownload}>
-                  Updates
+                  Branches & updates
                 </NavLink>
                 <NavLink to="/channels" icon={Box}>
                   Channels

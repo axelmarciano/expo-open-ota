@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
@@ -54,9 +55,12 @@ func NewAuthMiddleware(dashboardAuthService *services.DashboardAuthService, cliA
 				}
 
 				auth := helpers.GetAuth(r)
-				err := cliAuthService.ValidateCliCredential(r.Context(), appId, auth)
+				// These routes are branch-less reads: only the IP allowlist
+				// applies here, branch protection is enforced on the publish
+				// routes that carry a BRANCH.
+				err := cliAuthService.ValidateCliCredential(r.Context(), appId, auth, "", helpers.ClientIP(r))
 				if err != nil {
-					http.Error(w, "Error validating auth", http.StatusUnauthorized)
+					handlers.RenderCliAuthError(w, err)
 					return
 				}
 
