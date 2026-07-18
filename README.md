@@ -6,6 +6,8 @@
 > - **Per-app API keys** — publish from CI without sharing your Expo access token
 > - **Secure key management** — signing keys sealed in the database with AES-GCM
 > - **Per-app Prometheus metrics** and a redesigned dashboard
+> - **Progressive Rollouts**
+> - **Enterprise features: SSO, IP Whitelist, Protected branches...**
 >
 > 📖 Check out the **[new documentation](https://mercure-technologies.gitbook.io/expo-open-ota)**, including the [v2 → v3 migration guide](https://mercure-technologies.gitbook.io/expo-open-ota/migrate-from-v2-to-v3) — your installed clients will keep working without a rebuild.
 >
