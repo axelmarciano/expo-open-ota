@@ -127,6 +127,17 @@ func TestLoginRedirectHandlerRedirectsErrorsToLoginPage(t *testing.T) {
 	assert.Equal(t, ssoErrLicense, fragmentValues(t, location).Get("ssoError"))
 }
 
+// The callback query is attacker-writable pre-auth: whatever lands in the
+// logs must have its control characters neutralized (CWE-117 log injection).
+func TestSanitizeForLog(t *testing.T) {
+	assert.Equal(t, `"forged\n2026/07/18 fake line"`, sanitizeForLog("forged\n2026/07/18 fake line"))
+	assert.Equal(t, `"ansi \x1b[31mred"`, sanitizeForLog("ansi \x1b[31mred"))
+	long := strings.Repeat("a", 1000)
+	sanitized := sanitizeForLog(long)
+	assert.Less(t, len(sanitized), 300)
+	assert.Contains(t, sanitized, "...")
+}
+
 func TestCallbackHandlerMapsIdPDenial(t *testing.T) {
 	idp := newFakeIdP(t)
 	users := newFakeUserRepo()

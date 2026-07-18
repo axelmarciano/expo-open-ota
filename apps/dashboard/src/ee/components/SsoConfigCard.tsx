@@ -3,7 +3,7 @@
 // (see ee/LICENSE at the repository root); it is NOT covered by the MIT
 // license of this repository.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronRight, Copy, KeyRound, ShieldAlert, TriangleAlert, X } from 'lucide-react';
 import { api, describeApiError, SsoSettings } from '@/lib/api';
@@ -19,6 +19,9 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 
+// The enabled toggle is deliberately not part of the form: it acts on the
+// stored configuration immediately (its own PUT), while the form fields wait
+// for "Save and test connection".
 type SsoFormState = {
   issuer: string;
   clientId: string;
@@ -26,7 +29,6 @@ type SsoFormState = {
   providerName: string;
   scopes: string;
   groupsClaim: string;
-  enabled: boolean;
   allowedEmailDomains: string[];
   allowedGroups: string[];
 };
@@ -41,7 +43,6 @@ const emptyForm: SsoFormState = {
   providerName: '',
   scopes: DEFAULT_SCOPES,
   groupsClaim: DEFAULT_GROUPS_CLAIM,
-  enabled: true,
   allowedEmailDomains: [],
   allowedGroups: [],
 };
@@ -55,10 +56,26 @@ const formFromSettings = (settings: SsoSettings): SsoFormState => ({
   providerName: settings.providerName,
   scopes: settings.scopes,
   groupsClaim: settings.groupsClaim,
-  enabled: settings.enabled,
   allowedEmailDomains: settings.allowedEmailDomains,
   allowedGroups: settings.allowedGroups,
 });
+
+// Signature of the stored values the form is populated from. The live enabled
+// toggle rewrites the query cache; repopulating on it would wipe unsaved
+// edits, so the form only resets when one of these actually changes.
+const settingsFormSignature = (settings: SsoSettings | null): string | null =>
+  settings
+    ? JSON.stringify([
+        settings.issuer,
+        settings.clientId,
+        settings.hasClientSecret,
+        settings.providerName,
+        settings.scopes,
+        settings.groupsClaim,
+        settings.allowedEmailDomains,
+        settings.allowedGroups,
+      ])
+    : null;
 
 // A small chips input: type a value, press Enter (or comma, or leave the
 // field) to add it. Backspace on an empty field removes the last chip.
@@ -153,13 +170,24 @@ export const SsoConfigCard = () => {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isTogglingEnabled, setIsTogglingEnabled] = useState(false);
   const [isRemoveDialogOpen, setIsRemoveDialogOpen] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const settings = settingsQuery.data ?? null;
+  // A failed fetch leaves data undefined, which must never read as "not
+  // configured": the empty form is reserved for a successful 404 (null).
+  // After a successful load, a failing refetch keeps showing the known state.
+  const loadFailed = settingsQuery.isError && settingsQuery.data === undefined;
 
+  const lastPopulatedSignature = useRef<string | null | undefined>(undefined);
   useEffect(() => {
+    const signature = settingsFormSignature(settings);
+    if (signature === lastPopulatedSignature.current) {
+      return;
+    }
+    lastPopulatedSignature.current = signature;
     if (settings) {
       setForm(formFromSettings(settings));
       // Surface the advanced section when it holds non-default values,
@@ -202,7 +230,9 @@ export const SsoConfigCard = () => {
         clientSecret: form.clientSecret || undefined,
         providerName: form.providerName.trim(),
         scopes: form.scopes.trim(),
-        enabled: form.enabled,
+        // The toggle owns the enabled flag; saving the form preserves the
+        // stored state, and the very first save goes live directly.
+        enabled: settings?.enabled ?? true,
         allowedEmailDomains: form.allowedEmailDomains,
         allowedGroups: form.allowedGroups,
         groupsClaim: form.groupsClaim.trim(),
@@ -211,12 +241,62 @@ export const SsoConfigCard = () => {
       queryClient.invalidateQueries({ queryKey: ['ssoPublicConfig'] });
       toast({
         title: 'SSO configuration saved',
-        description: `OIDC discovery succeeded against ${saved.issuer}.`,
+        description: saved.enabled
+          ? `OIDC discovery succeeded against ${saved.issuer}.`
+          : 'Stored without testing the connection, since SSO is turned off.',
       });
     } catch (error) {
       setInlineError(describeApiError(error, 'Could not save the SSO configuration').description);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // The toggle acts on the stored configuration right away, with its own
+  // request built from the stored values: unsaved form edits are neither
+  // saved nor lost by flipping it. Disabling skips the server-side discovery
+  // on purpose, so SSO can be turned off even while the IdP is down.
+  const handleToggleEnabled = async (checked: boolean) => {
+    if (!settings) {
+      return;
+    }
+    setIsTogglingEnabled(true);
+    try {
+      const saved = await api.saveSsoSettings({
+        issuer: settings.issuer,
+        clientId: settings.clientId,
+        clientSecret: undefined,
+        providerName: settings.providerName,
+        scopes: settings.scopes,
+        enabled: checked,
+        allowedEmailDomains: settings.allowedEmailDomains,
+        allowedGroups: settings.allowedGroups,
+        groupsClaim: settings.groupsClaim,
+      });
+      queryClient.setQueryData(['ssoSettings'], saved);
+      queryClient.invalidateQueries({ queryKey: ['ssoPublicConfig'] });
+      toast(
+        saved.enabled
+          ? {
+              title: 'SSO sign-in enabled',
+              description: `The connection was verified; the login page now offers "Continue with ${saved.providerName}".`,
+            }
+          : {
+              title: 'SSO sign-in disabled',
+              description:
+                'The configuration is kept. Password sign-in is back for accounts that have a password.',
+            }
+      );
+    } catch (error) {
+      toast({
+        ...describeApiError(
+          error,
+          checked ? 'Could not enable SSO sign-in' : 'Could not disable SSO sign-in'
+        ),
+        variant: 'destructive',
+      });
+    } finally {
+      setIsTogglingEnabled(false);
     }
   };
 
@@ -230,7 +310,8 @@ export const SsoConfigCard = () => {
       setInlineError(null);
       toast({
         title: 'SSO configuration removed',
-        description: 'Everyone signs in with email and password again.',
+        description:
+          'Password sign-in is back for accounts that have a password. Members provisioned by SSO cannot sign in until SSO is configured again.',
       });
     } catch (error) {
       toast({
@@ -248,7 +329,7 @@ export const SsoConfigCard = () => {
         <CardTitle className="flex flex-wrap items-center gap-2">
           <KeyRound className="h-5 w-5 text-muted-foreground" strokeWidth={2} />
           Single sign-on (OIDC)
-          {settingsQuery.isLoading ? null : settings ? (
+          {settingsQuery.isLoading || loadFailed ? null : settings ? (
             settings.enabled ? (
               <Badge>Active</Badge>
             ) : (
@@ -271,6 +352,23 @@ export const SsoConfigCard = () => {
             <Skeleton className="h-9 w-2/3" />
             <Skeleton className="h-9 w-full" />
           </div>
+        ) : loadFailed ? (
+          <Alert variant="destructive">
+            <TriangleAlert className="h-4 w-4" />
+            <AlertTitle>Could not load the SSO configuration</AlertTitle>
+            <AlertDescription className="flex flex-col items-start gap-3">
+              <span className="break-words">
+                {describeApiError(settingsQuery.error, 'The server could not be reached.').description}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => settingsQuery.refetch()}
+                disabled={settingsQuery.isFetching}>
+                {settingsQuery.isFetching ? 'Retrying…' : 'Retry'}
+              </Button>
+            </AlertDescription>
+          </Alert>
         ) : (
           <div className="space-y-6">
             {secretMissing && (
@@ -286,21 +384,24 @@ export const SsoConfigCard = () => {
 
             {/* The switch only appears once a configuration exists: showing an
                 "on" toggle over an empty form reads as "SSO is active" when
-                nothing is configured yet. The first save enables SSO. */}
+                nothing is configured yet. The first save enables SSO. It
+                applies immediately (its own request against the stored
+                configuration), independently of the form below. */}
             {settings && (
               <div className="flex items-start justify-between gap-4 rounded-lg border bg-muted/30 p-4">
                 <div className="space-y-0.5">
                   <Label htmlFor="sso-enabled">Enable SSO sign-in</Label>
                   <FieldHint>
-                    While active, members must sign in through SSO and new accounts are provisioned
-                    automatically; password sign-in stays available to admins. Turning it off keeps
-                    the configuration. The change applies when you save.
+                    Applies immediately. While active, members must sign in through SSO and new
+                    accounts are provisioned automatically; password sign-in stays available to
+                    admins. Turning it off keeps the configuration.
                   </FieldHint>
                 </div>
                 <Switch
                   aria-label="Enable SSO sign-in"
-                  checked={form.enabled}
-                  onCheckedChange={checked => setField('enabled', checked)}
+                  checked={settings.enabled}
+                  disabled={isTogglingEnabled || isSaving}
+                  onCheckedChange={handleToggleEnabled}
                 />
               </div>
             )}
@@ -477,22 +578,26 @@ export const SsoConfigCard = () => {
 
             <div className="flex flex-wrap items-center justify-between gap-3">
               <FieldHint>
-                {settings
-                  ? 'Saving verifies the issuer with a live OIDC discovery before anything is stored.'
-                  : 'Saving verifies the issuer with a live OIDC discovery, then SSO sign-in goes live for your team.'}
+                {!settings
+                  ? 'Saving verifies the issuer with a live OIDC discovery, then SSO sign-in goes live for your team.'
+                  : settings.enabled
+                    ? 'Saving verifies the issuer with a live OIDC discovery before anything is stored.'
+                    : 'SSO is turned off: saving stores the configuration without testing the connection.'}
               </FieldHint>
               <div className="flex items-center gap-2">
                 {settings && (
                   <Button
                     variant="outline"
                     onClick={() => setIsRemoveDialogOpen(true)}
-                    disabled={isSaving}>
+                    disabled={isSaving || isTogglingEnabled}>
                     Remove
                   </Button>
                 )}
                 <Button
                   onClick={handleSave}
-                  disabled={isSaving || !form.issuer.trim() || !form.clientId.trim()}>
+                  disabled={
+                    isSaving || isTogglingEnabled || !form.issuer.trim() || !form.clientId.trim()
+                  }>
                   {isSaving ? 'Testing connection…' : 'Save and test connection'}
                 </Button>
               </div>
@@ -508,7 +613,7 @@ export const SsoConfigCard = () => {
         isDeleting={isRemoving}
         title="Remove SSO configuration"
         resourceName={settings?.providerName}
-        descriptionText="The OIDC configuration will be deleted and the SSO button disappears from the login page. Password sign-in comes back for every account. Members provisioned by SSO keep their account but have no password, so they cannot sign in until SSO is configured again."
+        descriptionText="The OIDC configuration will be deleted and the SSO button disappears from the login page. Password sign-in comes back for accounts that have a password. Members provisioned by SSO keep their account but have no password, so they cannot sign in until SSO is configured again."
         confirmButtonText="Remove configuration"
         isDeletingButtonText="Removing…"
       />

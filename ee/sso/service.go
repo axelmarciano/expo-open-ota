@@ -30,6 +30,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/oauth2"
+	"golang.org/x/sync/singleflight"
 )
 
 // SSOConfig is the deployment's OIDC client configuration, one provider per
@@ -167,9 +168,16 @@ type SSOService struct {
 
 	// Discovery cache, keyed by issuer: filled lazily on the first sign-in
 	// (never at boot), replaced whenever the configured issuer changes.
+	// mu guards the cache and cooldown fields below, never a network call:
+	// discoveries run outside of it, coalesced per issuer by discoveryGroup.
 	mu             sync.Mutex
 	cachedIssuer   string
 	cachedProvider *oidc.Provider
+	discoveryGroup singleflight.Group
+	// Failure cooldown of the sign-in paths (see discoveryFailureCooldown).
+	failedIssuer string
+	failedAt     time.Time
+	failedErr    error
 }
 
 // NewSSOService accepts a nil repository (stateless mode); every flow then
@@ -291,8 +299,14 @@ func (s *SSOService) SaveConfig(ctx context.Context, input SaveConfigInput) (*Ad
 		}
 		cfg.ClientSecret = existing.ClientSecret
 	}
-	if _, err := s.discoverProvider(cfg.Issuer); err != nil {
-		return nil, &ConfigValidationError{Reason: fmt.Errorf("OIDC discovery failed for %s: %w", cfg.Issuer, err)}
+	// Discovery only guards configurations that are meant to be used: saving
+	// a disabled one must always succeed, so an admin can turn SSO off from
+	// the dashboard while the IdP itself is down (the break-glass path).
+	// Re-enabling runs the live check again.
+	if cfg.Enabled {
+		if _, err := s.discoverProvider(cfg.Issuer); err != nil {
+			return nil, &ConfigValidationError{Reason: fmt.Errorf("OIDC discovery failed for %s: %w", cfg.Issuer, err)}
+		}
 	}
 	if err := s.repo.SaveConfig(ctx, *cfg); err != nil {
 		return nil, err
@@ -436,35 +450,65 @@ func (s *SSOService) oauthConfig(cfg *SSOConfig, provider *oidc.Provider) *oauth
 	}
 }
 
+// discoveryFailureCooldown is how long the sign-in paths fail fast after a
+// discovery failure instead of re-hitting an unreachable IdP: each attempt
+// can cost up to the 15s HTTP timeout, and stacking those per sign-in click
+// would pile up. Bounded and small, so recovery is picked up quickly.
+const discoveryFailureCooldown = 10 * time.Second
+
 // provider returns the discovery document for the issuer, cached across
-// sign-ins and rebuilt whenever the configured issuer changes.
+// sign-ins and rebuilt whenever the configured issuer changes. The mutex only
+// guards the cache fields; the network fetch itself runs outside of it,
+// coalesced by the single-flight group.
 func (s *SSOService) provider(issuer string) (*oidc.Provider, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.cachedProvider != nil && s.cachedIssuer == issuer {
-		return s.cachedProvider, nil
+		provider := s.cachedProvider
+		s.mu.Unlock()
+		return provider, nil
 	}
-	return s.discoverLocked(issuer)
+	if s.failedIssuer == issuer && s.failedErr != nil && time.Since(s.failedAt) < discoveryFailureCooldown {
+		err := s.failedErr
+		s.mu.Unlock()
+		return nil, err
+	}
+	s.mu.Unlock()
+	return s.discoverProvider(issuer)
 }
 
 // discoverProvider always performs a live discovery (SaveConfig's "save and
-// test" must actually test) and replaces the cache with the result.
+// test" must actually test, so it never short-circuits on the failure
+// cooldown) and replaces the cache with the result. Concurrent callers for
+// the same issuer share one in-flight request.
 func (s *SSOService) discoverProvider(issuer string) (*oidc.Provider, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.discoverLocked(issuer)
+	result, err, _ := s.discoveryGroup.Do(issuer, func() (interface{}, error) {
+		return s.discover(issuer)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*oidc.Provider), nil
 }
 
-func (s *SSOService) discoverLocked(issuer string) (*oidc.Provider, error) {
+// discover performs the network fetch with no lock held, then records the
+// outcome: the cache on success, the failure cooldown on error.
+func (s *SSOService) discover(issuer string) (*oidc.Provider, error) {
 	// The context deliberately outlives the calling request: go-oidc keeps it
 	// for the JWKS refreshes of future id_token verifications. The HTTP
 	// timeout on httpClient is what bounds each fetch.
 	provider, err := oidc.NewProvider(oidc.ClientContext(context.Background(), s.httpClient), issuer)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err != nil {
+		s.failedIssuer = issuer
+		s.failedAt = time.Now()
+		s.failedErr = err
 		return nil, err
 	}
 	s.cachedIssuer = issuer
 	s.cachedProvider = provider
+	s.failedIssuer = ""
+	s.failedErr = nil
 	return provider, nil
 }
 

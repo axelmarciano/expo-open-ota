@@ -57,7 +57,9 @@ export const Login = () => {
     const ssoToken = params.get('ssoToken');
     const ssoRefreshToken = params.get('ssoRefreshToken');
     const errorCode = params.get('ssoError');
-    if (!ssoToken && !errorCode) {
+    // Any token-looking material or error code strips the fragment, even a
+    // lone half of the pair: nothing sensitive may survive in the URL.
+    if (!ssoToken && !ssoRefreshToken && !errorCode) {
       return;
     }
     window.history.replaceState(null, '', window.location.pathname + window.location.search);

@@ -20,6 +20,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -692,6 +694,31 @@ func TestSaveConfigKeepsStoredSecretWhenLeftEmpty(t *testing.T) {
 	assert.ErrorContains(t, err, "client secret is required")
 }
 
+// Disabling SSO must work even while the IdP is unreachable: that is the
+// dashboard break-glass path. Discovery only guards enabled configurations.
+func TestSaveConfigSkipsDiscoveryWhenDisabled(t *testing.T) {
+	users := newFakeUserRepo()
+	repo := newFakeSSORepo(users, nil)
+	service, _ := newTestService(t, repo, users)
+	deadIdP, hits := newDiscoveryCounter(t, 0, true)
+
+	view, err := service.SaveConfig(context.Background(), SaveConfigInput{
+		Issuer: deadIdP.URL, ClientID: testClientID, ClientSecret: "secret", Enabled: false,
+	})
+	require.NoError(t, err)
+	assert.False(t, view.Enabled)
+	assert.Equal(t, 1, repo.saveCalls)
+	assert.Equal(t, int32(0), hits.Load())
+
+	// Re-enabling the same configuration runs the live check again.
+	_, err = service.SaveConfig(context.Background(), SaveConfigInput{
+		Issuer: deadIdP.URL, ClientID: testClientID, Enabled: true,
+	})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "OIDC discovery failed")
+	assert.Equal(t, int32(1), hits.Load())
+}
+
 func TestSaveConfigRequiresLicense(t *testing.T) {
 	idp := newFakeIdP(t)
 	users := newFakeUserRepo()
@@ -807,6 +834,86 @@ func TestGetAdminConfigSurvivesUnreadableSecret(t *testing.T) {
 		Issuer: idp.issuer, ClientID: testClientID, Enabled: true,
 	})
 	assert.ErrorIs(t, err, ErrClientSecretUnreadable)
+}
+
+// newDiscoveryCounter is a discovery-only endpoint with an atomic hit
+// counter, optional latency and optional failure, for exercising the
+// provider-cache concurrency without the full fake IdP.
+func newDiscoveryCounter(t *testing.T, delay time.Duration, fail bool) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	hits := &atomic.Int32{}
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if fail {
+			http.Error(w, "discovery unavailable", http.StatusInternalServerError)
+			return
+		}
+		time.Sleep(delay)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer":                 server.URL,
+			"authorization_endpoint": server.URL + "/auth",
+			"token_endpoint":         server.URL + "/token",
+			"jwks_uri":               server.URL + "/keys",
+		})
+	}))
+	t.Cleanup(server.Close)
+	return server, hits
+}
+
+// Concurrent sign-ins on a cold cache must share one discovery request, and
+// none of them may hold the cache mutex during the network fetch.
+func TestProviderDiscoveryIsSingleFlight(t *testing.T) {
+	users := newFakeUserRepo()
+	service, _ := newTestService(t, newFakeSSORepo(users, nil), users)
+	server, hits := newDiscoveryCounter(t, 150*time.Millisecond, false)
+
+	var wg sync.WaitGroup
+	discoveryErrors := make([]error, 8)
+	for i := range discoveryErrors {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			_, discoveryErrors[index] = service.provider(server.URL)
+		}(i)
+	}
+	wg.Wait()
+	for _, err := range discoveryErrors {
+		require.NoError(t, err)
+	}
+	assert.Equal(t, int32(1), hits.Load())
+
+	// And the result is cached: no further request.
+	_, err := service.provider(server.URL)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), hits.Load())
+}
+
+func TestProviderDiscoveryFailureCooldownAndSaveBypass(t *testing.T) {
+	users := newFakeUserRepo()
+	service, _ := newTestService(t, newFakeSSORepo(users, nil), users)
+	server, hits := newDiscoveryCounter(t, 0, true)
+
+	_, err := service.provider(server.URL)
+	require.Error(t, err)
+	assert.Equal(t, int32(1), hits.Load())
+
+	// Within the cooldown the sign-in path fails fast, without a new request.
+	_, err = service.provider(server.URL)
+	require.Error(t, err)
+	assert.Equal(t, int32(1), hits.Load())
+
+	// The admin's "save and test" path always performs a live discovery.
+	_, err = service.discoverProvider(server.URL)
+	require.Error(t, err)
+	assert.Equal(t, int32(2), hits.Load())
+
+	// The cooldown is issuer-specific: another issuer is attempted normally.
+	otherServer, otherHits := newDiscoveryCounter(t, 0, true)
+	_, err = service.provider(otherServer.URL)
+	require.Error(t, err)
+	assert.Equal(t, int32(1), otherHits.Load())
 }
 
 func TestPublicConfigAndEnabled(t *testing.T) {

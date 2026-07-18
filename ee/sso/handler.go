@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -76,6 +77,19 @@ func ssoErrorCode(err error) string {
 	default:
 		return ssoErrFailed
 	}
+}
+
+// sanitizeForLog neutralizes values echoed from the public callback URL
+// before they reach the logs: query.Get percent-decodes, so without this an
+// unauthenticated caller could inject newlines (forged log lines) or terminal
+// escape sequences. Quoting escapes every control character; the cap keeps a
+// crafted query from flooding the log file.
+func sanitizeForLog(value string) string {
+	const maxLoggedLen = 256
+	if len(value) > maxLoggedLen {
+		value = value[:maxLoggedLen] + "..."
+	}
+	return strconv.Quote(value)
 }
 
 // loginPageURL builds the dashboard login URL carrying values in the URL
@@ -145,7 +159,7 @@ func (h *SSOHandler) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, flowCookie("", -1))
 	query := r.URL.Query()
 	if idpError := query.Get("error"); idpError != "" {
-		log.Printf("[SSO] the identity provider returned an error: %s (%s)", idpError, query.Get("error_description"))
+		log.Printf("[SSO] the identity provider returned an error: %s (%s)", sanitizeForLog(idpError), sanitizeForLog(query.Get("error_description")))
 		code := ssoErrFailed
 		if idpError == "access_denied" {
 			code = ssoErrDenied
