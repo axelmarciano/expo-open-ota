@@ -89,13 +89,6 @@ func (s *UserService) GetUsers(ctx context.Context) ([]store.User, error) {
 	return s.userRepo.GetUsers(ctx)
 }
 
-func (s *UserService) GetUserByID(ctx context.Context, id string) (store.User, error) {
-	if err := s.requireControlPlane(); err != nil {
-		return store.User{}, err
-	}
-	return s.userRepo.GetUserByID(ctx, id)
-}
-
 func (s *UserService) GetMe(ctx context.Context, userId string, email string) (store.User, error) {
 	if s.userRepo == nil {
 		return store.User{Email: email, IsAdmin: true, Enabled: true}, nil
