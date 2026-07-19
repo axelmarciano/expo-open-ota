@@ -58,6 +58,13 @@ type SSOConfig struct {
 	// for a trusted provider that omits email_verified (notably Entra ID) on a
 	// single tenant where users cannot self-assert addresses.
 	TrustUnverifiedEmail bool
+	// ManualUserValidation provisions newly discovered accounts disabled, so an
+	// admin approves each one on the Users page before it can sign in. It is
+	// the answer to "everyone in my Google Workspace can reach the dashboard"
+	// for providers that do not emit group claims: the allowlist lives here
+	// rather than at the IdP. Accounts linked to a pre-existing user are
+	// untouched, and turning the toggle on never disables existing accounts.
+	ManualUserValidation bool
 }
 
 // SSORepository persists the singleton configuration and the mapping from
@@ -91,6 +98,11 @@ var (
 	// ErrSSOAccessRestricted is answered when the token verified but the
 	// account falls outside the configured domain/group restrictions.
 	ErrSSOAccessRestricted = errors.New("this account is not allowed to sign in to this dashboard")
+	// ErrSSOAccountPendingApproval is answered when the identity verified and
+	// the account exists, but an admin has not approved it (manual user
+	// validation) or has revoked it. Distinct from ErrSSOAccessRestricted so
+	// the login page can tell the person to wait rather than to go away.
+	ErrSSOAccountPendingApproval = errors.New("this account is waiting for an administrator to approve it")
 	// ErrClientSecretUnreadable marks a stored client secret that can no
 	// longer be unsealed (the DB keys master key changed). Sign-ins fail until
 	// an admin re-enters the secret, which re-seals it under the current key.
@@ -146,6 +158,7 @@ type AdminConfig struct {
 	AllowedGroups        []string
 	GroupsClaim          string
 	TrustUnverifiedEmail bool
+	ManualUserValidation bool
 	RedirectURI          string
 }
 
@@ -163,6 +176,7 @@ type SaveConfigInput struct {
 	AllowedGroups        []string
 	GroupsClaim          string
 	TrustUnverifiedEmail bool
+	ManualUserValidation bool
 }
 
 // SSOService owns the OIDC sign-in flow (authorization code + PKCE against a
@@ -266,6 +280,7 @@ func (s *SSOService) adminView(cfg *SSOConfig) *AdminConfig {
 		AllowedGroups:        cfg.AllowedGroups,
 		GroupsClaim:          cfg.GroupsClaim,
 		TrustUnverifiedEmail: cfg.TrustUnverifiedEmail,
+		ManualUserValidation: cfg.ManualUserValidation,
 		RedirectURI:          s.RedirectURI(),
 	}
 }
@@ -432,9 +447,15 @@ func (s *SSOService) CompleteLogin(ctx context.Context, flowToken string, state 
 	if err := checkSignInRestrictions(cfg, email, claims); err != nil {
 		return nil, err
 	}
-	user, err := s.resolveUser(ctx, cfg.Issuer, idToken.Subject, email)
+	user, err := s.resolveUser(ctx, cfg, idToken.Subject, email)
 	if err != nil {
 		return nil, err
+	}
+	// Answered before IssueSession, which refuses disabled accounts too: this
+	// path just needs its own error so the login page can explain that the
+	// account exists and is waiting, rather than showing a generic refusal.
+	if !user.Enabled {
+		return nil, fmt.Errorf("%w: %q is not approved yet", ErrSSOAccountPendingApproval, email)
 	}
 	return s.sessions.IssueSession(ctx, user)
 }
@@ -538,21 +559,22 @@ func (s *SSOService) discover(issuer string) (*oidc.Provider, error) {
 // resolveUser maps a verified identity onto a dashboard account:
 // known subject first (stable even when the email changes at the IdP), then
 // account linking by email, then JIT provisioning of a non-admin member.
-func (s *SSOService) resolveUser(ctx context.Context, issuer string, subject string, email string) (store.User, error) {
-	user, err := s.lookupOrProvision(ctx, issuer, subject, email)
+func (s *SSOService) resolveUser(ctx context.Context, cfg *SSOConfig, subject string, email string) (store.User, error) {
+	user, err := s.lookupOrProvision(ctx, cfg, subject, email)
 	if err != nil {
 		// A concurrent first sign-in handled by another replica may have
 		// provisioned or linked the same identity between our lookup and our
 		// write; one retry then finds it by subject.
 		if alreadyExistsErr := (*store.ErrResourceAlreadyExists)(nil); errors.As(err, &alreadyExistsErr) {
-			return s.lookupOrProvision(ctx, issuer, subject, email)
+			return s.lookupOrProvision(ctx, cfg, subject, email)
 		}
 		return store.User{}, err
 	}
 	return user, nil
 }
 
-func (s *SSOService) lookupOrProvision(ctx context.Context, issuer string, subject string, email string) (store.User, error) {
+func (s *SSOService) lookupOrProvision(ctx context.Context, cfg *SSOConfig, subject string, email string) (store.User, error) {
+	issuer := cfg.Issuer
 	user, err := s.repo.FindUserBySubject(ctx, issuer, subject)
 	if err == nil {
 		// Best effort: a failed touch must not fail the sign-in.
@@ -567,7 +589,9 @@ func (s *SSOService) lookupOrProvision(ctx context.Context, issuer string, subje
 	existing, err := s.userRepo.GetUserByEmail(ctx, email)
 	if err == nil {
 		// First SSO sign-in of an account that already exists with this email:
-		// link it instead of duplicating. Role and password are untouched.
+		// link it instead of duplicating. Role, password and enabled flag are
+		// untouched, so turning manual validation on never demands re-approval
+		// of accounts that already had access.
 		if err := s.repo.LinkIdentity(ctx, issuer, subject, existing.Id, email); err != nil {
 			return store.User{}, err
 		}
@@ -579,11 +603,14 @@ func (s *SSOService) lookupOrProvision(ctx context.Context, issuer string, subje
 	// JIT provisioning: always a non-admin member; promotion happens on the
 	// Users page. The empty password hash can never verify against bcrypt, so
 	// the account is SSO-only until SSO is turned off and an admin intervenes.
+	// Under manual validation the row lands disabled and the sign-in that
+	// created it is refused, so the admin has something concrete to approve.
 	return s.repo.ProvisionUser(ctx, store.InsertUserParameters{
 		ID:           uuid.New().String(),
 		Email:        email,
 		PasswordHash: "",
 		IsAdmin:      false,
+		Enabled:      !cfg.ManualUserValidation,
 	}, issuer, subject)
 }
 
@@ -729,6 +756,7 @@ func normalizeConfigInput(input SaveConfigInput) (*SSOConfig, error) {
 		AllowedGroups:        normalizeList(input.AllowedGroups),
 		GroupsClaim:          groupsClaim,
 		TrustUnverifiedEmail: input.TrustUnverifiedEmail,
+		ManualUserValidation: input.ManualUserValidation,
 	}, nil
 }
 

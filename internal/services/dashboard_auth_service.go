@@ -55,6 +55,13 @@ var ErrAdminEmailNotSet = errors.New("ADMIN_EMAIL is not set: stateless mode log
 // password verified, so the actionable message never leaks account existence.
 var ErrPasswordLoginDisabledBySSO = errors.New("password sign-in is disabled while SSO is active: sign in with SSO instead")
 
+// ErrAccountPendingApproval is returned for an account whose enabled flag is
+// off: either an admin revoked its access, or SSO manual validation is on and
+// the account has not been approved yet. Like ErrPasswordLoginDisabledBySSO it
+// is only reached after the credentials verified, so it leaks nothing about
+// which accounts exist.
+var ErrAccountPendingApproval = errors.New("this account is waiting for an administrator to approve it")
+
 // dashboardSubject scopes every dashboard JWT to the dashboard itself. Both
 // validators below reject any other subject, which is what keeps the upload
 // tokens minted by localBucket — signed with the same JWT_SECRET — from being
@@ -158,11 +165,19 @@ var ErrAuthUnavailable = errors.New("could not verify the account against the da
 // principalForUser records the connection and builds the session principal.
 // Both a password login and a refresh prove the account is actively using the
 // dashboard. Best-effort: a failed touch must not fail the sign-in.
-func (a *DashboardAuthService) principalForUser(ctx context.Context, user store.User) *DashboardPrincipal {
+// principalForUser is the single choke point every database-backed sign-in
+// path goes through (password login, SSO callback, token refresh), which is
+// why the enabled check lives here: no path can acquire a principal without
+// passing it. On the refresh path this is also what makes disabling an account
+// effective, since a live session token is never re-read against the database.
+func (a *DashboardAuthService) principalForUser(ctx context.Context, user store.User) (*DashboardPrincipal, error) {
+	if !user.Enabled {
+		return nil, ErrAccountPendingApproval
+	}
 	if err := a.userRepo.TouchUserLastConnected(ctx, user.Id); err != nil {
 		log.Printf("failed to record last connection for user %s: %v", user.Id, err)
 	}
-	return &DashboardPrincipal{UserId: user.Id, Email: user.Email, IsAdmin: user.IsAdmin}
+	return &DashboardPrincipal{UserId: user.Id, Email: user.Email, IsAdmin: user.IsAdmin}, nil
 }
 
 func (a *DashboardAuthService) resolveLoginPrincipal(ctx context.Context, email string, password string) (*DashboardPrincipal, error) {
@@ -194,7 +209,7 @@ func (a *DashboardAuthService) resolveLoginPrincipal(ctx context.Context, email 
 	if a.ssoEnforced != nil && a.ssoEnforced(ctx) && !user.IsAdmin {
 		return nil, ErrPasswordLoginDisabledBySSO
 	}
-	return a.principalForUser(ctx, user), nil
+	return a.principalForUser(ctx, user)
 }
 
 // resolveRefreshPrincipal re-resolves the account behind a refresh token by
@@ -211,7 +226,7 @@ func (a *DashboardAuthService) resolveRefreshPrincipal(ctx context.Context, user
 		}
 		return nil, fmt.Errorf("%w: %v", ErrAuthUnavailable, err)
 	}
-	return a.principalForUser(ctx, user), nil
+	return a.principalForUser(ctx, user)
 }
 
 func (a *DashboardAuthService) LoginWithEmailPassword(ctx context.Context, email string, password string) (*DashboardSession, error) {
@@ -229,7 +244,11 @@ func (a *DashboardAuthService) IssueSession(ctx context.Context, user store.User
 	if a.userRepo == nil {
 		return nil, errors.New("sessions can only be issued for database-backed accounts")
 	}
-	return a.generateSessionPair(*a.principalForUser(ctx, user))
+	principal, err := a.principalForUser(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	return a.generateSessionPair(*principal)
 }
 
 // ValidateSession accepts only a dashboard session JWT — not a refresh token,

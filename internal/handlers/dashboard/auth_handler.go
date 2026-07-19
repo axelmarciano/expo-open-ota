@@ -53,6 +53,13 @@ func (ah *AuthHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 			handlers.RenderError(w, http.StatusForbidden, err.Error())
 			return
 		}
+		// Credentials were valid but the account is not approved (or was
+		// revoked). Distinct from invalid credentials so the person knows to
+		// wait for an admin instead of retrying their password.
+		if errors.Is(err, services.ErrAccountPendingApproval) {
+			handlers.RenderError(w, http.StatusForbidden, err.Error())
+			return
+		}
 		handlers.RenderError(w, http.StatusUnauthorized, "Invalid credentials")
 		return
 	}
