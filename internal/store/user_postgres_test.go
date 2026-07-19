@@ -63,6 +63,12 @@ func insertUser(t *testing.T, userStore *store.PostgresUserStore, email string, 
 		Email:        email,
 		PasswordHash: "irrelevant",
 		IsAdmin:      isAdmin,
+		// Load-bearing: the guards count admins with `is_admin AND enabled`, so
+		// leaving this at Go's zero value builds a fixture with zero ENABLED admins.
+		// The guard then has nothing to protect, every removal passes, and the tests
+		// fail against correct production code. Admins are always created enabled
+		// (UserService.CreateUser); SSO only ever provisions non-admins.
+		Enabled: true,
 	})
 	require.NoError(t, err)
 	return user
