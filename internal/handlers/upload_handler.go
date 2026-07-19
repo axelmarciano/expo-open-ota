@@ -7,11 +7,11 @@ import (
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/services"
+	"expo-open-ota/internal/validation"
 	"fmt"
 	"log"
 	"net/http"
 	"path/filepath"
-	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -220,10 +220,10 @@ func (h *UploadHandler) RequestUploadUrlHandler(w http.ResponseWriter, r *http.R
 
 	var rolloutPercentage *int
 	if rawRolloutPercentage := r.URL.Query().Get("rolloutPercentage"); rawRolloutPercentage != "" {
-		parsedRolloutPercentage, err := strconv.Atoi(rawRolloutPercentage)
-		if err != nil || parsedRolloutPercentage < 1 || parsedRolloutPercentage > 100 {
+		parsedRolloutPercentage, err := validation.RolloutPercentage("rolloutPercentage", rawRolloutPercentage)
+		if err != nil {
 			log.Printf("[RequestID: %s] Invalid rolloutPercentage: %s", requestID, rawRolloutPercentage)
-			http.Error(w, "Invalid rolloutPercentage: must be an integer between 1 and 99", http.StatusBadRequest)
+			http.Error(w, "Invalid "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		// 100 means every device, i.e. a plain publish: treated as absent.
