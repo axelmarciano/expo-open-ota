@@ -3,7 +3,7 @@
 This repository contains two categories of code:
 
 - Every directory named `ee/` (for example `/ee` and `apps/dashboard/src/ee/`)
-  is licensed under the Expo Open OTA Enterprise Edition license — see
+  is licensed under the Mercure Technologies Enterprise Edition License — see
   [ee/LICENSE](./ee/LICENSE).
 - Everything else is licensed under the MIT License below.
 
@@ -11,7 +11,7 @@ This repository contains two categories of code:
 
 MIT License
 
-Copyright (c) [2025] [Axel Marciano]
+Copyright (c) 2025 Axel Marciano
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

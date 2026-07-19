@@ -45,9 +45,31 @@ lint:
 	if [ -n "$$out" ]; then echo "$$out"; rc=1; fi; \
 	if [ $$rc -ne 0 ]; then \
 		echo "==> dead code found: delete it, or wire it up to a reachable path."; \
+	else \
+		echo "==> no dead code"; \
+	fi; \
+	$(MAKE) lint_ee_headers || rc=1; \
+	exit $$rc
+
+# Every source file under a directory named ee/ must carry the EE license
+# header. It is the only marker that travels with a file copied out of this
+# repository, where GitHub advertises the whole repo as MIT. Directories are
+# discovered, not listed, so a future apps/*/src/ee/ is covered on day one.
+EE_HEADER := Mercure Technologies Enterprise Edition
+
+lint_ee_headers:
+	rc=0; n=0; \
+	echo "==> EE license headers"; \
+	for f in $$(find . -name node_modules -prune -o -path ./.git -prune -o -type f \
+		\( -name '*.go' -o -name '*.ts' -o -name '*.tsx' \) -print | grep '/ee/'); do \
+		n=$$((n+1)); \
+		head -6 "$$f" | grep -q '$(EE_HEADER)' || { echo "    missing header: $$f"; rc=1; }; \
+	done; \
+	if [ $$rc -ne 0 ]; then \
+		echo "==> copy the 3-line header from any file in ee/ into the files above."; \
 		exit 1; \
 	fi; \
-	echo "==> no dead code"
+	echo "==> $$n files, all carrying the EE license header"
 
 test_app:
 ifeq ($(DOCKER_FLAG),docker)
@@ -81,4 +103,4 @@ define GENERATE_HTML
 	fi
 endef
 
-.PHONY: docker html lint sqlc
+.PHONY: docker html lint lint_ee_headers sqlc

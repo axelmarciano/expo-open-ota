@@ -1,9 +1,9 @@
-// Copyright (c) 2026 Mercure Technologies. All rights reserved.
-// This file is governed by the Expo Open OTA Enterprise Edition license
+// Copyright (c) 2026 Axel Marciano (Mercure Technologies). All rights reserved.
+// This file is governed by the Mercure Technologies Enterprise Edition License
 // (see ee/LICENSE); it is NOT covered by the MIT license of this repository.
 
-// Package licensing implements offline validation of Expo Open OTA Enterprise
-// license keys issued through Keygen (https://keygen.sh) with the
+// Package licensing implements offline validation of Mercure Technologies
+// Enterprise license keys issued through Keygen (https://keygen.sh) with the
 // ED25519_SIGN scheme. A key looks like:
 //
 //	key/{base64url(JSON dataset)}.{base64url(Ed25519 signature)}
