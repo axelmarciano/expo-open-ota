@@ -36,6 +36,29 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # The Postgres-backed store tests (users, SSO, progressive rollouts) cover SQL that
+    # the in-memory fakes cannot reach: partial unique indexes, deferred FKs, guarded
+    # UPDATEs and their behavior under concurrency. They skip themselves when
+    # TEST_DATABASE_URL is unset, so without this service they never ran here and the
+    # job went green having executed none of them.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: eoota_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/eoota_test?sslmode=disable
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

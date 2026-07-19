@@ -228,12 +228,29 @@ WHERE b.name = $1 AND b.app_id = $2;
 
 -- name: MarkUpdateAsChecked :execrows
 -- Stamps the "complete and pickable" sentinel. The stamp is refused (0 rows) when it
--- would break a rollout invariant, which closes the publish/activation races
--- transactionally: a plain update cannot become visible while a rollout is active on
--- its (branch, rtv, platform), and a rollout update cannot activate once a newer
--- checked update superseded it during upload.
+-- would break a rollout invariant: a plain update cannot become visible while a
+-- rollout is active on its (branch, rtv, platform), and a rollout cannot activate if
+-- ANY other update of that target was checked in while it was uploading.
+--
+-- The second arm compares checked_at against the target's created_at rather than
+-- comparing ids. control_update_id is captured by InsertUpdateWithRollout at
+-- requestUploadUrl time, so the rollout's control is only still accurate if the branch
+-- did not move during the upload. An id comparison misses the update that was ALREADY
+-- uploading when the rollout started: it carries a lower id, yet it reaches checked
+-- state later, and the rollout would then activate pointing its out-of-bucket cohort at
+-- the update before it, leaving the one in between served to nobody.
+--
+-- Known and accepted limitation: both arms read checked_at, the very column a
+-- concurrent stamp is writing, so neither sees an uncommitted sibling. Two stamps whose
+-- statements genuinely overlap (a plain update and a rollout on the same branch, rtv AND
+-- platform, landing within the same few milliseconds) can therefore both pass, leaving
+-- the rollout active but invisible to serving while HasActiveRolloutUpdate still refuses
+-- further publishes. Closing it needs real serialization, an advisory lock on
+-- (branch, rtv, platform) around the stamp, which puts a contention point on the publish
+-- path for a window this narrow. The checked_at comparison above already reduced the
+-- exposure from the whole upload duration to that statement overlap.
 WITH target AS (
-    SELECT u.id, u.branch_id, u.runtime_version_id, u.platform, u.rollout_percentage
+    SELECT u.id, u.branch_id, u.runtime_version_id, u.platform, u.rollout_percentage, u.created_at
     FROM updates u
     JOIN branches b ON u.branch_id = b.id
     WHERE u.id = $1 AND b.app_id = $2 AND b.name = $3
@@ -260,7 +277,8 @@ updated_rows AS (
               AND n.runtime_version_id = target.runtime_version_id
               AND n.platform = target.platform
               AND n.checked_at IS NOT NULL
-              AND n.id > target.id
+              AND n.id <> target.id
+              AND n.checked_at > target.created_at
         ))
       )
     RETURNING updates.runtime_version_id

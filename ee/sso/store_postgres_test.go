@@ -40,6 +40,11 @@ func setupSSOStore(t *testing.T) (*PostgresSSOStore, *pgxpool.Pool) {
 	t.Helper()
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
+		// See the same guard in internal/store/rollout_postgres_test.go: a skip in CI is
+		// a green job that ran none of these migrations or queries.
+		if os.Getenv("CI") != "" {
+			t.Fatal("TEST_DATABASE_URL must be set in CI: these tests cover SQL that the in-memory fakes cannot reach")
+		}
 		t.Skip("TEST_DATABASE_URL not set — start a Postgres and set it to run the sso store tests")
 	}
 	// The seed migration fails fast on an empty database without the

@@ -13,7 +13,7 @@ var ErrNotSupportedInStatelessMode = errors.New("operation not supported in stat
 // inside the UPDATE itself so the publish/activation races close transactionally,
 // and the store disambiguates the 0-rows result into one of these.
 var ErrPublishBlockedByActiveRollout = errors.New("update cannot become visible: a progressive rollout is active on its branch and runtime version")
-var ErrRolloutSupersededByNewerUpdate = errors.New("rollout activation refused: a newer update was published during the upload")
+var ErrRolloutSupersededByNewerUpdate = errors.New("rollout activation refused: another update was published on this branch during the upload")
 
 // ErrWouldLeaveNoAdmin is returned by the guarded user delete/demote paths
 // when the target is the last remaining admin: the write is refused

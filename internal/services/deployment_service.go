@@ -32,7 +32,7 @@ var (
 	// ErrRolloutSuperseded refuses the activation of a rollout update when a newer
 	// checked update landed on the same (branch, runtime version, platform) during
 	// its upload: activating it would advertise a rollout that is never served.
-	ErrRolloutSuperseded = errors.New("a newer update was published while this one was uploading; the rollout was not started")
+	ErrRolloutSuperseded = errors.New("another update was published on this branch while this one was uploading; the rollout was not started, republish to retry")
 )
 
 type ProcessUpdateParams struct {

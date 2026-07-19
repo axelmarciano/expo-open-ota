@@ -31,6 +31,11 @@ func setupUserStore(t *testing.T) (*store.PostgresUserStore, *pgxpool.Pool) {
 	t.Helper()
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
+		// See the same guard in rollout_postgres_test.go: a skip in CI is a green job
+		// that ran none of these guarded queries.
+		if os.Getenv("CI") != "" {
+			t.Fatal("TEST_DATABASE_URL must be set in CI: these tests cover SQL that the in-memory fakes cannot reach")
+		}
 		t.Skip("TEST_DATABASE_URL not set — start a Postgres and set it to run the guarded-query tests")
 	}
 	// The seed migration fails fast on an empty database without the
