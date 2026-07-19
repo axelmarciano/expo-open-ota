@@ -48,6 +48,10 @@
 
 ## Features
 
+### Multi-app support
+
+One server hosts all your Expo apps. Each app gets its own branches, channels, API tokens and update history, and your whole team manages everything from a single dashboard. No Expo account required.
+
 ### One-command publishing
 
 Ship an update from your terminal or CI with the [eoas](https://www.npmjs.com/package/eoas) CLI. Rollbacks and republishing are one command too.
