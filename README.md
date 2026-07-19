@@ -6,7 +6,7 @@
 
 <p align="center">
   An open-source Go server implementing the <a href="https://docs.expo.dev/technical-specs/expo-updates-1/">Expo Updates protocol</a>,<br/>
-  with a web dashboard, progressive rollouts, instant rollbacks and one-command publishing.
+  with a web dashboard, multi-app support, progressive rollouts, instant rollbacks and one-command publishing.
 </p>
 
 <p align="center">
