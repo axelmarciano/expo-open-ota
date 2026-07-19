@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Mercure Technologies. All rights reserved.
-// This file is governed by the Expo Open OTA Enterprise Edition license
+// Copyright (c) 2026 Axel Marciano (Mercure Technologies). All rights reserved.
+// This file is governed by the Mercure Technologies Enterprise Edition License
 // (see ee/LICENSE at the repository root); it is NOT covered by the MIT
 // license of this repository.
 
@@ -141,7 +141,7 @@ export const License = () => {
     <div className="w-full">
       <PageHeader
         title="License"
-        description="Enterprise Edition license for this deployment. Keys are verified offline against the Expo Open OTA signing key (no phone home) and stored in the database."
+        description="Enterprise Edition license for this deployment. Keys are verified offline against the Mercure Technologies signing key (no phone home) and stored in the database."
       />
 
       {licenseQuery.isLoading && (

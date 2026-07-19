@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Mercure Technologies. All rights reserved.
-// This file is governed by the Expo Open OTA Enterprise Edition license
+// Copyright (c) 2026 Axel Marciano (Mercure Technologies). All rights reserved.
+// This file is governed by the Mercure Technologies Enterprise Edition License
 // (see ee/LICENSE); it is NOT covered by the MIT license of this repository.
 
 // Integration tests for the SSO store: the seal/unseal roundtrip of the

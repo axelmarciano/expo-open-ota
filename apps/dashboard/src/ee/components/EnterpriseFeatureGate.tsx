@@ -1,5 +1,5 @@
-// Copyright (c) 2026 Mercure Technologies. All rights reserved.
-// This file is governed by the Expo Open OTA Enterprise Edition license
+// Copyright (c) 2026 Axel Marciano (Mercure Technologies). All rights reserved.
+// This file is governed by the Mercure Technologies Enterprise Edition License
 // (see ee/LICENSE at the repository root); it is NOT covered by the MIT
 // license of this repository.
 
@@ -45,7 +45,7 @@ export const EnterpriseFeatureGate = ({ children }: { children: ReactNode }) => 
           <div>
             <p className="text-sm font-semibold">Enterprise feature</p>
             <p className="mt-1 max-w-[230px] text-xs leading-relaxed text-muted-foreground">
-              Unlock it with an Expo Open OTA Enterprise license.
+              Unlock it with an Enterprise license.
             </p>
           </div>
           <Button
