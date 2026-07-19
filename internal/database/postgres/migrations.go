@@ -28,7 +28,11 @@ func RunDBMigrations(dbURL string) {
 
 	log.Println("🔧 [DATABASE] Checking and running PostgreSQL schema migrations...")
 
-	if err := goose.Up(db, "migrations"); err != nil {
+	// WithAllowMissing applies migrations whose version is lower than the one already
+	// recorded in the database. Parallel PRs get merged out of timestamp order, so a
+	// deployment can pick up a migration that predates one it already ran. Migrations
+	// here are independent of each other, so applying them out of order is safe.
+	if err := goose.Up(db, "migrations", goose.WithAllowMissing()); err != nil {
 		log.Fatalf("🚨 [DATABASE] PostgreSQL migration execution failed: %v", err)
 	}
 
