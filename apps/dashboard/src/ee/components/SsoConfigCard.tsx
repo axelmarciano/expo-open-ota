@@ -32,6 +32,7 @@ type SsoFormState = {
   allowedEmailDomains: string[];
   allowedGroups: string[];
   trustUnverifiedEmail: boolean;
+  manualUserValidation: boolean;
 };
 
 const DEFAULT_SCOPES = 'openid profile email';
@@ -47,6 +48,7 @@ const emptyForm: SsoFormState = {
   allowedEmailDomains: [],
   allowedGroups: [],
   trustUnverifiedEmail: false,
+  manualUserValidation: false,
 };
 
 const formFromSettings = (settings: SsoSettings): SsoFormState => ({
@@ -61,6 +63,7 @@ const formFromSettings = (settings: SsoSettings): SsoFormState => ({
   allowedEmailDomains: settings.allowedEmailDomains,
   allowedGroups: settings.allowedGroups,
   trustUnverifiedEmail: settings.trustUnverifiedEmail,
+  manualUserValidation: settings.manualUserValidation,
 });
 
 // Signature of the stored values the form is populated from. The live enabled
@@ -78,6 +81,7 @@ const settingsFormSignature = (settings: SsoSettings | null): string | null =>
         settings.allowedEmailDomains,
         settings.allowedGroups,
         settings.trustUnverifiedEmail,
+        settings.manualUserValidation,
       ])
     : null;
 
@@ -241,6 +245,7 @@ export const SsoConfigCard = () => {
         allowedGroups: form.allowedGroups,
         groupsClaim: form.groupsClaim.trim(),
         trustUnverifiedEmail: form.trustUnverifiedEmail,
+        manualUserValidation: form.manualUserValidation,
       });
       queryClient.setQueryData(['ssoSettings'], saved);
       queryClient.invalidateQueries({ queryKey: ['ssoPublicConfig'] });
@@ -278,6 +283,7 @@ export const SsoConfigCard = () => {
         allowedGroups: settings.allowedGroups,
         groupsClaim: settings.groupsClaim,
         trustUnverifiedEmail: settings.trustUnverifiedEmail,
+        manualUserValidation: settings.manualUserValidation,
       });
       queryClient.setQueryData(['ssoSettings'], saved);
       queryClient.invalidateQueries({ queryKey: ['ssoPublicConfig'] });
@@ -364,7 +370,10 @@ export const SsoConfigCard = () => {
             <AlertTitle>Could not load the SSO configuration</AlertTitle>
             <AlertDescription className="flex flex-col items-start gap-3">
               <span className="break-words">
-                {describeApiError(settingsQuery.error, 'The server could not be reached.').description}
+                {
+                  describeApiError(settingsQuery.error, 'The server could not be reached.')
+                    .description
+                }
               </span>
               <Button
                 variant="outline"
@@ -428,12 +437,16 @@ export const SsoConfigCard = () => {
                   size="icon"
                   onClick={handleCopyRedirectUri}
                   title="Copy the redirect URI">
-                  {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                  {copied ? (
+                    <Check className="h-4 w-4 text-emerald-600" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
                 </Button>
               </div>
               <FieldHint>
-                Derived from BASE_URL. Register it as a web redirect URI in your identity
-                provider's app registration before saving.
+                Derived from BASE_URL. Register it as a web redirect URI in your identity provider's
+                app registration before saving.
               </FieldHint>
             </div>
 
@@ -448,8 +461,10 @@ export const SsoConfigCard = () => {
                   spellCheck={false}
                 />
                 <FieldHint>
-                  The OpenID Connect issuer of your provider. Saving fetches
-                  {' '}<code className="rounded bg-muted px-1 py-0.5 text-[11px]">/.well-known/openid-configuration</code>{' '}
+                  The OpenID Connect issuer of your provider. Saving fetches{' '}
+                  <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+                    /.well-known/openid-configuration
+                  </code>{' '}
                   from it and reports any error right here.
                 </FieldHint>
               </div>
@@ -545,6 +560,24 @@ export const SsoConfigCard = () => {
                   aria-label="Trust emails from this provider"
                   checked={form.trustUnverifiedEmail}
                   onCheckedChange={checked => setField('trustUnverifiedEmail', checked)}
+                />
+              </div>
+
+              <div className="flex items-start justify-between gap-4 border-t pt-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="sso-manual-validation">Require admin approval</Label>
+                  <FieldHint>
+                    New accounts are created on their first sign-in but cannot enter until an admin
+                    approves them on the Users page, where they show up as pending. Use this when
+                    your provider authenticates more people than should reach this dashboard and
+                    does not send group claims to filter on, which is the case for Google Workspace.
+                    Accounts that already exist keep their access.
+                  </FieldHint>
+                </div>
+                <Switch
+                  aria-label="Require admin approval"
+                  checked={form.manualUserValidation}
+                  onCheckedChange={checked => setField('manualUserValidation', checked)}
                 />
               </div>
             </div>

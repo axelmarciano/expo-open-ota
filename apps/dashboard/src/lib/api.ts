@@ -111,6 +111,9 @@ export type UserRecord = {
   id: string;
   email: string;
   isAdmin: boolean;
+  // False for an account an admin revoked, or one awaiting approval under SSO
+  // manual validation. Disabled accounts cannot sign in.
+  enabled: boolean;
   createdAt?: string;
   lastConnectedAt?: string;
 };
@@ -154,6 +157,9 @@ export type SsoSettings = {
   // Whether the server accepts an email the provider did not verify
   // (email_verified false or absent) for account lookup and authorization.
   trustUnverifiedEmail: boolean;
+  // Whether accounts discovered on their first SSO sign-in are provisioned
+  // disabled, waiting for an admin to approve them on the Users page.
+  manualUserValidation: boolean;
   redirectUri: string;
 };
 
@@ -169,6 +175,7 @@ export type SaveSsoSettingsPayload = {
   allowedGroups: string[];
   groupsClaim: string;
   trustUnverifiedEmail: boolean;
+  manualUserValidation: boolean;
 };
 
 // Mirror of the server's SettingsEnv payload (/api/settings). Field names are
@@ -347,6 +354,14 @@ export class ApiClient {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isAdmin }),
+    });
+  }
+
+  public async updateUserEnabled(userId: string, enabled: boolean) {
+    return this.request<void>(`/api/users/${encodeURIComponent(userId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
     });
   }
 

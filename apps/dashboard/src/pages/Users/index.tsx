@@ -7,6 +7,7 @@ import { useCurrentUser } from '@/lib/CurrentUserContext';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { PageHeader } from '@/components/PageHeader';
 import { DataTable } from '@/components/DataTable';
 import { TimestampCell } from '@/components/ui/timestamp-cell';
@@ -23,6 +24,7 @@ export const Users = () => {
   const [userToDelete, setUserToDelete] = useState<UserRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
+  const [togglingEnabledId, setTogglingEnabledId] = useState<string | null>(null);
 
   const usersQuery = useQuery({
     queryKey: ['users'],
@@ -49,13 +51,34 @@ export const Users = () => {
     }
   };
 
+  const handleToggleEnabled = async (user: UserRecord) => {
+    setTogglingEnabledId(user.id);
+    try {
+      await api.updateUserEnabled(user.id, !user.enabled);
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast({
+        title: user.enabled ? 'Access revoked' : 'Account approved',
+        description: user.enabled
+          ? `"${user.email}" can no longer sign in.`
+          : `"${user.email}" can now sign in.`,
+      });
+    } catch (error) {
+      notifyError(error, 'Error updating user');
+    } finally {
+      setTogglingEnabledId(null);
+    }
+  };
+
   const handleExecuteDeletion = async () => {
     if (!userToDelete) return;
     setIsDeleting(true);
     try {
       await api.deleteUser(userToDelete.id);
       queryClient.invalidateQueries({ queryKey: ['users'] });
-      toast({ title: 'User deleted', description: `"${userToDelete.email}" can no longer sign in.` });
+      toast({
+        title: 'User deleted',
+        description: `"${userToDelete.email}" can no longer sign in.`,
+      });
       setUserToDelete(null);
     } catch (error) {
       notifyError(error, 'Deletion failed');
@@ -67,10 +90,7 @@ export const Users = () => {
   if (!CONTROL_PLANE_ENABLED) {
     return (
       <div className="w-full">
-        <PageHeader
-          title="Users"
-          description="User accounts for this dashboard."
-        />
+        <PageHeader title="Users" description="User accounts for this dashboard." />
         <div className="rounded-xl border border-dashed bg-muted/30 p-8 text-center text-sm text-muted-foreground">
           On a stateless deployment there is a single account, configured through the ADMIN_EMAIL
           and ADMIN_PASSWORD environment variables.
@@ -139,6 +159,36 @@ export const Users = () => {
                 ) : (
                   <Badge variant="secondary">Member</Badge>
                 ),
+            },
+            {
+              header: 'Access',
+              accessorKey: 'enabled',
+              cell: ({ row }) => {
+                const { enabled, lastConnectedAt } = row.original;
+                // A disabled account that never connected is one nobody has
+                // approved yet; one that did connect had its access revoked.
+                // Same flag, but the two read very differently to an admin.
+                const label = enabled ? 'Active' : lastConnectedAt ? 'Disabled' : 'Pending';
+                const badge = enabled ? (
+                  <Badge variant="secondary">Active</Badge>
+                ) : (
+                  <Badge variant="destructive">{label}</Badge>
+                );
+                // The server refuses disabling your own account, so do not
+                // offer the switch on your own row.
+                if (row.original.id === currentUser?.id) return badge;
+                return (
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={enabled}
+                      onCheckedChange={() => handleToggleEnabled(row.original)}
+                      disabled={togglingEnabledId === row.original.id}
+                      aria-label={enabled ? 'Revoke access' : 'Approve account'}
+                    />
+                    {badge}
+                  </div>
+                );
+              },
             },
             {
               header: 'Created',

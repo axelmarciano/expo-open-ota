@@ -15,6 +15,8 @@ import {
   Users,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 import { Combobox } from '@/components/Combobox';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
 import { CreateAppModal } from '@/components/app-creation-modal';
@@ -62,6 +64,16 @@ const EnterpriseNavBadge = () => (
   </span>
 );
 
+// Counts the accounts waiting for an admin to approve them. Without it nobody
+// notices there is anything to approve, and new members sit blocked in silence.
+const PendingUsersBadge = ({ count }: { count: number }) => (
+  <span
+    className="ml-auto rounded-full border border-amber-200/80 bg-amber-50/80 px-1.5 py-px text-[10px] font-medium text-amber-700"
+    title={`${count} account${count > 1 ? 's' : ''} waiting for approval`}>
+    {count}
+  </span>
+);
+
 const SectionLabel = ({ children }: { children: React.ReactNode }) => (
   <p className="px-3 pb-1.5 pt-5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground/70">
     {children}
@@ -73,6 +85,15 @@ export function AppSidebar() {
   const { isAdmin } = useCurrentUser();
   const { apps, selectedAppId, setSelectedAppId, refreshApps, isLoading } = useSelectedApp();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+
+  // Same query key as the Users page, so react-query serves both from one
+  // request and approving an account refreshes the badge on its own.
+  const usersQuery = useQuery({
+    queryKey: ['users'],
+    queryFn: () => api.getUsers(),
+    enabled: CONTROL_PLANE_ENABLED && isAdmin,
+  });
+  const pendingUsersCount = (usersQuery.data ?? []).filter(user => !user.enabled).length;
 
   const handleAppCreated = async (newAppId: string) => {
     await refreshApps();
@@ -166,7 +187,14 @@ export function AppSidebar() {
             <>
               <SectionLabel>Access & Security</SectionLabel>
               <div className="space-y-0.5">
-                <NavLink to="/users" icon={Users}>
+                <NavLink
+                  to="/users"
+                  icon={Users}
+                  badge={
+                    pendingUsersCount > 0 ? (
+                      <PendingUsersBadge count={pendingUsersCount} />
+                    ) : undefined
+                  }>
                   Users
                 </NavLink>
                 <NavLink to="/sso" icon={Fingerprint} badge={<EnterpriseNavBadge />}>

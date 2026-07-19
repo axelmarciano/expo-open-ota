@@ -154,18 +154,29 @@ func TestSSOIdentityLifecycle(t *testing.T) {
 	issuer := "https://idp.example.com"
 
 	// JIT provisioning: user and identity land atomically.
+	// Provisioned disabled, as manual user validation does.
 	memberID := uuid.NewString()
 	provisioned, err := ssoStore.ProvisionUser(ctx, store.InsertUserParameters{
-		ID: memberID, Email: "Member@Acme.com", PasswordHash: "", IsAdmin: false,
+		ID: memberID, Email: "Member@Acme.com", PasswordHash: "", IsAdmin: false, Enabled: false,
 	}, issuer, "subject-1")
 	require.NoError(t, err)
 	assert.Equal(t, "member@acme.com", provisioned.Email)
+	assert.False(t, provisioned.Enabled)
 
 	found, err := ssoStore.FindUserBySubject(ctx, issuer, "subject-1")
 	require.NoError(t, err)
 	assert.Equal(t, memberID, found.Id)
 	assert.Empty(t, found.PasswordHash)
 	assert.False(t, found.IsAdmin)
+	assert.False(t, found.Enabled)
+
+	// Once an admin approves the account, the next sign-in must see it
+	// enabled: reading the flag back is what ends the "pending approval" loop.
+	_, err = pool.Exec(ctx, "UPDATE users SET enabled = TRUE WHERE id = $1", memberID)
+	require.NoError(t, err)
+	found, err = ssoStore.FindUserBySubject(ctx, issuer, "subject-1")
+	require.NoError(t, err)
+	assert.True(t, found.Enabled)
 
 	// Unknown subject answers the typed not-found error.
 	_, err = ssoStore.FindUserBySubject(ctx, issuer, "unknown-subject")
@@ -191,6 +202,7 @@ func TestSSOIdentityLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, linkedID, found.Id)
 	assert.True(t, found.IsAdmin)
+	assert.True(t, found.Enabled)
 
 	// The same (issuer, subject) cannot be linked twice.
 	err = ssoStore.LinkIdentity(ctx, issuer, "subject-2", memberID, "member@acme.com")
