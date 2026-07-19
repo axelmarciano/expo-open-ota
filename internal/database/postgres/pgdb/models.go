@@ -91,6 +91,7 @@ type SsoConfig struct {
 	CreatedAt            pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
 	TrustUnverifiedEmail bool               `json:"trust_unverified_email"`
+	ManualUserValidation bool               `json:"manual_user_validation"`
 }
 
 type SsoIdentity struct {
@@ -125,4 +126,5 @@ type User struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 	LastConnectedAt pgtype.Timestamptz `json:"last_connected_at"`
+	Enabled         bool               `json:"enabled"`
 }

@@ -116,16 +116,17 @@ func (q *Queries) DeleteSSOConfig(ctx context.Context) error {
 
 const deleteUserByID = `-- name: DeleteUserByID :execresult
 WITH admins AS (
-    SELECT id FROM users WHERE is_admin ORDER BY id FOR UPDATE
+    SELECT id FROM users WHERE is_admin AND enabled ORDER BY id FOR UPDATE
 )
 DELETE FROM users
 WHERE users.id = $1
   AND (users.id NOT IN (SELECT id FROM admins) OR (SELECT COUNT(*) FROM admins) > 1)
 `
 
-// Locks the admin rows first so concurrent deletes/demotions serialize:
-// deleting the last remaining admin matches no row instead of leaving the
-// dashboard without any admin.
+// Locks the admin rows first so concurrent deletes/demotions/disables
+// serialize: deleting the last remaining admin matches no row instead of
+// leaving the dashboard without any admin. Disabled admins are excluded, since
+// an account that cannot sign in is no safety net.
 func (q *Queries) DeleteUserByID(ctx context.Context, id pgtype.UUID) (pgconn.CommandTag, error) {
 	return q.db.Exec(ctx, deleteUserByID, id)
 }
@@ -842,7 +843,7 @@ func (q *Queries) GetRuntimeVersionsWithUpdateCount(ctx context.Context, arg Get
 }
 
 const getSSOConfig = `-- name: GetSSOConfig :one
-SELECT singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim, created_at, updated_at, trust_unverified_email FROM sso_config
+SELECT singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim, created_at, updated_at, trust_unverified_email, manual_user_validation FROM sso_config
 WHERE singleton
 `
 
@@ -863,6 +864,7 @@ func (q *Queries) GetSSOConfig(ctx context.Context) (SsoConfig, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TrustUnverifiedEmail,
+		&i.ManualUserValidation,
 	)
 	return i, err
 }
@@ -1168,7 +1170,7 @@ func (q *Queries) GetUpdatesMetadataByBranchName(ctx context.Context, arg GetUpd
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, password_hash, is_admin, created_at, updated_at, last_connected_at FROM users
+SELECT id, email, password_hash, is_admin, created_at, updated_at, last_connected_at, enabled FROM users
 WHERE email = $1 LIMIT 1
 `
 
@@ -1183,12 +1185,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastConnectedAt,
+		&i.Enabled,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, password_hash, is_admin, created_at, updated_at, last_connected_at FROM users
+SELECT id, email, password_hash, is_admin, created_at, updated_at, last_connected_at, enabled FROM users
 WHERE id = $1 LIMIT 1
 `
 
@@ -1203,12 +1206,13 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastConnectedAt,
+		&i.Enabled,
 	)
 	return i, err
 }
 
 const getUserBySSOSubject = `-- name: GetUserBySSOSubject :one
-SELECT u.id, u.email, u.password_hash, u.is_admin, u.created_at, u.updated_at, u.last_connected_at FROM users u
+SELECT u.id, u.email, u.password_hash, u.is_admin, u.created_at, u.updated_at, u.last_connected_at, u.enabled FROM users u
 JOIN sso_identities si ON si.user_id = u.id
 WHERE si.issuer = $1 AND si.subject = $2
 `
@@ -1229,12 +1233,13 @@ func (q *Queries) GetUserBySSOSubject(ctx context.Context, arg GetUserBySSOSubje
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastConnectedAt,
+		&i.Enabled,
 	)
 	return i, err
 }
 
 const getUsers = `-- name: GetUsers :many
-SELECT id, email, is_admin, created_at, last_connected_at FROM users
+SELECT id, email, is_admin, enabled, created_at, last_connected_at FROM users
 ORDER BY created_at ASC
 `
 
@@ -1242,6 +1247,7 @@ type GetUsersRow struct {
 	ID              pgtype.UUID        `json:"id"`
 	Email           string             `json:"email"`
 	IsAdmin         bool               `json:"is_admin"`
+	Enabled         bool               `json:"enabled"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	LastConnectedAt pgtype.Timestamptz `json:"last_connected_at"`
 }
@@ -1259,6 +1265,7 @@ func (q *Queries) GetUsers(ctx context.Context) ([]GetUsersRow, error) {
 			&i.ID,
 			&i.Email,
 			&i.IsAdmin,
+			&i.Enabled,
 			&i.CreatedAt,
 			&i.LastConnectedAt,
 		); err != nil {
@@ -1676,9 +1683,9 @@ func (q *Queries) InsertUpdateWithRollout(ctx context.Context, arg InsertUpdateW
 }
 
 const insertUser = `-- name: InsertUser :one
-INSERT INTO users (id, email, password_hash, is_admin)
-VALUES ($1, $2, $3, $4)
-RETURNING id, email, is_admin, created_at
+INSERT INTO users (id, email, password_hash, is_admin, enabled)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, email, is_admin, enabled, created_at
 `
 
 type InsertUserParams struct {
@@ -1686,12 +1693,14 @@ type InsertUserParams struct {
 	Email        string      `json:"email"`
 	PasswordHash string      `json:"password_hash"`
 	IsAdmin      bool        `json:"is_admin"`
+	Enabled      bool        `json:"enabled"`
 }
 
 type InsertUserRow struct {
 	ID        pgtype.UUID        `json:"id"`
 	Email     string             `json:"email"`
 	IsAdmin   bool               `json:"is_admin"`
+	Enabled   bool               `json:"enabled"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
@@ -1701,12 +1710,14 @@ func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) (InsertU
 		arg.Email,
 		arg.PasswordHash,
 		arg.IsAdmin,
+		arg.Enabled,
 	)
 	var i InsertUserRow
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
 		&i.IsAdmin,
+		&i.Enabled,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -2228,9 +2239,34 @@ func (q *Queries) UpdateChannelRolloutPercentage(ctx context.Context, arg Update
 	return result.RowsAffected(), nil
 }
 
+const updateUserEnabledByID = `-- name: UpdateUserEnabledByID :execresult
+WITH admins AS (
+    SELECT id FROM users WHERE is_admin AND enabled ORDER BY id FOR UPDATE
+)
+UPDATE users
+SET enabled = $2, updated_at = CURRENT_TIMESTAMP
+WHERE users.id = $1
+  AND ($2::boolean
+       OR users.id NOT IN (SELECT id FROM admins)
+       OR (SELECT COUNT(*) FROM admins) > 1)
+`
+
+type UpdateUserEnabledByIDParams struct {
+	ID      pgtype.UUID `json:"id"`
+	Enabled bool        `json:"enabled"`
+}
+
+// Same admin-row lock as DeleteUserByID: disabling the last remaining enabled
+// admin matches no row, so approving/revoking accounts can never lock the
+// dashboard out. Enabling ($2 true) always passes the guard but still takes
+// the lock, so it serializes with concurrent disables.
+func (q *Queries) UpdateUserEnabledByID(ctx context.Context, arg UpdateUserEnabledByIDParams) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, updateUserEnabledByID, arg.ID, arg.Enabled)
+}
+
 const updateUserIsAdminByID = `-- name: UpdateUserIsAdminByID :execresult
 WITH admins AS (
-    SELECT id FROM users WHERE is_admin ORDER BY id FOR UPDATE
+    SELECT id FROM users WHERE is_admin AND enabled ORDER BY id FOR UPDATE
 )
 UPDATE users
 SET is_admin = $2, updated_at = CURRENT_TIMESTAMP
@@ -2288,8 +2324,8 @@ func (q *Queries) UpsertEnterpriseLicense(ctx context.Context, licenseKey string
 }
 
 const upsertSSOConfig = `-- name: UpsertSSOConfig :one
-INSERT INTO sso_config (singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim, trust_unverified_email)
-VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+INSERT INTO sso_config (singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim, trust_unverified_email, manual_user_validation)
+VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (singleton) DO UPDATE
 SET issuer = EXCLUDED.issuer,
     client_id = EXCLUDED.client_id,
@@ -2301,8 +2337,9 @@ SET issuer = EXCLUDED.issuer,
     allowed_groups = EXCLUDED.allowed_groups,
     groups_claim = EXCLUDED.groups_claim,
     trust_unverified_email = EXCLUDED.trust_unverified_email,
+    manual_user_validation = EXCLUDED.manual_user_validation,
     updated_at = CURRENT_TIMESTAMP
-RETURNING singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim, created_at, updated_at, trust_unverified_email
+RETURNING singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim, created_at, updated_at, trust_unverified_email, manual_user_validation
 `
 
 type UpsertSSOConfigParams struct {
@@ -2316,6 +2353,7 @@ type UpsertSSOConfigParams struct {
 	AllowedGroups        []string `json:"allowed_groups"`
 	GroupsClaim          string   `json:"groups_claim"`
 	TrustUnverifiedEmail bool     `json:"trust_unverified_email"`
+	ManualUserValidation bool     `json:"manual_user_validation"`
 }
 
 func (q *Queries) UpsertSSOConfig(ctx context.Context, arg UpsertSSOConfigParams) (SsoConfig, error) {
@@ -2330,6 +2368,7 @@ func (q *Queries) UpsertSSOConfig(ctx context.Context, arg UpsertSSOConfigParams
 		arg.AllowedGroups,
 		arg.GroupsClaim,
 		arg.TrustUnverifiedEmail,
+		arg.ManualUserValidation,
 	)
 	var i SsoConfig
 	err := row.Scan(
@@ -2346,6 +2385,7 @@ func (q *Queries) UpsertSSOConfig(ctx context.Context, arg UpsertSSOConfigParams
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TrustUnverifiedEmail,
+		&i.ManualUserValidation,
 	)
 	return i, err
 }

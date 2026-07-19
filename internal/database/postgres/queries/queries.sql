@@ -336,9 +336,9 @@ WHERE app_id = $1
 RETURNING id;
 
 -- name: InsertUser :one
-INSERT INTO users (id, email, password_hash, is_admin)
-VALUES ($1, $2, $3, $4)
-RETURNING id, email, is_admin, created_at;
+INSERT INTO users (id, email, password_hash, is_admin, enabled)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, email, is_admin, enabled, created_at;
 
 -- name: GetUserByEmail :one
 SELECT * FROM users
@@ -349,7 +349,7 @@ SELECT * FROM users
 WHERE id = $1 LIMIT 1;
 
 -- name: GetUsers :many
-SELECT id, email, is_admin, created_at, last_connected_at FROM users
+SELECT id, email, is_admin, enabled, created_at, last_connected_at FROM users
 ORDER BY created_at ASC;
 
 -- name: TouchUserLastConnectedAt :exec
@@ -358,11 +358,12 @@ SET last_connected_at = CURRENT_TIMESTAMP
 WHERE id = $1;
 
 -- name: DeleteUserByID :execresult
--- Locks the admin rows first so concurrent deletes/demotions serialize:
--- deleting the last remaining admin matches no row instead of leaving the
--- dashboard without any admin.
+-- Locks the admin rows first so concurrent deletes/demotions/disables
+-- serialize: deleting the last remaining admin matches no row instead of
+-- leaving the dashboard without any admin. Disabled admins are excluded, since
+-- an account that cannot sign in is no safety net.
 WITH admins AS (
-    SELECT id FROM users WHERE is_admin ORDER BY id FOR UPDATE
+    SELECT id FROM users WHERE is_admin AND enabled ORDER BY id FOR UPDATE
 )
 DELETE FROM users
 WHERE users.id = $1
@@ -378,10 +379,25 @@ WHERE id = $1;
 -- matches no row. Promotions ($2 true) always pass the guard but still take
 -- the lock, so they serialize with concurrent demotions.
 WITH admins AS (
-    SELECT id FROM users WHERE is_admin ORDER BY id FOR UPDATE
+    SELECT id FROM users WHERE is_admin AND enabled ORDER BY id FOR UPDATE
 )
 UPDATE users
 SET is_admin = $2, updated_at = CURRENT_TIMESTAMP
+WHERE users.id = $1
+  AND ($2::boolean
+       OR users.id NOT IN (SELECT id FROM admins)
+       OR (SELECT COUNT(*) FROM admins) > 1);
+
+-- name: UpdateUserEnabledByID :execresult
+-- Same admin-row lock as DeleteUserByID: disabling the last remaining enabled
+-- admin matches no row, so approving/revoking accounts can never lock the
+-- dashboard out. Enabling ($2 true) always passes the guard but still takes
+-- the lock, so it serializes with concurrent disables.
+WITH admins AS (
+    SELECT id FROM users WHERE is_admin AND enabled ORDER BY id FOR UPDATE
+)
+UPDATE users
+SET enabled = $2, updated_at = CURRENT_TIMESTAMP
 WHERE users.id = $1
   AND ($2::boolean
        OR users.id NOT IN (SELECT id FROM admins)
@@ -503,8 +519,8 @@ SELECT * FROM sso_config
 WHERE singleton;
 
 -- name: UpsertSSOConfig :one
-INSERT INTO sso_config (singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim, trust_unverified_email)
-VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+INSERT INTO sso_config (singleton, issuer, client_id, sealed_client_secret, provider_name, scopes, enabled, allowed_email_domains, allowed_groups, groups_claim, trust_unverified_email, manual_user_validation)
+VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (singleton) DO UPDATE
 SET issuer = EXCLUDED.issuer,
     client_id = EXCLUDED.client_id,
@@ -516,6 +532,7 @@ SET issuer = EXCLUDED.issuer,
     allowed_groups = EXCLUDED.allowed_groups,
     groups_claim = EXCLUDED.groups_claim,
     trust_unverified_email = EXCLUDED.trust_unverified_email,
+    manual_user_validation = EXCLUDED.manual_user_validation,
     updated_at = CURRENT_TIMESTAMP
 RETURNING *;
 

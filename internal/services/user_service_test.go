@@ -28,7 +28,7 @@ func (r *fakeUserRepo) InsertUser(_ context.Context, params store.InsertUserPara
 			return store.User{}, &store.ErrResourceAlreadyExists{Resource: "user", Identifier: email}
 		}
 	}
-	user := store.User{Id: params.ID, Email: email, PasswordHash: params.PasswordHash, IsAdmin: params.IsAdmin}
+	user := store.User{Id: params.ID, Email: email, PasswordHash: params.PasswordHash, IsAdmin: params.IsAdmin, Enabled: params.Enabled}
 	r.users[params.ID] = user
 	return user, nil
 }
@@ -94,6 +94,19 @@ func (r *fakeUserRepo) UpdateUserIsAdmin(_ context.Context, id string, isAdmin b
 	return nil
 }
 
+func (r *fakeUserRepo) UpdateUserEnabled(_ context.Context, id string, enabled bool) error {
+	user, ok := r.users[id]
+	if !ok {
+		return &store.ErrResourceNotFound{Resource: "user", Identifier: id}
+	}
+	if user.IsAdmin && user.Enabled && !enabled && r.adminCount() <= 1 {
+		return store.ErrWouldLeaveNoAdmin
+	}
+	user.Enabled = enabled
+	r.users[id] = user
+	return nil
+}
+
 func (r *fakeUserRepo) TouchUserLastConnected(_ context.Context, id string) error {
 	user, ok := r.users[id]
 	if !ok {
@@ -105,12 +118,13 @@ func (r *fakeUserRepo) TouchUserLastConnected(_ context.Context, id string) erro
 	return nil
 }
 
-// adminCount backs the same "at least one admin" guard the guarded SQL
-// queries enforce in the real store.
+// adminCount backs the same "at least one enabled admin" guard the guarded SQL
+// queries enforce in the real store. A disabled admin cannot sign in, so it is
+// no safety net and does not count.
 func (r *fakeUserRepo) adminCount() int64 {
 	var count int64
 	for _, user := range r.users {
-		if user.IsAdmin {
+		if user.IsAdmin && user.Enabled {
 			count++
 		}
 	}
@@ -166,6 +180,52 @@ func TestSetUserAdminGuardsOwnFlagAndLastAdmin(t *testing.T) {
 
 	// member is now the last admin: demoting them must be refused.
 	assert.ErrorIs(t, service.SetUserAdmin(ctx, admin.Id, member.Id, false), ErrLastAdmin)
+}
+
+func TestCreateUserLandsEnabled(t *testing.T) {
+	// An admin creating the account by hand is the approval; nothing should be
+	// left pending behind them.
+	_, _, admin, member := seedUserService(t)
+	assert.True(t, admin.Enabled)
+	assert.True(t, member.Enabled)
+}
+
+func TestSetUserEnabledGuardsSelfAndLastAdmin(t *testing.T) {
+	service, repo, admin, member := seedUserService(t)
+	ctx := context.Background()
+
+	// Locking yourself out of the dashboard is never a legitimate move.
+	assert.ErrorIs(t, service.SetUserEnabled(ctx, admin.Id, admin.Id, false), ErrCannotDisableOwnAccount)
+
+	// admin is the only enabled admin: disabling them (by anyone) is refused,
+	// exactly like deleting or demoting them.
+	assert.ErrorIs(t, service.SetUserEnabled(ctx, member.Id, admin.Id, false), ErrLastAdmin)
+
+	require.NoError(t, service.SetUserEnabled(ctx, admin.Id, member.Id, false))
+	disabled, err := repo.GetUserByID(ctx, member.Id)
+	require.NoError(t, err)
+	assert.False(t, disabled.Enabled)
+
+	require.NoError(t, service.SetUserEnabled(ctx, admin.Id, member.Id, true))
+	reEnabled, err := repo.GetUserByID(ctx, member.Id)
+	require.NoError(t, err)
+	assert.True(t, reEnabled.Enabled)
+}
+
+// A disabled admin cannot sign in, so it must not count as the admin that
+// keeps the dashboard reachable: without this, disabling one admin and then
+// deleting the other would leave nobody able to get back in.
+func TestDisabledAdminIsNoLongerASafetyNet(t *testing.T) {
+	service, _, admin, member := seedUserService(t)
+	ctx := context.Background()
+
+	require.NoError(t, service.SetUserAdmin(ctx, admin.Id, member.Id, true))
+	require.NoError(t, service.SetUserEnabled(ctx, admin.Id, member.Id, false))
+
+	// member is an admin again on paper, but a disabled one: admin is back to
+	// being the last usable admin and is protected as such.
+	assert.ErrorIs(t, service.SetUserAdmin(ctx, member.Id, admin.Id, false), ErrLastAdmin)
+	assert.ErrorIs(t, service.DeleteUser(ctx, member.Id, admin.Id), ErrLastAdmin)
 }
 
 func TestDeleteUserGuardsSelfAndLastAdmin(t *testing.T) {

@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
-	"expo-open-ota/config"
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/middleware"
 	"expo-open-ota/internal/services"
@@ -28,9 +27,12 @@ func NewUsersHandler(userService *services.UserService) *UsersHandler {
 // stateless mode, where the account is ADMIN_EMAIL and not a database row.
 // LastConnectedAt is empty until the account's first successful sign-in.
 type UserResponse struct {
-	Id              string `json:"id"`
-	Email           string `json:"email"`
-	IsAdmin         bool   `json:"isAdmin"`
+	Id      string `json:"id"`
+	Email   string `json:"email"`
+	IsAdmin bool   `json:"isAdmin"`
+	// Enabled is false for an account an admin revoked, or one awaiting
+	// approval under SSO manual validation.
+	Enabled         bool   `json:"enabled"`
 	CreatedAt       string `json:"createdAt,omitempty"`
 	LastConnectedAt string `json:"lastConnectedAt,omitempty"`
 }
@@ -48,6 +50,7 @@ func userResponseFrom(user store.User) UserResponse {
 		Id:              user.Id,
 		Email:           user.Email,
 		IsAdmin:         user.IsAdmin,
+		Enabled:         user.Enabled,
 		CreatedAt:       createdAt,
 		LastConnectedAt: lastConnectedAt,
 	}
@@ -67,6 +70,7 @@ func renderUserServiceError(w http.ResponseWriter, err error) {
 	case errors.Is(err, services.ErrUsersRequireControlPlane),
 		errors.Is(err, services.ErrCannotChangeOwnAdminFlag),
 		errors.Is(err, services.ErrCannotDeleteOwnAccount),
+		errors.Is(err, services.ErrCannotDisableOwnAccount),
 		errors.Is(err, services.ErrInvalidCurrentPassword):
 		handlers.RenderError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, services.ErrLastAdmin),
@@ -90,19 +94,15 @@ func renderUserServiceError(w http.ResponseWriter, err error) {
 }
 
 // GetMeHandler answers with the account behind the current session. In
-// control-plane mode the row is re-read so the dashboard sees a revoked admin
-// flag on its next load, not at token refresh.
+// control-plane mode the service re-reads the row so the dashboard sees a
+// revoked admin flag on its next load, not at token refresh.
 func (h *UsersHandler) GetMeHandler(w http.ResponseWriter, r *http.Request) {
 	principal := middleware.PrincipalFromContext(r.Context())
 	if principal == nil {
 		handlers.RenderError(w, http.StatusUnauthorized, "This route requires a dashboard session")
 		return
 	}
-	if !config.IsDBMode() {
-		renderJSON(w, http.StatusOK, UserResponse{Email: principal.Email, IsAdmin: true})
-		return
-	}
-	user, err := h.userService.GetUserByID(r.Context(), principal.UserId)
+	user, err := h.userService.GetMe(r.Context(), principal.UserId, principal.Email)
 	if err != nil {
 		// Only a missing row means the session is a leftover of a deleted
 		// account; an infrastructure failure must not read as a dead session.
@@ -177,7 +177,10 @@ func (h *UsersHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request)
 	renderJSON(w, http.StatusCreated, userResponseFrom(user))
 }
 
-func (h *UsersHandler) UpdateUserAdminHandler(w http.ResponseWriter, r *http.Request) {
+// UpdateUserHandler patches the two admin-controlled flags of an account. Both
+// fields are optional pointers so a request can carry either one without the
+// absent one reading as "set to false"; sending both applies both.
+func (h *UsersHandler) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 	principal := middleware.PrincipalFromContext(r.Context())
 	if principal == nil {
 		handlers.RenderError(w, http.StatusUnauthorized, "This route requires a dashboard session")
@@ -186,19 +189,27 @@ func (h *UsersHandler) UpdateUserAdminHandler(w http.ResponseWriter, r *http.Req
 	targetUserId := mux.Vars(r)["USER_ID"]
 	var requestBody struct {
 		IsAdmin *bool `json:"isAdmin"`
+		Enabled *bool `json:"enabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
 		handlers.RenderError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
 		return
 	}
-	if requestBody.IsAdmin == nil {
-		handlers.RenderError(w, http.StatusBadRequest, "isAdmin is required")
+	if requestBody.IsAdmin == nil && requestBody.Enabled == nil {
+		handlers.RenderError(w, http.StatusBadRequest, "isAdmin or enabled is required")
 		return
 	}
-	err := h.userService.SetUserAdmin(r.Context(), principal.UserId, targetUserId, *requestBody.IsAdmin)
-	if err != nil {
-		renderUserServiceError(w, err)
-		return
+	if requestBody.IsAdmin != nil {
+		if err := h.userService.SetUserAdmin(r.Context(), principal.UserId, targetUserId, *requestBody.IsAdmin); err != nil {
+			renderUserServiceError(w, err)
+			return
+		}
+	}
+	if requestBody.Enabled != nil {
+		if err := h.userService.SetUserEnabled(r.Context(), principal.UserId, targetUserId, *requestBody.Enabled); err != nil {
+			renderUserServiceError(w, err)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

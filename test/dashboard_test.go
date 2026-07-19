@@ -6,14 +6,15 @@ import (
 	infrastructure "expo-open-ota/internal/router"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/types"
-	"github.com/jarcoal/httpmock"
-	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/jarcoal/httpmock"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestLoginDashboardNotEnabled(t *testing.T) {
@@ -117,7 +118,7 @@ func TestGetMeStateless(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	router.ServeHTTP(respRec, req)
 	assert.Equal(t, http.StatusOK, respRec.Code)
-	assert.Equal(t, `{"id":"","email":"admin@expo-open-ota.dev","isAdmin":true}`, strings.TrimSpace(respRec.Body.String()))
+	assert.Equal(t, `{"id":"","email":"admin@expo-open-ota.dev","isAdmin":true,"enabled":true}`, strings.TrimSpace(respRec.Body.String()))
 }
 
 // User management is a control-plane feature: in stateless mode the routes

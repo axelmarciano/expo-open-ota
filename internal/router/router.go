@@ -44,6 +44,14 @@ func NewRouter(container *AppContainer) *mux.Router {
 	}
 
 	r.HandleFunc("/hc", HealthCheck).Methods(http.MethodGet)
+	// Both routes answer 200 here, and that is correct: this router is only
+	// swapped in once the bucket migrations are done, so the pod is by then both
+	// alive and ready. The liveness/readiness split happens earlier, in
+	// cmd/api/main.go's bootHandler, which registers /hc (200 throughout, so a
+	// long migration never gets the pod killed) but deliberately leaves /ready
+	// unregistered so it falls into that handler's catch-all 503 and keeps
+	// traffic away until this router takes over.
+	r.HandleFunc("/ready", HealthCheck).Methods(http.MethodGet)
 
 	appSubrouter := r.PathPrefix("/{APP_ID}").Subrouter()
 	appSubrouter.Use(middleware.AppResolverMiddleware(container.AppRepo))
@@ -139,7 +147,7 @@ func NewRouter(container *AppContainer) *mux.Router {
 	// Users management router (control-plane only, admin only)
 	authSubrouter.Handle("/users", adminOnly(http.HandlerFunc(container.UsersHandler.GetUsersHandler))).Methods(http.MethodGet)
 	authSubrouter.Handle("/users", adminOnly(http.HandlerFunc(container.UsersHandler.CreateUserHandler))).Methods(http.MethodPost)
-	authSubrouter.Handle("/users/{USER_ID}", adminOnly(http.HandlerFunc(container.UsersHandler.UpdateUserAdminHandler))).Methods(http.MethodPatch)
+	authSubrouter.Handle("/users/{USER_ID}", adminOnly(http.HandlerFunc(container.UsersHandler.UpdateUserHandler))).Methods(http.MethodPatch)
 	authSubrouter.Handle("/users/{USER_ID}", adminOnly(http.HandlerFunc(container.UsersHandler.DeleteUserHandler))).Methods(http.MethodDelete)
 
 	// Apps management router
