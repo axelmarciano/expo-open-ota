@@ -1,0 +1,9 @@
+# updates/ is the default LOCAL_BUCKET_BASE_PATH, so a dev machine accumulates
+# real update payloads there (hundreds of MB). None of it belongs in an image:
+# the server recreates the tree at runtime. The directory itself must survive
+# the exclusion because both Dockerfiles do `COPY updates ./updates`, which
+# fails outright when the path is absent from the context. Re-including the
+# tracked .keep files is what keeps it present but empty.
+updates/**
+!updates/.keep
+!updates/DO_NOT_USE/.keep
