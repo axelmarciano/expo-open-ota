@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
-	"expo-open-ota/config"
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/middleware"
 	"expo-open-ota/internal/services"
@@ -95,19 +94,15 @@ func renderUserServiceError(w http.ResponseWriter, err error) {
 }
 
 // GetMeHandler answers with the account behind the current session. In
-// control-plane mode the row is re-read so the dashboard sees a revoked admin
-// flag on its next load, not at token refresh.
+// control-plane mode the service re-reads the row so the dashboard sees a
+// revoked admin flag on its next load, not at token refresh.
 func (h *UsersHandler) GetMeHandler(w http.ResponseWriter, r *http.Request) {
 	principal := middleware.PrincipalFromContext(r.Context())
 	if principal == nil {
 		handlers.RenderError(w, http.StatusUnauthorized, "This route requires a dashboard session")
 		return
 	}
-	if !config.IsDBMode() {
-		renderJSON(w, http.StatusOK, UserResponse{Email: principal.Email, IsAdmin: true, Enabled: true})
-		return
-	}
-	user, err := h.userService.GetUserByID(r.Context(), principal.UserId)
+	user, err := h.userService.GetMe(r.Context(), principal.UserId, principal.Email)
 	if err != nil {
 		// Only a missing row means the session is a leftover of a deleted
 		// account; an infrastructure failure must not read as a dead session.
