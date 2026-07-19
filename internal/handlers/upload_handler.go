@@ -3,9 +3,11 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"expo-open-ota/config"
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/services"
+	"expo-open-ota/internal/validation"
 	"fmt"
 	"log"
 	"net/http"
@@ -93,6 +95,16 @@ func (h *UploadHandler) MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *ht
 				"error": "You have already uploaded this update, no changes detected",
 			}
 			_ = json.NewEncoder(w).Encode(response)
+			return
+		}
+		if errors.Is(err, services.ErrActiveRolloutBlocksPublish) {
+			log.Printf("[RequestID: %s] Mark-as-uploaded blocked by active rollout: %v", requestID, err)
+			http.Error(w, activeRolloutConflictMessage, http.StatusConflict)
+			return
+		}
+		if errors.Is(err, services.ErrRolloutSuperseded) {
+			log.Printf("[RequestID: %s] Rollout activation superseded by newer update: %v", requestID, err)
+			http.Error(w, services.ErrRolloutSuperseded.Error(), http.StatusConflict)
 			return
 		}
 
@@ -206,6 +218,30 @@ func (h *UploadHandler) RequestUploadUrlHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	var rolloutPercentage *int
+	if rawRolloutPercentage := r.URL.Query().Get("rolloutPercentage"); rawRolloutPercentage != "" {
+		parsedRolloutPercentage, err := validation.RolloutPercentage("rolloutPercentage", rawRolloutPercentage)
+		if err != nil {
+			log.Printf("[RequestID: %s] Invalid rolloutPercentage: %s", requestID, rawRolloutPercentage)
+			http.Error(w, "Invalid "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		// 100 means every device, i.e. a plain publish: treated as absent.
+		if parsedRolloutPercentage < 100 {
+			if !config.IsDBMode() {
+				log.Printf("[RequestID: %s] rolloutPercentage rejected in stateless mode", requestID)
+				http.Error(w, "Progressive rollouts require the database control plane", http.StatusBadRequest)
+				return
+			}
+			if platform == "" {
+				log.Printf("[RequestID: %s] rolloutPercentage requires a platform", requestID)
+				http.Error(w, "A platform is required when publishing with a rollout percentage", http.StatusBadRequest)
+				return
+			}
+			rolloutPercentage = &parsedRolloutPercentage
+		}
+	}
+
 	var bodyReq FileNamesRequest
 	if err := json.NewDecoder(r.Body).Decode(&bodyReq); err != nil {
 		log.Printf("[RequestID: %s] Error decoding JSON body: %v", requestID, err)
@@ -221,18 +257,24 @@ func (h *UploadHandler) RequestUploadUrlHandler(w http.ResponseWriter, r *http.R
 	}
 
 	params := services.RequestUploadURLParams{
-		RequestID:      requestID,
-		AppID:          appId,
-		BranchName:     branchName,
-		Platform:       platform,
-		CommitHash:     commitHash,
-		RuntimeVersion: runtimeVersion,
-		FileNames:      bodyReq.FileNames,
-		Message:        bodyReq.Message,
+		RequestID:         requestID,
+		AppID:             appId,
+		BranchName:        branchName,
+		Platform:          platform,
+		CommitHash:        commitHash,
+		RuntimeVersion:    runtimeVersion,
+		FileNames:         bodyReq.FileNames,
+		Message:           bodyReq.Message,
+		RolloutPercentage: rolloutPercentage,
 	}
 
 	result, err := h.deploymentService.RequestUploadURLs(r.Context(), params)
 	if err != nil {
+		if errors.Is(err, services.ErrActiveRolloutBlocksPublish) {
+			log.Printf("[RequestID: %s] Publish blocked by active rollout: %v", requestID, err)
+			http.Error(w, activeRolloutConflictMessage, http.StatusConflict)
+			return
+		}
 		http.Error(w, "Internal server error processing payload URLs", http.StatusInternalServerError)
 		return
 	}
@@ -240,6 +282,11 @@ func (h *UploadHandler) RequestUploadUrlHandler(w http.ResponseWriter, r *http.R
 	response := map[string]interface{}{
 		"updateId":       result.UpdateID,
 		"uploadRequests": result.UploadRequests,
+	}
+	// Echoed back so the CLI can detect a server too old to know the parameter (an
+	// old server silently ignores it and would publish to every device).
+	if rolloutPercentage != nil {
+		response["rolloutPercentage"] = *rolloutPercentage
 	}
 
 	w.Header().Set("Content-Type", "application/json")

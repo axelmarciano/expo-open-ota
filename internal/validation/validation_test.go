@@ -84,6 +84,29 @@ func TestNumericID(t *testing.T) {
 	}
 }
 
+func TestRolloutPercentage(t *testing.T) {
+	for _, v := range []string{"1", "50", "99", "100"} {
+		n, err := RolloutPercentage("rolloutPercentage", v)
+		assert.NoError(t, err, "expected %q to be valid", v)
+		assert.Positive(t, n)
+	}
+	for name, v := range map[string]string{
+		"empty":       "",
+		"zero":        "0",
+		"negative":    "-5",
+		"over 100":    "101",
+		"non-numeric": "abc",
+		"float":       "20.5",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := RolloutPercentage("rolloutPercentage", v)
+			require.Error(t, err)
+			assert.True(t, IsValidationError(err))
+			assert.Contains(t, err.Error(), "rolloutPercentage")
+		})
+	}
+}
+
 func TestError_IsDetectableAcrossWrapping(t *testing.T) {
 	// errors.As must see through fmt.Errorf("%w") wrapping so a service that
 	// wraps a validation error still maps to 400.

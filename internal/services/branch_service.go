@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/database/postgres/pgdb"
 	"expo-open-ota/internal/store"
@@ -15,6 +16,8 @@ type BranchService struct {
 	branchRepo  BranchRepository
 	channelRepo ChannelRepository
 	updateRepo  UpdateRepository
+	// Nil in stateless mode, where rollouts do not exist and the guards below are inert.
+	rolloutRepo RolloutRepository
 	bucket      bucket.Bucket
 }
 
@@ -30,11 +33,12 @@ type BranchRepository interface {
 	GetBranchByName(ctx context.Context, appId string, branchName string) (int64, error)
 }
 
-func NewBranchService(branchRepo BranchRepository, channelRepo ChannelRepository, updateRepo UpdateRepository, bucket bucket.Bucket) *BranchService {
+func NewBranchService(branchRepo BranchRepository, channelRepo ChannelRepository, updateRepo UpdateRepository, rolloutRepo RolloutRepository, bucket bucket.Bucket) *BranchService {
 	return &BranchService{
 		branchRepo:  branchRepo,
 		channelRepo: channelRepo,
 		updateRepo:  updateRepo,
+		rolloutRepo: rolloutRepo,
 		bucket:      bucket,
 	}
 }
@@ -68,6 +72,21 @@ func (s *BranchService) DeleteBranch(ctx context.Context, branchName string, app
 			ChannelNames: channels,
 		}
 	}
+	// Friendly sibling of the FK RESTRICT on channel_rollouts.rollout_branch_id: a
+	// branch serving an active rollout cannot be deleted, and the error names the
+	// channels to unblock instead of surfacing a raw constraint violation.
+	if s.rolloutRepo != nil {
+		rolloutChannels, err := s.rolloutRepo.GetChannelRolloutsByBranch(ctx, appId, branchName)
+		if err != nil {
+			return fmt.Errorf("failed to validate branch rollout dependencies: %w", err)
+		}
+		if len(rolloutChannels) > 0 {
+			return &store.ErrBranchInActiveRollout{
+				BranchName:   branchName,
+				ChannelNames: rolloutChannels,
+			}
+		}
+	}
 	rows, err := s.branchRepo.GetUpdatedMetadataByBranchName(ctx, appId, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve updates linked to the branch from database: %w", err)
@@ -98,18 +117,33 @@ func (s *BranchService) GetRuntimeVersionsWithUpdateStats(ctx context.Context, a
 	return s.branchRepo.GetRuntimeVersionsWithUpdateStats(ctx, appId, branchName)
 }
 
-func (s *BranchService) UpdateChannelBranchMapping(ctx context.Context, appId string, channelId string, branchId string) error {
+func (s *BranchService) UpdateChannelBranchMapping(ctx context.Context, appId string, channelId string, channelName string, branchId string) error {
 	// channelId is the release channel's id, not its name. Both ids are
 	// backend-dependent (numeric on the DB control plane, provider id strings on
 	// the bucket backend), so validate them as safe segments rather than forcing
-	// numeric.
+	// numeric. channelName only exists to disambiguate the rollout-locked case,
+	// whose repository is keyed by name.
 	if err := validation.Name("releaseChannelId", channelId); err != nil {
 		return err
 	}
 	if err := validation.Name("branchId", branchId); err != nil {
 		return err
 	}
-	return s.branchRepo.UpdateChannelBranchMapping(ctx, appId, channelId, branchId)
+	err := s.branchRepo.UpdateChannelBranchMapping(ctx, appId, channelId, branchId)
+	if err != nil {
+		// The guarded UPDATE reports 0 rows for both an unknown channel and a channel
+		// locked by an active rollout; tell them apart so the caller gets a 409 with
+		// the real reason instead of a misleading 404.
+		var notFoundErr *store.ErrResourceNotFound
+		if errors.As(err, &notFoundErr) && notFoundErr.Resource == "channel" && s.rolloutRepo != nil && channelName != "" {
+			activeRollout, rolloutErr := s.rolloutRepo.GetChannelRollout(ctx, appId, channelName)
+			if rolloutErr == nil && activeRollout != nil {
+				return &store.ErrChannelHasActiveRollout{ChannelName: channelName}
+			}
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *BranchService) UpsertBranchAndRuntimeVersion(ctx context.Context, appId string, branchName string, runtimeVersion string) error {

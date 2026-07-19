@@ -13,6 +13,7 @@ export const SelectBranch = ({
   onChange,
   loading,
   className,
+  excludeBranchIds,
 }: {
   // Receives the branch id (used to map a channel) and its name (used when
   // creating a channel, which takes a branch name).
@@ -20,6 +21,9 @@ export const SelectBranch = ({
   loading?: boolean;
   currentBranch?: string | null;
   className?: string;
+  // Branch ids to leave out of the list, e.g. the channel's own default
+  // branch when picking a rollout branch.
+  excludeBranchIds?: string[];
 }) => {
   const { CONTROL_PLANE_ENABLED } = useSettings();
   const { selectedAppId } = useSelectedApp();
@@ -36,6 +40,7 @@ export const SelectBranch = ({
   const allBranches =
     data
       ?.filter(d => !!d.branchId)
+      ?.filter(d => !excludeBranchIds?.includes(d.branchId as string))
       ?.map(d => {
         return {
           branchName: d.branchName,

@@ -173,6 +173,16 @@ func NewRouter(container *AppContainer) *mux.Router {
 	appAuthSubrouter.Handle("/channels", adminOnly(http.HandlerFunc(container.ChannelHandler.CreateChannelHandler))).Methods(http.MethodPost)
 	appAuthSubrouter.Handle("/channels/{CHANNEL}", adminOnly(http.HandlerFunc(container.ChannelHandler.DeleteChannelHandler))).Methods(http.MethodDelete)
 	appAuthSubrouter.HandleFunc("/channels", container.ChannelHandler.GetChannelsHandler).Methods(http.MethodGet)
+	// Progressive rollouts (control-plane only; reads stay open like the sibling
+	// listings, every mutation is admin-only). Channel rollouts are keyed by channel
+	// name, per-update rollouts by (branch, runtime version).
+	appAuthSubrouter.HandleFunc("/channels/{CHANNEL}/rollout", container.RolloutHandler.GetChannelRolloutHandler).Methods(http.MethodGet)
+	appAuthSubrouter.Handle("/channels/{CHANNEL}/rollout", adminOnly(http.HandlerFunc(container.RolloutHandler.StartChannelRolloutHandler))).Methods(http.MethodPost)
+	appAuthSubrouter.Handle("/channels/{CHANNEL}/rollout", adminOnly(http.HandlerFunc(container.RolloutHandler.UpdateChannelRolloutHandler))).Methods(http.MethodPatch)
+	appAuthSubrouter.Handle("/channels/{CHANNEL}/rollout/end", adminOnly(http.HandlerFunc(container.RolloutHandler.EndChannelRolloutHandler))).Methods(http.MethodPost)
+	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/rollout", container.RolloutHandler.GetUpdateRolloutHandler).Methods(http.MethodGet)
+	appAuthSubrouter.Handle("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/rollout", adminOnly(http.HandlerFunc(container.RolloutHandler.SetUpdateRolloutPercentageHandler))).Methods(http.MethodPut)
+	appAuthSubrouter.Handle("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/rollout/revert", adminOnly(http.HandlerFunc(container.RolloutHandler.RevertUpdateRolloutHandler))).Methods(http.MethodPost)
 	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersions", container.BranchHandler.GetRuntimeVersionsHandler).Methods(http.MethodGet)
 	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates", container.UpdateHandler.GetUpdatesHandler).Methods(http.MethodGet)
 	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates/{UPDATE_ID}", container.UpdateHandler.GetUpdateDetailsHandler).Methods(http.MethodGet)

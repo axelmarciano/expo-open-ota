@@ -31,6 +31,7 @@ type AppContainer struct {
 	ExpoProtocolHandler      *handlers.ExpoProtocolHandler
 	LicenseHandler           *licensing.LicenseHandler
 	RollbackHandler          *handlers.RollbackHandler
+	RolloutHandler           *dashhandlers.RolloutHandler
 	SettingsHandler          *dashhandlers.SettingsHandler
 	SSOHandler               *sso.SSOHandler
 	UpdateHandler            *dashhandlers.UpdateHandler
@@ -63,6 +64,9 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// Stays nil in stateless mode: user accounts only exist on the control
 	// plane, the flat-env dashboard authenticates against ADMIN_EMAIL/ADMIN_PASSWORD.
 	var userRepo services.UserRepository
+	// Nil in stateless mode as well: progressive rollouts are a control-plane
+	// feature, and every consumer guards the nil.
+	var rolloutRepo services.RolloutRepository
 	// Stays nil in stateless mode too: the enterprise license lives in the
 	// database, stateless deployments run community edition.
 	var licenseRepo licensing.LicenseRepository
@@ -105,6 +109,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		branchRepo = store.NewPostgresBranchStore(dbEngine)
 		channelRepo = store.NewPostgresChannelStore(dbEngine)
 		updateRepo = store.NewPostgresUpdateStore(dbEngine)
+		rolloutRepo = store.NewPostgresRolloutStore(dbEngine)
 	} else {
 		log.Println("⚙️  [STATELESS] Initializing Stateless Mode (Flat-Env Mode)...")
 		if err := config.LoadAppsFromFlatEnv(); err != nil {
@@ -142,11 +147,12 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	dashboardAuthService.SetSSOEnforced(ssoService.Enabled)
 	userService.SetSSOEnforced(ssoService.Enabled)
 	appService := services.NewAppService(appRepo)
-	branchService := services.NewBranchService(branchRepo, channelRepo, updateRepo, resolvedBucket)
+	branchService := services.NewBranchService(branchRepo, channelRepo, updateRepo, rolloutRepo, resolvedBucket)
 	channelService := services.NewChannelService(branchRepo, channelRepo)
 	updateService := services.NewUpdateService(updateRepo, resolvedBucket)
-	expoProtocolService := services.NewExpoProtocolService(appRepo, channelRepo, updateRepo, updateService)
+	expoProtocolService := services.NewExpoProtocolService(appRepo, channelRepo, updateRepo, updateService, services.DefaultBranchRules())
 	deploymentService := services.NewDeploymentService(branchService, updateService, updateRepo, resolvedBucket)
+	rolloutService := services.NewRolloutService(rolloutRepo, channelRepo, updateRepo, deploymentService)
 
 	return &AppContainer{
 		AuthHandler:              dashhandlers.NewAuthHandler(dashboardAuthService),
@@ -162,6 +168,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		LicenseHandler:           licensing.NewLicenseHandler(licenseService),
 		RepublishHandler:         handlers.NewRepublishHandler(cliAuthService, deploymentService),
 		RollbackHandler:          handlers.NewRollbackHandler(cliAuthService, deploymentService),
+		RolloutHandler:           dashhandlers.NewRolloutHandler(rolloutService, updateService),
 		SettingsHandler:          dashhandlers.NewSettingsHandler(appService, ssoService.Enabled),
 		SSOHandler:               sso.NewSSOHandler(ssoService),
 		UpdateHandler:            dashhandlers.NewUpdateHandler(updateService),

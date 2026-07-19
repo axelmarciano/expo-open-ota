@@ -24,6 +24,11 @@ func RenderError(w http.ResponseWriter, status int, detail string) {
 	})
 }
 
+// activeRolloutConflictMessage is the CLI-facing 409 body for publish, republish and
+// rollback attempts against a branch and runtime version with an active per-update
+// rollout. The republish and rollback commands print it verbatim.
+const activeRolloutConflictMessage = "A progressive rollout is already active for this branch and runtime version. Finish or revert it from the dashboard first."
+
 // RenderCliAuthError distinguishes a credential that failed to authenticate
 // (401, generic message so nothing leaks about why) from one that
 // authenticated but is blocked by per-key access restrictions (403, with the

@@ -104,6 +104,18 @@ func DisplayName(field, value string) error {
 	return nil
 }
 
+// RolloutPercentage parses a rollout percentage passed as a string (the
+// rolloutPercentage query param on publish). The advertised rollout range is
+// 1-99; 100 is also accepted and means a plain full-fleet publish, which
+// callers treat as "no rollout".
+func RolloutPercentage(field, value string) (int, error) {
+	n, err := strconv.Atoi(value)
+	if err != nil || n < 1 || n > 100 {
+		return 0, fail(field, "must be an integer between 1 and 99")
+	}
+	return n, nil
+}
+
 // NumericID validates a positive integer id passed as a string (branch id, API
 // key id). Guards the string→int64 conversion the stores do so a malformed id
 // fails with a 400 instead of a 500.

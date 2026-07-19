@@ -14,9 +14,13 @@ import { PageHeader } from '@/components/PageHeader';
 import { DeleteDialog } from '@/components/ui/delete-dialog';
 import { AdminOnlyNote } from '@/components/ui/admin-only-note';
 import { TimestampCell } from '@/components/ui/timestamp-cell';
-import { Trash2, Plus } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Trash2, Plus, Split, Lock } from 'lucide-react';
 import { useSettings } from '@/lib/SettingsContext';
 import { useCurrentUser } from '@/lib/CurrentUserContext';
+import { RolloutBar } from '@/components/rollout/RolloutBar';
+import { StartRolloutDialog } from '@/pages/Channels/components/StartRolloutDialog';
+import { ManageRolloutDialog } from '@/pages/Channels/components/ManageRolloutDialog';
 
 interface TableColumnConfig {
   header: string;
@@ -43,6 +47,25 @@ export const Channels = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [channelToDelete, setChannelToDelete] = useState<ChannelRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [rolloutAction, setRolloutAction] = useState<{
+    type: 'start' | 'manage';
+    channel: ChannelRecord;
+  } | null>(null);
+
+  const handleRolloutDone = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
+
+  // The dialogs must render the live record, not the snapshot captured when the
+  // action was opened: after "Save percentage" the refetched channels list is the
+  // source of truth, and a stale snapshot would show the pre-save value.
+  const rolloutActionChannel = useMemo(() => {
+    if (!rolloutAction) return null;
+    return (
+      data?.find(channel => channel.releaseChannelId === rolloutAction.channel.releaseChannelId) ??
+      rolloutAction.channel
+    );
+  }, [rolloutAction, data]);
 
   const updateBranchMutation = useMutation({
     mutationKey: ['update-branch'],
@@ -118,19 +141,19 @@ export const Channels = () => {
           : `"${newChannelName.trim()}" created. Map it to a branch to start serving updates.`,
       });
     } catch (error) {
-        let errorTitle = 'Error creating channel';
-        let errorMessage = 'An unexpected error occurred.';
-        if (error instanceof ApiProblemError) {
-          errorTitle = error.title;
-          errorMessage = error.detail;
-        } else if (error instanceof Error) {
-          errorMessage = error.message;
-        }
-        toast({
-          title: errorTitle,
-          description: errorMessage,
-          variant: 'destructive',
-        });
+      let errorTitle = 'Error creating channel';
+      let errorMessage = 'An unexpected error occurred.';
+      if (error instanceof ApiProblemError) {
+        errorTitle = error.title;
+        errorMessage = error.detail;
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      toast({
+        title: errorTitle,
+        description: errorMessage,
+        variant: 'destructive',
+      });
     } finally {
       setIsCreating(false);
     }
@@ -142,7 +165,10 @@ export const Channels = () => {
     try {
       await api.deleteChannel(channelToDelete.releaseChannelName);
       await refetch();
-      toast({ title: 'Channel deleted', description: `"${channelToDelete.releaseChannelName}" was removed.` });
+      toast({
+        title: 'Channel deleted',
+        description: `"${channelToDelete.releaseChannelName}" was removed.`,
+      });
       setChannelToDelete(null);
     } catch (error) {
       let errorTitle = 'Deletion Failed';
@@ -168,17 +194,35 @@ export const Channels = () => {
       {
         header: 'Channel',
         accessorKey: 'releaseChannelName',
-        cell: ({ row }) => (
-          <span className="font-medium">{row.original.releaseChannelName}</span>
-        ),
+        cell: ({ row }) => <span className="font-medium">{row.original.releaseChannelName}</span>,
       },
       {
         header: 'Branch',
         accessorKey: 'branchId',
         // Remapping a live channel is an admin action (the server enforces
-        // it); everyone else sees the mapping read-only.
-        cell: ({ row }) =>
-          isAdmin ? (
+        // it); everyone else sees the mapping read-only. While a rollout is
+        // active the mapping is locked for everyone: it can only change by
+        // promoting or reverting the rollout.
+        cell: ({ row }) => {
+          if (row.original.rollout) {
+            return (
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+                      <Lock className="h-3.5 w-3.5" />
+                      {row.original.branchName || 'No branch'}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    The branch mapping is locked while a rollout is in progress. Promote or revert
+                    the rollout to change it.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            );
+          }
+          return isAdmin ? (
             <SelectBranch
               currentBranch={row.original.branchId || ''}
               loading={isLoading || loading}
@@ -186,10 +230,53 @@ export const Channels = () => {
             />
           ) : (
             <span className="text-muted-foreground">{row.original.branchName || 'No branch'}</span>
-          ),
+          );
+        },
       },
       ...(CONTROL_PLANE_ENABLED
         ? [
+            {
+              header: 'Rollout',
+              id: 'rollout',
+              cell: ({ row }) => {
+                const channel = row.original;
+                if (channel.rollout) {
+                  return (
+                    <div className="flex items-center gap-2.5">
+                      <RolloutBar value={channel.rollout.percentage} />
+                      <span className="text-xs text-muted-foreground">
+                        to {channel.rollout.rolloutBranchName}
+                      </span>
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => setRolloutAction({ type: 'manage', channel })}
+                          className="text-sm font-medium text-link hover:underline">
+                          Manage
+                        </button>
+                      )}
+                    </div>
+                  );
+                }
+                // Nothing to roll out until the channel serves a branch.
+                if (!channel.branchId) {
+                  return <span className="text-muted-foreground/60">None</span>;
+                }
+                if (isAdmin) {
+                  return (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setRolloutAction({ type: 'start', channel })}
+                      className="text-muted-foreground hover:text-foreground">
+                      <Split className="h-4 w-4" />
+                      Start rollout
+                    </Button>
+                  );
+                }
+                return <span className="text-muted-foreground/60">None</span>;
+              },
+            } satisfies TableColumnConfig,
             {
               header: 'Created',
               accessorKey: 'createdAt',
@@ -210,8 +297,7 @@ export const Channels = () => {
                     size="sm"
                     onClick={() => setChannelToDelete(row.original)}
                     className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                    title="Delete Release Channel"
-                  >
+                    title="Delete Release Channel">
                     <Trash2 />
                   </Button>
                 </div>
@@ -232,8 +318,7 @@ export const Channels = () => {
               A <span className="font-medium text-foreground">branch</span> is a line of updates you
               publish to, much like a git branch. A{' '}
               <span className="font-medium text-foreground">release channel</span> is the name your
-              app asks for when it checks for updates. It is baked into the build and never
-              changes.
+              app asks for when it checks for updates. It is baked into the build and never changes.
             </p>
             <p className="mt-2">
               Mapping a channel to a branch decides which updates an app actually receives. Point{' '}
@@ -241,7 +326,8 @@ export const Channels = () => {
                 production
               </code>{' '}
               at a new branch to roll out, or back at the previous one to roll back, without
-              shipping a new build.
+              shipping a new build. Or start a progressive rollout to serve a branch to a fraction
+              of devices first.
             </p>
           </>
         }
@@ -252,7 +338,7 @@ export const Channels = () => {
         {CONTROL_PLANE_ENABLED && !isAdmin && (
           <AdminOnlyNote>
             You are signed in with a member account, which is read-only. Ask an admin to create or
-            delete channels or change which branch a channel serves.
+            delete channels, change which branch a channel serves, or manage progressive rollouts.
           </AdminOnlyNote>
         )}
         {CONTROL_PLANE_ENABLED && isAdmin && (
@@ -320,6 +406,21 @@ export const Channels = () => {
           confirmButtonText="Delete channel"
           isDeletingButtonText="Deleting…"
         />
+      )}
+
+      {CONTROL_PLANE_ENABLED && isAdmin && (
+        <>
+          <StartRolloutDialog
+            channel={rolloutAction?.type === 'start' ? rolloutActionChannel : null}
+            onClose={() => setRolloutAction(null)}
+            onStarted={handleRolloutDone}
+          />
+          <ManageRolloutDialog
+            channel={rolloutAction?.type === 'manage' ? rolloutActionChannel : null}
+            onClose={() => setRolloutAction(null)}
+            onDone={handleRolloutDone}
+          />
+        </>
       )}
     </div>
   );

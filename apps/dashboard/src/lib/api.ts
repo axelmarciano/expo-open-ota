@@ -74,12 +74,76 @@ export type BranchRecord = {
   protected: boolean;
 };
 
+// An active channel rollout. Serves `rolloutBranchName` to `percentage`% of
+// devices on the channel and `defaultBranchName` to the rest. `id` doubles as
+// the bucketing salt on the server. Present only in control-plane mode.
+export type ChannelRolloutRecord = {
+  id: string;
+  channelName: string;
+  defaultBranchName: string;
+  rolloutBranchName: string;
+  percentage: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ChannelRecord = {
   releaseChannelId: string;
   releaseChannelName: string;
   branchName?: string | null;
   branchId?: string | null;
   createdAt: string | null;
+  // Set while a progressive rollout is active on the channel; null/absent
+  // otherwise. The channels list carries it so the table needs no extra call.
+  rollout?: ChannelRolloutRecord | null;
+};
+
+export type RuntimeVersionRecord = {
+  runtimeVersion: string;
+  lastUpdatedAt: string;
+  createdAt: string;
+  numberOfUpdates: number;
+  // True when a per-update rollout is active on any update of this runtime
+  // version. Optional: only shipped by the control plane.
+  activeRollout?: boolean;
+};
+
+// A published update. `rolloutPercentage` is set only while this exact update
+// is being progressively rolled out; `controlUpdateId` points at the update
+// out-of-bucket devices keep receiving during (and as a historical marker
+// after) that rollout. Both are absent in stateless mode.
+export type UpdateRecord = {
+  updateUUID: string;
+  createdAt: string;
+  updateId: string;
+  platform: string;
+  commitHash: string;
+  message?: string;
+  rolloutPercentage?: number | null;
+  controlUpdateId?: string | null;
+};
+
+// One active per-update rollout row (eoas publishes one per platform, so a
+// single rollout on a runtime version can have up to two rows).
+export type UpdateRolloutInfo = {
+  updateId: string;
+  platform: string;
+  percentage: number;
+  controlUpdateId?: string | null;
+  createdAt: string;
+};
+
+export type UpdateDetailsRecord = {
+  updateUUID: string;
+  createdAt: string;
+  updateId: string;
+  platform: string;
+  commitHash: string;
+  message?: string;
+  type: number;
+  expoConfig: string;
+  rolloutPercentage?: number | null;
+  controlUpdateId?: string | null;
 };
 
 export type ApiKeyRecord = {
@@ -600,28 +664,15 @@ export class ApiClient {
   }
 
   public async getRuntimeVersions(branch: string) {
-    return this.request<
+    return this.request<RuntimeVersionRecord[]>(
+      `${this.appScope()}/branch/${encodeURIComponent(branch)}/runtimeVersions`,
       {
-        runtimeVersion: string;
-        lastUpdatedAt: string;
-        createdAt: string;
-        numberOfUpdates: number;
-      }[]
-    >(`${this.appScope()}/branch/${encodeURIComponent(branch)}/runtimeVersions`, {
-      method: 'GET',
-    });
+        method: 'GET',
+      }
+    );
   }
   public async getUpdates(branch: string, runtimeVersion: string) {
-    return this.request<
-      {
-        updateUUID: string;
-        createdAt: string;
-        updateId: string;
-        platform: string;
-        commitHash: string;
-        message?: string;
-      }[]
-    >(
+    return this.request<UpdateRecord[]>(
       `${this.appScope()}/branch/${encodeURIComponent(branch)}/runtimeVersion/${encodeURIComponent(runtimeVersion)}/updates`,
       {
         method: 'GET',
@@ -629,22 +680,106 @@ export class ApiClient {
     );
   }
   public async getUpdateDetails(branch: string, runtimeVersion: string, updateId: string) {
-    return this.request<{
-      updateUUID: string;
-      createdAt: string;
-      updateId: string;
-      platform: string;
-      commitHash: string;
-      message?: string;
-      type: number;
-      expoConfig: string;
-    }>(
+    return this.request<UpdateDetailsRecord>(
       `${this.appScope()}/branch/${encodeURIComponent(branch)}/runtimeVersion/${encodeURIComponent(runtimeVersion)}/updates/${encodeURIComponent(updateId)}`,
       {
         method: 'GET',
       }
     );
   }
+
+  // Progressive rollout, control-plane only. Channel rollouts are keyed by
+  // channel name (like the sibling channel routes); per-update rollouts by
+  // branch + runtime version. Mutations are admin-only server-side.
+  public async getChannelRollout(channelName: string) {
+    return this.request<{ active: boolean; rollout?: ChannelRolloutRecord | null }>(
+      `${this.appScope()}/channels/${encodeURIComponent(channelName)}/rollout`,
+      {
+        method: 'GET',
+      }
+    );
+  }
+
+  public async startChannelRollout(
+    channelName: string,
+    payload: { branchName: string; percentage: number }
+  ) {
+    return this.request<ChannelRolloutRecord>(
+      `${this.appScope()}/channels/${encodeURIComponent(channelName)}/rollout`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  public async updateChannelRollout(channelName: string, payload: { percentage: number }) {
+    return this.request<ChannelRolloutRecord>(
+      `${this.appScope()}/channels/${encodeURIComponent(channelName)}/rollout`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  // outcome: 'promote' repoints the channel onto the rollout branch; 'revert'
+  // discards the rollout and keeps the default branch.
+  public async endChannelRollout(channelName: string, outcome: 'promote' | 'revert') {
+    return this.request<void>(
+      `${this.appScope()}/channels/${encodeURIComponent(channelName)}/rollout/end`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ outcome }),
+      }
+    );
+  }
+
+  public async getUpdateRollout(branch: string, runtimeVersion: string) {
+    return this.request<{ active: boolean; updates: UpdateRolloutInfo[] }>(
+      `${this.appScope()}/branch/${encodeURIComponent(branch)}/runtimeVersion/${encodeURIComponent(runtimeVersion)}/rollout`,
+      {
+        method: 'GET',
+      }
+    );
+  }
+
+  // Sets the rollout percentage. Server accepts monotonic increases only;
+  // percentage 100 finishes the rollout. `expectedUpdateId` guards against a
+  // stale tab acting on a rollout that has since changed (409).
+  public async setUpdateRolloutPercentage(
+    branch: string,
+    runtimeVersion: string,
+    payload: { percentage: number; expectedUpdateId?: string }
+  ) {
+    return this.request<void>(
+      `${this.appScope()}/branch/${encodeURIComponent(branch)}/runtimeVersion/${encodeURIComponent(runtimeVersion)}/rollout`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  public async revertUpdateRollout(
+    branch: string,
+    runtimeVersion: string,
+    payload: { expectedUpdateId?: string } = {}
+  ) {
+    return this.request<void>(
+      `${this.appScope()}/branch/${encodeURIComponent(branch)}/runtimeVersion/${encodeURIComponent(runtimeVersion)}/rollout/revert`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
   public async getSettings() {
     return this.request<ServerSettings>(`/api/settings`, {
       method: 'GET',

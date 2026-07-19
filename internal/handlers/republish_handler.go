@@ -69,6 +69,11 @@ func (h *RepublishHandler) HandleRepublish(w http.ResponseWriter, r *http.Reques
 	}
 	newUpdate, err := h.deploymentService.RepublishUpdate(r.Context(), previousUpdate, platform, commitHash)
 	if err != nil {
+		if errors.Is(err, services.ErrActiveRolloutBlocksPublish) {
+			log.Printf("[RequestID: %s] Republish blocked by active rollout: %v", requestID, err)
+			http.Error(w, activeRolloutConflictMessage, http.StatusConflict)
+			return
+		}
 		var rErr *services.RepublishError
 		if errors.As(err, &rErr) {
 			http.Error(w, rErr.Message, rErr.Status)

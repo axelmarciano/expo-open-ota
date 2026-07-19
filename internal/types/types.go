@@ -41,6 +41,10 @@ type UpdateItem struct {
 	CommitHash string `json:"commitHash"`
 	Platform   string `json:"platform"`
 	Message    string `json:"message,omitempty"`
+	// Progressive rollout state (control-plane mode only). Both stay nil in stateless
+	// mode and for non-rollout updates, so listings there serialize byte-identically.
+	RolloutPercentage *int    `json:"rolloutPercentage,omitempty"`
+	ControlUpdateId   *string `json:"controlUpdateId,omitempty"`
 }
 
 type UpdateStoredMetadata struct {
@@ -66,6 +70,10 @@ type UpdateDetails struct {
 	Message    string     `json:"message,omitempty"`
 	Type       UpdateType `json:"type"`
 	ExpoConfig string     `json:"expoConfig"`
+	// Progressive rollout state (control-plane mode only); nil in stateless mode and
+	// for non-rollout updates.
+	RolloutPercentage *int    `json:"rolloutPercentage,omitempty"`
+	ControlUpdateId   *string `json:"controlUpdateId,omitempty"`
 }
 
 type ApiKeyMetadata struct {
@@ -120,12 +128,46 @@ type Update struct {
 	CreatedAt      time.Duration `json:"createdAt"`
 }
 
+// UpdateWithRollout is the flat lastUpdate envelope: an update plus its per-update
+// rollout state. RolloutPercentage and Control are nil for a plain (non-rollout) update.
+// The control is embedded so out-of-bucket resolution needs no second read.
+type UpdateWithRollout struct {
+	Update
+	RolloutPercentage *int    `json:"rolloutPercentage,omitempty"`
+	Control           *Update `json:"control,omitempty"`
+}
+
+// ChannelRollout is the full channel-rollout summary returned by the dashboard rollout
+// routes. DefaultBranchName is the channel's currently mapped branch (served to the
+// out-of-rollout cohort); RolloutBranchName is served to Percentage% of devices.
+type ChannelRollout struct {
+	ID                string `json:"id"`
+	ChannelName       string `json:"channelName"`
+	DefaultBranchName string `json:"defaultBranchName"`
+	RolloutBranchName string `json:"rolloutBranchName"`
+	Percentage        int    `json:"percentage"`
+	CreatedAt         string `json:"createdAt"`
+	UpdatedAt         string `json:"updatedAt"`
+}
+
+// RolloutUpdate is one active per-update rollout row (one per platform) as returned by
+// the per-update rollout route.
+type RolloutUpdate struct {
+	UpdateId        string  `json:"updateId"`
+	Platform        string  `json:"platform"`
+	Percentage      int     `json:"percentage"`
+	ControlUpdateId *string `json:"controlUpdateId,omitempty"`
+	CreatedAt       string  `json:"createdAt"`
+}
+
 type ChannelMapping struct {
 	ReleaseChannelName string  `json:"releaseChannelName"`
 	ReleaseChannelId   string  `json:"releaseChannelId"`
 	BranchName         *string `json:"branchName"`
 	BranchId           *string `json:"branchId"`
 	CreatedAt          *string `json:"createdAt"`
+	// Active channel rollout, if any (control-plane mode only); nil otherwise.
+	Rollout *ChannelRollout `json:"rollout,omitempty"`
 }
 
 type BranchMapping struct {

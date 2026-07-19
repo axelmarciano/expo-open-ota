@@ -53,6 +53,15 @@ type Channel struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type ChannelRollout struct {
+	ID              pgtype.UUID        `json:"id"`
+	ChannelID       int64              `json:"channel_id"`
+	RolloutBranchID int64              `json:"rollout_branch_id"`
+	Percentage      int32              `json:"percentage"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
 type EnterpriseLicense struct {
 	Singleton  bool               `json:"singleton"`
 	LicenseKey string             `json:"license_key"`
@@ -95,16 +104,18 @@ type SsoIdentity struct {
 }
 
 type Update struct {
-	ID               int64              `json:"id"`
-	UpdateUuid       pgtype.UUID        `json:"update_uuid"`
-	BranchID         int64              `json:"branch_id"`
-	RuntimeVersionID int64              `json:"runtime_version_id"`
-	UpdateType       int32              `json:"update_type"`
-	CommitHash       string             `json:"commit_hash"`
-	Message          *string            `json:"message"`
-	Platform         string             `json:"platform"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	CheckedAt        pgtype.Timestamptz `json:"checked_at"`
+	ID                int64              `json:"id"`
+	UpdateUuid        pgtype.UUID        `json:"update_uuid"`
+	BranchID          int64              `json:"branch_id"`
+	RuntimeVersionID  int64              `json:"runtime_version_id"`
+	UpdateType        int32              `json:"update_type"`
+	CommitHash        string             `json:"commit_hash"`
+	Message           *string            `json:"message"`
+	Platform          string             `json:"platform"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	CheckedAt         pgtype.Timestamptz `json:"checked_at"`
+	RolloutPercentage *int32             `json:"rollout_percentage"`
+	ControlUpdateID   *int64             `json:"control_update_id"`
 }
 
 type User struct {

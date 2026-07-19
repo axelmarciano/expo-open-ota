@@ -1,6 +1,6 @@
 {
   "name": "eoas",
-  "version": "2.2.2",
+  "version": "2.3.0",
   "main": "index.js",
   "scripts": {
     "build": "tsc --project tsconfig.json",
