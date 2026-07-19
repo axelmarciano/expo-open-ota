@@ -4,14 +4,18 @@ import (
 	"context"
 	"expo-open-ota/internal/providers/aws"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"cloud.google.com/go/storage"
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/iterator"
 )
 
@@ -39,6 +43,34 @@ import (
 // here because the corruption it prevents is silent and unrecoverable,
 // not because it is expected to fire.
 var ErrAppIdCollidesWithV1Branch = fmt.Errorf("app id collides with a v1 branch of the same name; rename that branch in the bucket, then reboot to retry the migration")
+
+// migrationConcurrency is how many objects MoveRootEntriesUnder moves in
+// parallel on the remote backends, tunable with BUCKET_MIGRATION_CONCURRENCY.
+// Copy+delete is a pair of network round-trips per object, so the move is
+// latency-bound: the default cuts hours to minutes on large buckets while
+// staying far below S3/GCS per-prefix rate limits.
+func migrationConcurrency() int {
+	if v := os.Getenv("BUCKET_MIGRATION_CONCURRENCY"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+		log.Printf("⚠️ Ignoring invalid BUCKET_MIGRATION_CONCURRENCY=%q, using the default", v)
+	}
+	return 16
+}
+
+// moveProgress counts moved objects across workers and logs a heartbeat line
+// every 500 objects, so a long migration shows life in the pod logs instead
+// of going silent for its whole duration.
+type moveProgress struct {
+	moved atomic.Int64
+}
+
+func (p *moveProgress) tick() {
+	if n := p.moved.Add(1); n%500 == 0 {
+		log.Printf("🚚 [BUCKET] v1 re-path progress: %d objects moved...", n)
+	}
+}
 
 // MoveRootEntriesUnder walks the LocalBucket root and moves every
 // immediate child directory that LOOKS LIKE a v1 branch into
@@ -202,14 +234,52 @@ func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
 		return nil
 	}
 
+	progress := &moveProgress{}
+	moveKey := func(ctx context.Context, key string) error {
+		newKey := appPrefix + strings.TrimPrefix(key, b.KeyPrefix)
+
+		// CopySource is `bucket/key` with ONLY the key URL-escaped.
+		// url.PathEscape(bucket+"/"+key) would also escape the
+		// bucket/key separator, producing an invalid CopySource that
+		// S3 rejects with InvalidArgument.
+		source := b.BucketName + "/" + escapeKeyForCopySource(key)
+		if _, err := client.CopyObject(ctx, &s3.CopyObjectInput{
+			Bucket:     awssdk.String(b.BucketName),
+			CopySource: awssdk.String(source),
+			Key:        awssdk.String(newKey),
+		}); err != nil {
+			return fmt.Errorf("copy %s -> %s: %w", key, newKey, err)
+		}
+		if _, err := client.DeleteObject(ctx, &s3.DeleteObjectInput{
+			Bucket: awssdk.String(b.BucketName),
+			Key:    awssdk.String(key),
+		}); err != nil {
+			return fmt.Errorf("delete %s after copy: %w", key, err)
+		}
+		progress.tick()
+		return nil
+	}
+
+	// Pass 2 moves objects concurrently (the move is latency-bound, see
+	// migrationConcurrency), with one deliberate exception: marker files are
+	// collected and moved only after every other object has landed. The
+	// markers are what pass 1 uses to confirm a triple, so as long as a
+	// marker is still at the root, an interrupted run re-confirms its triple
+	// on retry and finishes the job. Moving markers alongside their siblings
+	// could strand assets at the root with nothing left to re-confirm them.
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(migrationConcurrency())
+	var markers []string
+	var listErr error
 	p2 := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
 		Bucket: awssdk.String(b.BucketName),
 		Prefix: awssdk.String(b.KeyPrefix),
 	})
 	for p2.HasMorePages() {
-		page, err := p2.NextPage(ctx)
+		page, err := p2.NextPage(gctx)
 		if err != nil {
-			return fmt.Errorf("list objects: %w", err)
+			listErr = fmt.Errorf("list objects: %w", err)
+			break
 		}
 		for _, obj := range page.Contents {
 			key := *obj.Key
@@ -223,29 +293,28 @@ func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
 			if !inConfirmedTriple(relKey, confirmed) {
 				continue
 			}
-			newKey := appPrefix + relKey
-
-			// CopySource is `bucket/key` with ONLY the key URL-escaped.
-			// url.PathEscape(bucket+"/"+key) would also escape the
-			// bucket/key separator, producing an invalid CopySource that
-			// S3 rejects with InvalidArgument.
-			source := b.BucketName + "/" + escapeKeyForCopySource(key)
-			if _, err := client.CopyObject(ctx, &s3.CopyObjectInput{
-				Bucket:     awssdk.String(b.BucketName),
-				CopySource: awssdk.String(source),
-				Key:        awssdk.String(newKey),
-			}); err != nil {
-				return fmt.Errorf("copy %s -> %s: %w", key, newKey, err)
+			if _, isMarker := v1BranchTripleFromMarker(relKey); isMarker {
+				markers = append(markers, key)
+				continue
 			}
-			if _, err := client.DeleteObject(ctx, &s3.DeleteObjectInput{
-				Bucket: awssdk.String(b.BucketName),
-				Key:    awssdk.String(key),
-			}); err != nil {
-				return fmt.Errorf("delete %s after copy: %w", key, err)
-			}
+			g.Go(func() error { return moveKey(gctx, key) })
 		}
 	}
-	return nil
+	// A worker error cancels gctx, which also aborts the listing above; the
+	// worker error is the interesting one, so report it first.
+	if err := g.Wait(); err != nil {
+		return err
+	}
+	if listErr != nil {
+		return listErr
+	}
+
+	gm, gmctx := errgroup.WithContext(ctx)
+	gm.SetLimit(migrationConcurrency())
+	for _, key := range markers {
+		gm.Go(func() error { return moveKey(gmctx, key) })
+	}
+	return gm.Wait()
 }
 
 // v1BranchTripleFromMarker returns (triple, true) iff relKey is exactly
@@ -348,14 +417,36 @@ func (b *GCSBucket) MoveRootEntriesUnder(appId string) error {
 		return nil
 	}
 
-	it2 := bh.Objects(ctx, &storage.Query{Prefix: b.KeyPrefix})
+	progress := &moveProgress{}
+	moveKey := func(ctx context.Context, key string) error {
+		newKey := appPrefix + strings.TrimPrefix(key, b.KeyPrefix)
+		src := bh.Object(key)
+		dst := bh.Object(newKey)
+		if _, err := dst.CopierFrom(src).Run(ctx); err != nil {
+			return fmt.Errorf("copy %s -> %s: %w", key, newKey, err)
+		}
+		if err := src.Delete(ctx); err != nil {
+			return fmt.Errorf("delete %s after copy: %w", key, err)
+		}
+		progress.tick()
+		return nil
+	}
+
+	// Same concurrent pass-2 strategy as S3, markers-last included; see the
+	// S3 implementation for the rationale.
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(migrationConcurrency())
+	var markers []string
+	var listErr error
+	it2 := bh.Objects(gctx, &storage.Query{Prefix: b.KeyPrefix})
 	for {
 		attrs, err := it2.Next()
 		if err == iterator.Done {
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("list objects: %w", err)
+			listErr = fmt.Errorf("list objects: %w", err)
+			break
 		}
 		key := attrs.Name
 		if strings.HasPrefix(key, appPrefix) {
@@ -368,18 +459,25 @@ func (b *GCSBucket) MoveRootEntriesUnder(appId string) error {
 		if !inConfirmedTriple(relKey, confirmed) {
 			continue
 		}
-		newKey := appPrefix + relKey
-
-		src := bh.Object(key)
-		dst := bh.Object(newKey)
-		if _, err := dst.CopierFrom(src).Run(ctx); err != nil {
-			return fmt.Errorf("copy %s -> %s: %w", key, newKey, err)
+		if _, isMarker := v1BranchTripleFromMarker(relKey); isMarker {
+			markers = append(markers, key)
+			continue
 		}
-		if err := src.Delete(ctx); err != nil {
-			return fmt.Errorf("delete %s after copy: %w", key, err)
-		}
+		g.Go(func() error { return moveKey(gctx, key) })
 	}
-	return nil
+	if err := g.Wait(); err != nil {
+		return err
+	}
+	if listErr != nil {
+		return listErr
+	}
+
+	gm, gmctx := errgroup.WithContext(ctx)
+	gm.SetLimit(migrationConcurrency())
+	for _, key := range markers {
+		gm.Go(func() error { return moveKey(gmctx, key) })
+	}
+	return gm.Wait()
 }
 
 // UnwrapBucket returns the underlying concrete backend when b is a

@@ -9,6 +9,7 @@ import (
 	"expo-open-ota/internal/store"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -198,6 +199,36 @@ func TestSealLegacyKeysIntoDBFailsWhenKeysAreUnreadable(t *testing.T) {
 	}
 	if params.SealedPrivateKey != nil {
 		t.Error("no key should have been sealed on the failure path")
+	}
+}
+
+// A control-plane deployment that carries EXPO_APP_ID but none of the key
+// vars parses as mode=local (the KEYS_STORAGE_TYPE default) with empty paths.
+// The error must call out the missing env vars, not a generic read failure,
+// because that is what the operator actually has to fix.
+func TestSealLegacyKeysIntoDBNamesMissingKeyEnvVars(t *testing.T) {
+	setMasterKey(t)
+	for _, app := range []config.AppConfig{
+		{
+			Id:   "77777777-7777-7777-7777-777777777777",
+			Keys: config.KeysConfig{Mode: config.KeysModeLocal},
+		},
+		{
+			Id:   "77777777-7777-7777-7777-777777777777",
+			Keys: config.KeysConfig{Mode: config.KeysModeEnvironment, PublicB64: "notempty"},
+		},
+	} {
+		params := pgdb.MigrateLegacyAppParams{}
+		err := sealLegacyKeysIntoDB(app, &params)
+		if err == nil {
+			t.Fatalf("expected the migration to abort on empty %s key config, got nil", app.Keys.Mode)
+		}
+		if !strings.Contains(err.Error(), "KEYS_STORAGE_TYPE") {
+			t.Errorf("mode=%s: error should point at the missing key env vars, got: %v", app.Keys.Mode, err)
+		}
+		if params.SealedPrivateKey != nil {
+			t.Error("no key should have been sealed on the failure path")
+		}
 	}
 }
 

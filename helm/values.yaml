@@ -165,11 +165,16 @@ environment:
     required:
       - key: "storageMode"
         is: "s3"
+  # `required: false` alone never renders an env var (the template treats a
+  # non-required, non-enabled entry as disabled), so every optional var below
+  # also carries `enabled: true`.
   - name: "AWS_BASE_ENDPOINT"
     value: ""
+    enabled: true
     required: false
   - name: "AWS_S3_FORCE_PATH_STYLE"
     value: ""
+    enabled: true
     required: false
   - name: "S3_BUCKET_NAME"
     value: ""
@@ -178,10 +183,12 @@ environment:
         is: "s3"
   - name: "BUCKET_KEY_PREFIX"
     value: ""
+    enabled: true
     required: false
   # TODO: remove S3_KEY_PREFIX once users have migrated to BUCKET_KEY_PREFIX
   - name: "S3_KEY_PREFIX"
     value: ""
+    enabled: true
     required: false
   - name: "S3_CDN_PREFIX"
     value: ""
@@ -217,18 +224,26 @@ environment:
         is: "true"
       - key: "keysStorageType"
         is: "aws-secrets-manager"
-  # Per-app identity and signing keys for the single-app stateless mode. In
-  # control-plane mode (controlPlane="true") apps live in the database and are
-  # managed from the dashboard, so none of these flat vars are rendered — each
-  # ANDs its existing key-mode condition with `controlPlane=false`.
+  # Per-app identity and signing keys for the single-app stateless mode. They
+  # are REQUIRED when controlPlane="false", but still rendered (as optional)
+  # in control-plane mode: a v2 deploy upgrading into the control plane must
+  # keep them set so the one-shot legacy import can find the flat-env app,
+  # re-path its bucket data under the app id and seal its signing keys into
+  # the database, and so that v1 clients sending no expo-app-id header keep
+  # resolving to that app. Only a control plane created from scratch leaves
+  # them unset.
   - name: "KEYS_STORAGE_TYPE"
     key: "keysStorageType"
     computed: true
+    enabled: true
     required:
       - key: "controlPlane"
         is: "false"
   - name: "AWSSM_EXPO_PUBLIC_KEY_SECRET_ID"
     value: ""
+    enabled:
+      - key: "keysStorageType"
+        is: "aws-secrets-manager"
     required:
       - key: "controlPlane"
         is: "false"
@@ -236,6 +251,9 @@ environment:
         is: "aws-secrets-manager"
   - name: "AWSSM_EXPO_PRIVATE_KEY_SECRET_ID"
     value: ""
+    enabled:
+      - key: "keysStorageType"
+        is: "aws-secrets-manager"
     required:
       - key: "controlPlane"
         is: "false"
@@ -243,6 +261,9 @@ environment:
         is: "aws-secrets-manager"
   - name: "PUBLIC_LOCAL_EXPO_KEY_PATH"
     value: ""
+    enabled:
+      - key: "keysStorageType"
+        is: "local"
     required:
       - key: "controlPlane"
         is: "false"
@@ -250,6 +271,9 @@ environment:
         is: "local"
   - name: "PRIVATE_LOCAL_EXPO_KEY_PATH"
     value: ""
+    enabled:
+      - key: "keysStorageType"
+        is: "local"
     required:
       - key: "controlPlane"
         is: "false"
@@ -257,6 +281,9 @@ environment:
         is: "local"
   - name: "PUBLIC_EXPO_KEY_B64"
     value: ""
+    enabled:
+      - key: "keysStorageType"
+        is: "environment"
     required:
       - key: "controlPlane"
         is: "false"
@@ -264,6 +291,9 @@ environment:
         is: "environment"
   - name: "PRIVATE_EXPO_KEY_B64"
     value: ""
+    enabled:
+      - key: "keysStorageType"
+        is: "environment"
     required:
       - key: "controlPlane"
         is: "false"
@@ -289,16 +319,31 @@ environment:
     enabled:
       - key: "trustProxyHeaders"
         is: "true"
+  # EXPO_ACCESS_TOKEN and EXPO_APP_ID follow the same rule as the key vars
+  # above: required in stateless mode, still rendered (optional) in
+  # control-plane mode. EXPO_APP_ID in particular is what backward
+  # compatibility hangs on when upgrading a v2 deploy: it drives the bucket
+  # re-path, the legacy import into the database, and the fallback that keeps
+  # serving v1 clients whose requests carry no expo-app-id header.
   - name: "EXPO_ACCESS_TOKEN"
     value: ""
+    enabled: true
     required:
       - key: "controlPlane"
         is: "false"
   - name: "EXPO_APP_ID"
     value: ""
+    enabled: true
     required:
       - key: "controlPlane"
         is: "false"
+  # Once every client in the field ships the expo-app-id header (v2+ builds
+  # only), set to "true" to stop routing header-less requests to the legacy
+  # EXPO_APP_ID app.
+  - name: "SKIP_LEGACY_APP_ID_FALLBACK"
+    value: ""
+    enabled: true
+    required: false
   # Control Plane (DB mode). Rendered only when controlPlane="true". Set DB_URL
   # and the master key, whose source is picked by dbKeysMasterKeySource. The
   # master key seals per-app signing keys at rest — generate it with
