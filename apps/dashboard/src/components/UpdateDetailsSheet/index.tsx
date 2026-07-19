@@ -136,7 +136,7 @@ const UpdateDetailsBody = ({
       ['Slug', expoConfig?.slug],
       ['App version', expoConfig?.version],
       ['SDK version', expoConfig?.sdkVersion],
-    ] as const
+    ] as [string, unknown][]
   ).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1] !== '');
 
   return (
