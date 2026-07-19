@@ -73,6 +73,20 @@ func sealLegacyKeysIntoDB(app config.AppConfig, params *pgdb.MigrateLegacyAppPar
 		return nil
 	}
 
+	// The migration reads the flat env without the full stateless-boot
+	// validation, so a control-plane pod whose deployment carries EXPO_APP_ID
+	// but not the key vars arrives here as mode=local (the KEYS_STORAGE_TYPE
+	// default) with empty paths. Name the real problem, missing env vars,
+	// instead of failing later with a generic unreadable-keys error.
+	structurallyEmpty := (app.Keys.Mode == config.KeysModeLocal && (app.Keys.PublicPath == "" || app.Keys.PrivatePath == "")) ||
+		(app.Keys.Mode == config.KeysModeEnvironment && (app.Keys.PublicB64 == "" || app.Keys.PrivateB64 == ""))
+	if structurallyEmpty {
+		return fmt.Errorf("app %q: the flat env resolves to keys mode=%s but its key env vars are empty. "+
+			"When upgrading into the control plane, keep the v2 key vars set (KEYS_STORAGE_TYPE and its mode-specific siblings) "+
+			"so the legacy app's signing keys can be sealed into the database, then retry the migration",
+			app.Id, app.Keys.Mode)
+	}
+
 	// Read through keyStore so each legacy mode is resolved the same way the
 	// v1 server resolved it (file read, or b64 decode). Both return "" on any
 	// failure, which must abort: sealing an empty string would migrate cleanly

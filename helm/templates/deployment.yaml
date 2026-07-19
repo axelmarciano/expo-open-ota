@@ -35,13 +35,18 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 3000
+          # /hc is liveness: it answers 200 as soon as the process is up, even
+          # while a bucket migration is still running, so the orchestrator
+          # never kills a pod in the middle of a long migration. /ready flips
+          # to 200 only once migrations are done and the real router is
+          # mounted, which is what keeps traffic away until then.
           livenessProbe:
             httpGet:
               path: /hc
               port: 3000
           readinessProbe:
             httpGet:
-              path: /hc
+              path: /ready
               port: 3000
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
@@ -72,15 +77,19 @@ spec:
               {{- end }}
               {{- $isEnabled = $isRequired }}
               {{- if hasKey $env "enabled" }}
-                {{- $isEnabled = true }}
-                {{- range $condition := $env.enabled }}
-                  {{- $keyValue := toString (index $.Values $condition.key) }}
-                  {{- if hasKey $condition "in" }}
-                    {{- if not (has $keyValue $condition.in) }}
+                {{- if eq (typeOf $env.enabled) "bool" }}
+                  {{- $isEnabled = $env.enabled }}
+                {{- else }}
+                  {{- $isEnabled = true }}
+                  {{- range $condition := $env.enabled }}
+                    {{- $keyValue := toString (index $.Values $condition.key) }}
+                    {{- if hasKey $condition "in" }}
+                      {{- if not (has $keyValue $condition.in) }}
+                        {{- $isEnabled = false }}
+                      {{- end }}
+                    {{- else if or (not $keyValue) (ne $keyValue (toString $condition.is)) }}
                       {{- $isEnabled = false }}
                     {{- end }}
-                  {{- else if or (not $keyValue) (ne $keyValue (toString $condition.is)) }}
-                    {{- $isEnabled = false }}
                   {{- end }}
                 {{- end }}
               {{- end }}
