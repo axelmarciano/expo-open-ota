@@ -47,7 +47,7 @@ func (r *fakeUserRepo) InsertUser(_ context.Context, params store.InsertUserPara
 			return store.User{}, &store.ErrResourceAlreadyExists{Resource: "user", Identifier: email}
 		}
 	}
-	user := store.User{Id: params.ID, Email: email, PasswordHash: params.PasswordHash, IsAdmin: params.IsAdmin, CreatedAt: time.Now()}
+	user := store.User{Id: params.ID, Email: email, PasswordHash: params.PasswordHash, IsAdmin: params.IsAdmin, Enabled: params.Enabled, CreatedAt: time.Now()}
 	r.users[params.ID] = user
 	return user, nil
 }
@@ -93,6 +93,13 @@ func (r *fakeUserRepo) UpdateUserPassword(_ context.Context, id string, password
 func (r *fakeUserRepo) UpdateUserIsAdmin(_ context.Context, id string, isAdmin bool) error {
 	user := r.users[id]
 	user.IsAdmin = isAdmin
+	r.users[id] = user
+	return nil
+}
+
+func (r *fakeUserRepo) UpdateUserEnabled(_ context.Context, id string, enabled bool) error {
+	user := r.users[id]
+	user.Enabled = enabled
 	r.users[id] = user
 	return nil
 }
@@ -176,7 +183,7 @@ func (r *fakeSSORepo) ProvisionUser(ctx context.Context, params store.InsertUser
 	if r.provisionRaces {
 		r.provisionRaces = false
 		otherReplicaID := "other-replica-" + params.ID
-		if _, err := r.users.InsertUser(ctx, store.InsertUserParameters{ID: otherReplicaID, Email: params.Email}); err != nil {
+		if _, err := r.users.InsertUser(ctx, store.InsertUserParameters{ID: otherReplicaID, Email: params.Email, Enabled: params.Enabled}); err != nil {
 			return store.User{}, err
 		}
 		r.identities[key] = otherReplicaID
@@ -412,7 +419,7 @@ func TestCompleteLoginLinksExistingAccountByEmail(t *testing.T) {
 	idp := newFakeIdP(t)
 	users := newFakeUserRepo()
 	existing, err := users.InsertUser(context.Background(), store.InsertUserParameters{
-		ID: "existing-user", Email: testEmail, PasswordHash: "some-bcrypt-hash", IsAdmin: true,
+		ID: "existing-user", Email: testEmail, PasswordHash: "some-bcrypt-hash", IsAdmin: true, Enabled: true,
 	})
 	require.NoError(t, err)
 	repo := newFakeSSORepo(users, testConfigFor(idp))
@@ -448,6 +455,80 @@ func TestCompleteLoginRetriesAfterConcurrentFirstSignIn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, repo.identities[identityKey(idp.issuer, testSubject)], principal.UserId)
 	assert.Len(t, users.users, 1)
+}
+
+// With manual validation on, a first sign-in creates the account but does not
+// let it in: the admin gets something concrete to approve on the Users page,
+// and the person gets an error saying to wait rather than a generic refusal.
+func TestManualUserValidationProvisionsDisabledAccounts(t *testing.T) {
+	idp := newFakeIdP(t)
+	users := newFakeUserRepo()
+	cfg := testConfigFor(idp)
+	cfg.ManualUserValidation = true
+	service, sessions := newTestService(t, newFakeSSORepo(users, cfg), users)
+
+	_, err := completeFlow(t, service, idp, nil)
+	assert.ErrorIs(t, err, ErrSSOAccountPendingApproval)
+
+	// The account exists, disabled, so an admin can find and approve it.
+	provisioned, err := users.GetUserByEmail(context.Background(), testEmail)
+	require.NoError(t, err)
+	assert.False(t, provisioned.Enabled)
+	assert.False(t, provisioned.IsAdmin)
+
+	// Retrying before approval keeps failing, without duplicating the account.
+	_, err = completeFlow(t, service, idp, nil)
+	assert.ErrorIs(t, err, ErrSSOAccountPendingApproval)
+	all, err := users.GetUsers(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, all, 1)
+
+	// Once approved, the very same flow signs in.
+	require.NoError(t, users.UpdateUserEnabled(context.Background(), provisioned.Id, true))
+	session, err := completeFlow(t, service, idp, nil)
+	require.NoError(t, err)
+	principal, err := sessions.ValidateSession(session.Token)
+	require.NoError(t, err)
+	assert.Equal(t, testEmail, principal.Email)
+}
+
+// Turning manual validation on must not strand people who already had access:
+// linking an identity onto an existing account leaves its enabled flag alone.
+func TestManualUserValidationLeavesExistingAccountsAlone(t *testing.T) {
+	idp := newFakeIdP(t)
+	users := newFakeUserRepo()
+	existing, err := users.InsertUser(context.Background(), store.InsertUserParameters{
+		ID: "existing-user", Email: testEmail, PasswordHash: "some-bcrypt-hash", IsAdmin: true, Enabled: true,
+	})
+	require.NoError(t, err)
+	cfg := testConfigFor(idp)
+	cfg.ManualUserValidation = true
+	service, _ := newTestService(t, newFakeSSORepo(users, cfg), users)
+
+	_, err = completeFlow(t, service, idp, nil)
+	require.NoError(t, err)
+
+	linked, err := users.GetUserByID(context.Background(), existing.Id)
+	require.NoError(t, err)
+	assert.True(t, linked.Enabled)
+}
+
+// A disabled account is refused whatever put it in that state: manual
+// validation is one way in, an admin revoking access is the other.
+func TestCompleteLoginRejectsRevokedAccount(t *testing.T) {
+	idp := newFakeIdP(t)
+	users := newFakeUserRepo()
+	service, _ := newTestService(t, newFakeSSORepo(users, testConfigFor(idp)), users)
+
+	_, err := completeFlow(t, service, idp, nil)
+	require.NoError(t, err)
+
+	provisioned, err := users.GetUserByEmail(context.Background(), testEmail)
+	require.NoError(t, err)
+	require.NoError(t, users.UpdateUserEnabled(context.Background(), provisioned.Id, false))
+
+	_, err = completeFlow(t, service, idp, nil)
+	assert.ErrorIs(t, err, ErrSSOAccountPendingApproval)
 }
 
 func TestCompleteLoginRejectsNonceMismatch(t *testing.T) {
@@ -570,7 +651,7 @@ func TestCompleteLoginRejectsUnverifiedEmail(t *testing.T) {
 	// An existing account an attacker would try to take over by asserting its
 	// address from a tenant they control.
 	victim, err := users.InsertUser(context.Background(), store.InsertUserParameters{
-		ID: "victim", Email: testEmail, PasswordHash: "victim-hash", IsAdmin: true,
+		ID: "victim", Email: testEmail, PasswordHash: "victim-hash", IsAdmin: true, Enabled: true,
 	})
 	require.NoError(t, err)
 	repo := newFakeSSORepo(users, testConfigFor(idp))

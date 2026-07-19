@@ -18,12 +18,14 @@ type UserRepository interface {
 	GetUserByEmail(ctx context.Context, email string) (store.User, error)
 	GetUserByID(ctx context.Context, id string) (store.User, error)
 	GetUsers(ctx context.Context) ([]store.User, error)
-	// DeleteUserByID and UpdateUserIsAdmin enforce the "at least one admin"
-	// invariant atomically (store.ErrWouldLeaveNoAdmin): a check-then-write at
-	// this level would race with concurrent demotions/deletions.
+	// DeleteUserByID, UpdateUserIsAdmin and UpdateUserEnabled enforce the "at
+	// least one enabled admin" invariant atomically
+	// (store.ErrWouldLeaveNoAdmin): a check-then-write at this level would race
+	// with concurrent demotions/deletions/disables.
 	DeleteUserByID(ctx context.Context, id string) error
 	UpdateUserPassword(ctx context.Context, id string, passwordHash string) error
 	UpdateUserIsAdmin(ctx context.Context, id string, isAdmin bool) error
+	UpdateUserEnabled(ctx context.Context, id string, enabled bool) error
 	TouchUserLastConnected(ctx context.Context, id string) error
 }
 
@@ -32,7 +34,8 @@ var (
 	ErrUsersRequireControlPlane  = errors.New("user accounts are managed in the database: this deployment runs in stateless mode, where the only account comes from ADMIN_EMAIL and ADMIN_PASSWORD")
 	ErrCannotChangeOwnAdminFlag  = errors.New("you cannot change your own admin status")
 	ErrCannotDeleteOwnAccount    = errors.New("you cannot delete your own account")
-	ErrLastAdmin                 = errors.New("there must always be at least one admin")
+	ErrCannotDisableOwnAccount   = errors.New("you cannot disable your own account")
+	ErrLastAdmin                 = errors.New("there must always be at least one enabled admin")
 	ErrInvalidCurrentPassword    = errors.New("the current password is incorrect")
 	ErrUserCreationDisabledBySSO = errors.New("SSO is active: accounts are provisioned automatically on their first SSO sign-in")
 )
@@ -119,6 +122,9 @@ func (s *UserService) CreateUser(ctx context.Context, email string, password str
 		Email:        normalizedEmail,
 		PasswordHash: passwordHash,
 		IsAdmin:      isAdmin,
+		// An admin creating an account by hand is the approval: nothing to
+		// validate afterwards.
+		Enabled: true,
 	})
 }
 
@@ -148,6 +154,28 @@ func (s *UserService) SetUserAdmin(ctx context.Context, actorUserId string, targ
 		return ErrCannotChangeOwnAdminFlag
 	}
 	if err := s.userRepo.UpdateUserIsAdmin(ctx, targetUserId, isAdmin); err != nil {
+		if errors.Is(err, store.ErrWouldLeaveNoAdmin) {
+			return ErrLastAdmin
+		}
+		return err
+	}
+	return nil
+}
+
+// SetUserEnabled approves or revokes an account without deleting it. Disabling
+// takes effect on the account's next token refresh at the latest, since a live
+// session token is only re-checked against the database there.
+func (s *UserService) SetUserEnabled(ctx context.Context, actorUserId string, targetUserId string, enabled bool) error {
+	if err := s.requireControlPlane(); err != nil {
+		return err
+	}
+	// Same reasoning as SetUserAdmin: enabling an account you are signed in
+	// with is a no-op, so the only meaningful self-target is locking yourself
+	// out.
+	if actorUserId == targetUserId {
+		return ErrCannotDisableOwnAccount
+	}
+	if err := s.userRepo.UpdateUserEnabled(ctx, targetUserId, enabled); err != nil {
 		if errors.Is(err, store.ErrWouldLeaveNoAdmin) {
 			return ErrLastAdmin
 		}

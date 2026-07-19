@@ -48,6 +48,7 @@ func (s *PostgresSSOStore) GetConfig(ctx context.Context) (*SSOConfig, error) {
 		AllowedGroups:        row.AllowedGroups,
 		GroupsClaim:          row.GroupsClaim,
 		TrustUnverifiedEmail: row.TrustUnverifiedEmail,
+		ManualUserValidation: row.ManualUserValidation,
 	}
 	secret, err := crypto.UnsealAESGCM(row.SealedClientSecret, []byte(keyStore.ReadDBKeysMasterKey()), clientSecretAAD())
 	if err != nil {
@@ -75,6 +76,7 @@ func (s *PostgresSSOStore) SaveConfig(ctx context.Context, cfg SSOConfig) error 
 		AllowedGroups:        emptyIfNil(cfg.AllowedGroups),
 		GroupsClaim:          cfg.GroupsClaim,
 		TrustUnverifiedEmail: cfg.TrustUnverifiedEmail,
+		ManualUserValidation: cfg.ManualUserValidation,
 	}); err != nil {
 		return fmt.Errorf("failed to store the sso configuration in database: %w", err)
 	}
@@ -139,6 +141,7 @@ func (s *PostgresSSOStore) ProvisionUser(ctx context.Context, params store.Inser
 			Email:        email,
 			PasswordHash: params.PasswordHash,
 			IsAdmin:      params.IsAdmin,
+			Enabled:      params.Enabled,
 		})
 		if err != nil {
 			if database.IsUniqueViolation(err) {
@@ -150,6 +153,7 @@ func (s *PostgresSSOStore) ProvisionUser(ctx context.Context, params store.Inser
 			Id:        row.ID.String(),
 			Email:     row.Email,
 			IsAdmin:   row.IsAdmin,
+			Enabled:   row.Enabled,
 			CreatedAt: row.CreatedAt.Time,
 		}
 		if err := q.InsertSSOIdentity(ctx, pgdb.InsertSSOIdentityParams{

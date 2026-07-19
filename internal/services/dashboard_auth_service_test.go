@@ -12,7 +12,7 @@ import (
 // seededSSOUser mirrors what the enterprise SSO provisioning inserts: a
 // member account with the empty password-hash sentinel.
 func seededSSOUser(id string, email string) store.InsertUserParameters {
-	return store.InsertUserParameters{ID: id, Email: email, PasswordHash: "", IsAdmin: false}
+	return store.InsertUserParameters{ID: id, Email: email, PasswordHash: "", IsAdmin: false, Enabled: true}
 }
 
 // SSO-provisioned accounts carry an empty password hash: no password may ever
@@ -63,6 +63,47 @@ func TestIssueSessionMintsAValidPair(t *testing.T) {
 	statelessService := NewDashboardAuthService(nil)
 	_, err = statelessService.IssueSession(ctx, user)
 	assert.Error(t, err)
+}
+
+// Disabling an account must close every door, not just the login form. The
+// refresh path matters most: session tokens are validated from their claims
+// alone, so a revoked account keeps a working session until it refreshes.
+func TestDisabledAccountCannotSignInOrRefresh(t *testing.T) {
+	t.Setenv("JWT_SECRET", "test-secret")
+	repo := newFakeUserRepo()
+	userService := NewUserService(repo)
+	authService := NewDashboardAuthService(repo)
+	ctx := context.Background()
+
+	admin, err := userService.CreateUser(ctx, "admin@example.com", "Sup3rSecret!", true)
+	require.NoError(t, err)
+	member, err := userService.CreateUser(ctx, "member@example.com", "Sup3rSecret!", false)
+	require.NoError(t, err)
+
+	// A live session, obtained while the account was still enabled.
+	session, err := authService.LoginWithEmailPassword(ctx, "member@example.com", "Sup3rSecret!")
+	require.NoError(t, err)
+
+	require.NoError(t, userService.SetUserEnabled(ctx, admin.Id, member.Id, false))
+
+	// Password login: the credentials are right, the account is not usable.
+	_, err = authService.LoginWithEmailPassword(ctx, "member@example.com", "Sup3rSecret!")
+	assert.ErrorIs(t, err, ErrAccountPendingApproval)
+
+	// Refresh: the leftover refresh token cannot mint a new pair.
+	_, err = authService.RefreshSession(ctx, session.RefreshToken)
+	assert.ErrorIs(t, err, ErrAccountPendingApproval)
+
+	// SSO callback path: same refusal, so no flow can bypass the flag.
+	disabled, err := repo.GetUserByID(ctx, member.Id)
+	require.NoError(t, err)
+	_, err = authService.IssueSession(ctx, disabled)
+	assert.ErrorIs(t, err, ErrAccountPendingApproval)
+
+	// Re-approving restores access.
+	require.NoError(t, userService.SetUserEnabled(ctx, admin.Id, member.Id, true))
+	_, err = authService.LoginWithEmailPassword(ctx, "member@example.com", "Sup3rSecret!")
+	assert.NoError(t, err)
 }
 
 func TestSSOEnforcementOnPasswordLogin(t *testing.T) {

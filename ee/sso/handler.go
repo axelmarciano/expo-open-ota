@@ -28,6 +28,7 @@ const (
 	ssoErrEmailMissing    = "sso_email_missing"
 	ssoErrEmailUnverified = "sso_email_unverified"
 	ssoErrForbidden       = "sso_forbidden"
+	ssoErrPending         = "sso_pending"
 	ssoErrFailed          = "sso_failed"
 )
 
@@ -77,6 +78,8 @@ func ssoErrorCode(err error) string {
 		return ssoErrEmailUnverified
 	case errors.Is(err, ErrSSOAccessRestricted):
 		return ssoErrForbidden
+	case errors.Is(err, ErrSSOAccountPendingApproval):
+		return ssoErrPending
 	default:
 		return ssoErrFailed
 	}
@@ -207,6 +210,7 @@ type adminConfigResponse struct {
 	AllowedGroups        []string `json:"allowedGroups"`
 	GroupsClaim          string   `json:"groupsClaim"`
 	TrustUnverifiedEmail bool     `json:"trustUnverifiedEmail"`
+	ManualUserValidation bool     `json:"manualUserValidation"`
 	RedirectURI          string   `json:"redirectUri"`
 }
 
@@ -222,6 +226,7 @@ func adminConfigResponseFrom(view *AdminConfig) adminConfigResponse {
 		AllowedGroups:        view.AllowedGroups,
 		GroupsClaim:          view.GroupsClaim,
 		TrustUnverifiedEmail: view.TrustUnverifiedEmail,
+		ManualUserValidation: view.ManualUserValidation,
 		RedirectURI:          view.RedirectURI,
 	}
 	// Encode empty lists as [], never null: the dashboard maps over them.
@@ -255,6 +260,7 @@ func (h *SSOHandler) SaveConfigHandler(w http.ResponseWriter, r *http.Request) {
 		AllowedGroups        []string `json:"allowedGroups"`
 		GroupsClaim          string   `json:"groupsClaim"`
 		TrustUnverifiedEmail bool     `json:"trustUnverifiedEmail"`
+		ManualUserValidation bool     `json:"manualUserValidation"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
 		handlers.RenderError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
@@ -271,6 +277,7 @@ func (h *SSOHandler) SaveConfigHandler(w http.ResponseWriter, r *http.Request) {
 		AllowedGroups:        requestBody.AllowedGroups,
 		GroupsClaim:          requestBody.GroupsClaim,
 		TrustUnverifiedEmail: requestBody.TrustUnverifiedEmail,
+		ManualUserValidation: requestBody.ManualUserValidation,
 	})
 	if err != nil {
 		renderSSOServiceError(w, err)

@@ -26,13 +26,18 @@ const FormSchema = z.object({
 // underlying cause stays in the server logs; the code alone reaches the URL.
 const SSO_ERROR_MESSAGES: Record<string, string> = {
   sso_denied: 'Sign-in was cancelled at the identity provider.',
-  sso_license: 'Single sign-on requires an active enterprise license. Sign in with your password instead.',
+  sso_license:
+    'Single sign-on requires an active enterprise license. Sign in with your password instead.',
   sso_email_missing:
     'Your identity provider did not return an email address for your account. Contact your administrator.',
   sso_email_unverified:
     'Your identity provider did not verify your email address. Contact your administrator.',
-  sso_forbidden: 'Your account is not allowed to access this dashboard. Contact your administrator.',
-  sso_failed: 'SSO sign-in failed. Try again, and contact your administrator if it keeps happening.',
+  sso_forbidden:
+    'Your account is not allowed to access this dashboard. Contact your administrator.',
+  sso_pending:
+    'Your account has been created and is waiting for an administrator to approve it. You will be able to sign in once it is approved.',
+  sso_failed:
+    'SSO sign-in failed. Try again, and contact your administrator if it keeps happening.',
 };
 
 export const Login = () => {
@@ -44,7 +49,10 @@ export const Login = () => {
     },
   });
   const navigate = useNavigate();
-  const [ssoError, setSsoError] = useState<string | null>(null);
+  // Shared by both sign-in paths: the SSO callback's error codes and the
+  // password path's 403s (SSO enforced, account awaiting approval). Both are
+  // account-state messages rather than credential mistakes.
+  const [signInNotice, setSignInNotice] = useState<string | null>(null);
 
   // The SSO callback lands here with the session pair (or an error code) in
   // the URL fragment: fragments never reach a server, so tokens cannot end up
@@ -70,7 +78,7 @@ export const Login = () => {
       navigate('/');
       return;
     }
-    setSsoError(SSO_ERROR_MESSAGES[errorCode ?? ''] ?? SSO_ERROR_MESSAGES.sso_failed);
+    setSignInNotice(SSO_ERROR_MESSAGES[errorCode ?? ''] ?? SSO_ERROR_MESSAGES.sso_failed);
   }, [navigate]);
 
   const onSubmit = useCallback(
@@ -80,6 +88,14 @@ export const Login = () => {
         setTokens(response.token, response.refreshToken);
         navigate('/');
       } catch (error) {
+        // A 403 means the credentials were right but the account may not use
+        // this door: SSO is enforced for it, or it is waiting for approval.
+        // That is not a password mistake, so it belongs in the notice above
+        // the form rather than under the password field.
+        if (error instanceof ApiProblemError && error.status === 403) {
+          setSignInNotice(error.detail);
+          return;
+        }
         // Only an actual 401 means wrong credentials. A misconfigured server
         // (e.g. ADMIN_EMAIL not set in stateless mode) answers with an
         // actionable detail, and a fetch that never reached the server must
@@ -121,10 +137,10 @@ export const Login = () => {
             </div>
           </div>
 
-          {ssoError && (
+          {signInNotice && (
             <Alert variant="destructive" className="mb-5">
               <TriangleAlert className="h-4 w-4" />
-              <AlertDescription>{ssoError}</AlertDescription>
+              <AlertDescription>{signInNotice}</AlertDescription>
             </Alert>
           )}
 

@@ -19,7 +19,11 @@ type User struct {
 	Email        string
 	PasswordHash string
 	IsAdmin      bool
-	CreatedAt    time.Time
+	// Enabled gates every sign-in path. Accounts are enabled on creation; an
+	// admin can revoke access without deleting the account, and SSO manual
+	// validation provisions new accounts disabled until an admin approves them.
+	Enabled   bool
+	CreatedAt time.Time
 	// Nil until the account's first successful sign-in.
 	LastConnectedAt *time.Time
 }
@@ -29,6 +33,7 @@ type InsertUserParameters struct {
 	Email        string
 	PasswordHash string
 	IsAdmin      bool
+	Enabled      bool
 }
 
 // NormalizeEmail is the single place an email is canonicalized before hitting
@@ -55,6 +60,7 @@ func (s *PostgresUserStore) InsertUser(ctx context.Context, params InsertUserPar
 		Email:        email,
 		PasswordHash: params.PasswordHash,
 		IsAdmin:      params.IsAdmin,
+		Enabled:      params.Enabled,
 	})
 	if err != nil {
 		if database.IsUniqueViolation(err) {
@@ -66,6 +72,7 @@ func (s *PostgresUserStore) InsertUser(ctx context.Context, params InsertUserPar
 		Id:        row.ID.String(),
 		Email:     row.Email,
 		IsAdmin:   row.IsAdmin,
+		Enabled:   row.Enabled,
 		CreatedAt: row.CreatedAt.Time,
 	}, nil
 }
@@ -104,6 +111,7 @@ func (s *PostgresUserStore) GetUsers(ctx context.Context) ([]User, error) {
 			Id:              row.ID.String(),
 			Email:           row.Email,
 			IsAdmin:         row.IsAdmin,
+			Enabled:         row.Enabled,
 			CreatedAt:       row.CreatedAt.Time,
 			LastConnectedAt: timestamptzToPtr(row.LastConnectedAt),
 		}
@@ -160,6 +168,25 @@ func (s *PostgresUserStore) UpdateUserIsAdmin(ctx context.Context, id string, is
 	return nil
 }
 
+func (s *PostgresUserStore) UpdateUserEnabled(ctx context.Context, id string, enabled bool) error {
+	commandTag, err := s.engine.Queries.UpdateUserEnabledByID(ctx, pgdb.UpdateUserEnabledByIDParams{
+		ID:      ToPgUUID(id),
+		Enabled: enabled,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update user enabled flag in database: %w", err)
+	}
+	if commandTag.RowsAffected() == 0 {
+		// The guarded query matches no row both for a missing user and for the
+		// last remaining enabled admin — look the row up to tell the two apart.
+		if _, lookupErr := s.GetUserByID(ctx, id); lookupErr != nil {
+			return lookupErr
+		}
+		return ErrWouldLeaveNoAdmin
+	}
+	return nil
+}
+
 func (s *PostgresUserStore) TouchUserLastConnected(ctx context.Context, id string) error {
 	if err := s.engine.Queries.TouchUserLastConnectedAt(ctx, ToPgUUID(id)); err != nil {
 		return fmt.Errorf("failed to touch user last connection in database: %w", err)
@@ -173,6 +200,7 @@ func userFromRow(row pgdb.User) User {
 		Email:           row.Email,
 		PasswordHash:    row.PasswordHash,
 		IsAdmin:         row.IsAdmin,
+		Enabled:         row.Enabled,
 		CreatedAt:       row.CreatedAt.Time,
 		LastConnectedAt: timestamptzToPtr(row.LastConnectedAt),
 	}
