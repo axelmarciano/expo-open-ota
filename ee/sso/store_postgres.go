@@ -191,6 +191,7 @@ func userFromPgdbRow(row pgdb.User) store.User {
 		Email:        row.Email,
 		PasswordHash: row.PasswordHash,
 		IsAdmin:      row.IsAdmin,
+		Enabled:      row.Enabled,
 		CreatedAt:    row.CreatedAt.Time,
 	}
 	if row.LastConnectedAt.Valid {
