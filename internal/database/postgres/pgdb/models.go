@@ -37,6 +37,23 @@ type App struct {
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 }
 
+type AuditLogEvent struct {
+	ID            int64              `json:"id"`
+	OccurredAt    pgtype.Timestamptz `json:"occurred_at"`
+	ActorType     string             `json:"actor_type"`
+	ActorID       string             `json:"actor_id"`
+	ActorDisplay  string             `json:"actor_display"`
+	Action        string             `json:"action"`
+	TargetType    string             `json:"target_type"`
+	TargetID      string             `json:"target_id"`
+	TargetDisplay string             `json:"target_display"`
+	AppID         *string            `json:"app_id"`
+	Outcome       string             `json:"outcome"`
+	Ip            string             `json:"ip"`
+	UserAgent     string             `json:"user_agent"`
+	Metadata      []byte             `json:"metadata"`
+}
+
 type Branch struct {
 	ID        int64              `json:"id"`
 	AppID     pgtype.UUID        `json:"app_id"`

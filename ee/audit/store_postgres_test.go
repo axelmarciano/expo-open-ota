@@ -1,0 +1,213 @@
+// Copyright (c) 2026 Axel Marciano (Mercure Technologies). All rights reserved.
+// This file is governed by the Mercure Technologies Enterprise Edition License
+// (see ee/LICENSE); it is NOT covered by the MIT license of this repository.
+
+// Integration tests for the audit store: the optional-filter SQL, the keyset
+// pagination and the metadata roundtrip need a real Postgres. They skip unless
+// TEST_DATABASE_URL is set, e.g.:
+//
+//	docker run -d --name eoo-pg -e POSTGRES_PASSWORD=test -p 55432:5432 postgres:16-alpine
+//	TEST_DATABASE_URL="postgres://postgres:test@localhost:55432/postgres?sslmode=disable" go test ./ee/audit/
+//
+// The audit table accumulates rows across test runs on the same database, so
+// every test filters on a unique actor id instead of assuming an empty table.
+
+package audit
+
+import (
+	"context"
+	"os"
+	"testing"
+	"time"
+
+	"expo-open-ota/internal/database"
+	"expo-open-ota/internal/database/postgres"
+	"expo-open-ota/internal/database/postgres/pgdb"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/require"
+)
+
+func setupAuditStore(t *testing.T) *PostgresAuditStore {
+	t.Helper()
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		// See the same guard in the rbac store tests: a skip in CI is a green
+		// job that ran none of these guarded queries.
+		if os.Getenv("CI") != "" {
+			t.Fatal("TEST_DATABASE_URL must be set in CI: these tests cover SQL that the in-memory fakes cannot reach")
+		}
+		t.Skip("TEST_DATABASE_URL not set — start a Postgres and set it to run the audit store tests")
+	}
+	// The seed migration fails fast on an empty database without the
+	// bootstrap pair.
+	t.Setenv("ADMIN_EMAIL", "seed-admin@example.com")
+	t.Setenv("ADMIN_PASSWORD", "Sup3rSecret!")
+	postgres.RunDBMigrations(dbURL)
+
+	pool, err := pgxpool.New(context.Background(), dbURL)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	return NewPostgresAuditStore(&database.Engine{Queries: pgdb.New(pool), DB: pool})
+}
+
+func insertTestEvent(t *testing.T, auditStore *PostgresAuditStore, event Event) Event {
+	t.Helper()
+	inserted, err := auditStore.Insert(context.Background(), event)
+	require.NoError(t, err)
+	return inserted
+}
+
+func TestAuditEventRoundtrip(t *testing.T) {
+	auditStore := setupAuditStore(t)
+	actorID := uuid.NewString()
+	appID := uuid.NewString()
+
+	inserted := insertTestEvent(t, auditStore, Event{
+		ActorType:     ActorUser,
+		ActorID:       actorID,
+		ActorDisplay:  "axel@example.com",
+		Action:        ActionAppRenamed,
+		TargetType:    "app",
+		TargetID:      appID,
+		TargetDisplay: "My App",
+		AppID:         appID,
+		Outcome:       OutcomeSuccess,
+		IP:            "203.0.113.7",
+		UserAgent:     "Mozilla/5.0",
+		Metadata:      map[string]any{"previous_name": "Old App"},
+	})
+
+	require.Positive(t, inserted.ID)
+	// occurred_at is the database's clock, never Go's.
+	require.False(t, inserted.OccurredAt.IsZero())
+	require.WithinDuration(t, time.Now(), inserted.OccurredAt, time.Minute)
+
+	events, err := auditStore.List(context.Background(), ListParams{
+		ListFilters: ListFilters{ActorID: &actorID},
+		Limit:       10,
+	})
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, inserted.ID, events[0].ID)
+	require.Equal(t, ActorUser, events[0].ActorType)
+	require.Equal(t, "axel@example.com", events[0].ActorDisplay)
+	require.Equal(t, ActionAppRenamed, events[0].Action)
+	require.Equal(t, "My App", events[0].TargetDisplay)
+	require.Equal(t, appID, events[0].AppID)
+	require.Equal(t, "203.0.113.7", events[0].IP)
+	require.Equal(t, map[string]any{"previous_name": "Old App"}, events[0].Metadata)
+}
+
+func TestAuditEventAccountLevelAndEmptyMetadata(t *testing.T) {
+	auditStore := setupAuditStore(t)
+	actorID := uuid.NewString()
+
+	insertTestEvent(t, auditStore, Event{
+		ActorType:    ActorUser,
+		ActorID:      actorID,
+		ActorDisplay: "admin@example.com",
+		Action:       ActionLicenseActivated,
+		TargetType:   "license",
+		TargetID:     "license",
+	})
+
+	events, err := auditStore.List(context.Background(), ListParams{
+		ListFilters: ListFilters{ActorID: &actorID},
+		Limit:       10,
+	})
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	// Account-level event: no app, and a nil metadata map (stored as '{}').
+	require.Empty(t, events[0].AppID)
+	require.Nil(t, events[0].Metadata)
+}
+
+func TestAuditEventFilters(t *testing.T) {
+	auditStore := setupAuditStore(t)
+	actorID := uuid.NewString()
+	otherActorID := uuid.NewString()
+	appID := uuid.NewString()
+
+	insertTestEvent(t, auditStore, Event{
+		ActorType: ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
+		Action: ActionChannelCreated, TargetType: "channel", TargetID: "staging", AppID: appID,
+	})
+	insertTestEvent(t, auditStore, Event{
+		ActorType: ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
+		Action: ActionChannelDeleted, TargetType: "channel", TargetID: "staging", AppID: appID,
+	})
+	insertTestEvent(t, auditStore, Event{
+		ActorType: ActorAPIKey, ActorID: otherActorID, ActorDisplay: "ci-key",
+		Action: ActionUpdatePublished, TargetType: "update", TargetID: "1", AppID: appID,
+	})
+
+	ctx := context.Background()
+
+	// By action, within the actor's rows.
+	deleted := string(ActionChannelDeleted)
+	events, err := auditStore.List(ctx, ListParams{
+		ListFilters: ListFilters{ActorID: &actorID, Action: &deleted},
+		Limit:       10,
+	})
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, ActionChannelDeleted, events[0].Action)
+
+	// By app: both actors' rows on this app.
+	count, err := auditStore.Count(ctx, ListFilters{AppID: &appID})
+	require.NoError(t, err)
+	require.EqualValues(t, 3, count)
+
+	// A date range in the future matches nothing.
+	future := time.Now().Add(time.Hour)
+	count, err = auditStore.Count(ctx, ListFilters{ActorID: &actorID, From: &future})
+	require.NoError(t, err)
+	require.Zero(t, count)
+
+	// A range around now matches everything the actor did.
+	past := time.Now().Add(-time.Hour)
+	count, err = auditStore.Count(ctx, ListFilters{ActorID: &actorID, From: &past, To: &future})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, count)
+}
+
+func TestAuditEventKeysetPagination(t *testing.T) {
+	auditStore := setupAuditStore(t)
+	actorID := uuid.NewString()
+
+	var insertedIDs []int64
+	for range 5 {
+		inserted := insertTestEvent(t, auditStore, Event{
+			ActorType: ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
+			Action: ActionUserLogin, TargetType: "user", TargetID: actorID,
+		})
+		insertedIDs = append(insertedIDs, inserted.ID)
+	}
+
+	ctx := context.Background()
+	filters := ListFilters{ActorID: &actorID}
+
+	// First page: the two newest, descending.
+	page1, err := auditStore.List(ctx, ListParams{ListFilters: filters, Limit: 2})
+	require.NoError(t, err)
+	require.Len(t, page1, 2)
+	require.Equal(t, insertedIDs[4], page1[0].ID)
+	require.Equal(t, insertedIDs[3], page1[1].ID)
+
+	// Second page starts strictly below the cursor: no overlap, no gap.
+	cursor := page1[1].ID
+	page2, err := auditStore.List(ctx, ListParams{ListFilters: filters, BeforeID: &cursor, Limit: 2})
+	require.NoError(t, err)
+	require.Len(t, page2, 2)
+	require.Equal(t, insertedIDs[2], page2[0].ID)
+	require.Equal(t, insertedIDs[1], page2[1].ID)
+
+	// Last page is short.
+	cursor = page2[1].ID
+	page3, err := auditStore.List(ctx, ListParams{ListFilters: filters, BeforeID: &cursor, Limit: 2})
+	require.NoError(t, err)
+	require.Len(t, page3, 1)
+	require.Equal(t, insertedIDs[0], page3[0].ID)
+}

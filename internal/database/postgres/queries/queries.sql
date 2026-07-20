@@ -888,3 +888,38 @@ VALUES ($1, $2, $3, $4);
 SELECT user_id, COUNT(*) AS grant_count
 FROM user_app_grants
 GROUP BY user_id;
+
+-- Enterprise audit log (ee/audit)
+
+-- name: InsertAuditLogEvent :one
+-- occurred_at is always the database's clock (column default), never a
+-- caller-supplied time: one clock orders the whole log.
+INSERT INTO audit_log_events (actor_type, actor_id, actor_display, action,
+                              target_type, target_id, target_display, app_id,
+                              outcome, ip, user_agent, metadata)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING *;
+
+-- name: ListAuditLogEvents :many
+-- The viewer read: newest first, keyset-paginated on id (insert order, so no
+-- tie-breaking column is needed), every filter optional. before_id is the
+-- cursor: NULL on the first page, then the last id of the previous page.
+SELECT * FROM audit_log_events
+WHERE (sqlc.narg('actor_id')::TEXT IS NULL OR actor_id = sqlc.narg('actor_id'))
+  AND (sqlc.narg('action')::TEXT IS NULL OR action = sqlc.narg('action'))
+  AND (sqlc.narg('app_id')::TEXT IS NULL OR app_id = sqlc.narg('app_id'))
+  AND (sqlc.narg('occurred_from')::TIMESTAMPTZ IS NULL OR occurred_at >= sqlc.narg('occurred_from'))
+  AND (sqlc.narg('occurred_to')::TIMESTAMPTZ IS NULL OR occurred_at <= sqlc.narg('occurred_to'))
+  AND (sqlc.narg('before_id')::BIGINT IS NULL OR id < sqlc.narg('before_id'))
+ORDER BY id DESC
+LIMIT sqlc.arg('row_limit');
+
+-- name: CountAuditLogEvents :one
+-- Same filters as ListAuditLogEvents minus the cursor: the total the viewer
+-- shows next to the paginated list.
+SELECT COUNT(*) FROM audit_log_events
+WHERE (sqlc.narg('actor_id')::TEXT IS NULL OR actor_id = sqlc.narg('actor_id'))
+  AND (sqlc.narg('action')::TEXT IS NULL OR action = sqlc.narg('action'))
+  AND (sqlc.narg('app_id')::TEXT IS NULL OR app_id = sqlc.narg('app_id'))
+  AND (sqlc.narg('occurred_from')::TIMESTAMPTZ IS NULL OR occurred_at >= sqlc.narg('occurred_from'))
+  AND (sqlc.narg('occurred_to')::TIMESTAMPTZ IS NULL OR occurred_at <= sqlc.narg('occurred_to'));

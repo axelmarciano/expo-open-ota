@@ -41,6 +41,38 @@ func (q *Queries) ClearUpdateRollout(ctx context.Context, arg ClearUpdateRollout
 	return result.RowsAffected(), nil
 }
 
+const countAuditLogEvents = `-- name: CountAuditLogEvents :one
+SELECT COUNT(*) FROM audit_log_events
+WHERE ($1::TEXT IS NULL OR actor_id = $1)
+  AND ($2::TEXT IS NULL OR action = $2)
+  AND ($3::TEXT IS NULL OR app_id = $3)
+  AND ($4::TIMESTAMPTZ IS NULL OR occurred_at >= $4)
+  AND ($5::TIMESTAMPTZ IS NULL OR occurred_at <= $5)
+`
+
+type CountAuditLogEventsParams struct {
+	ActorID      *string            `json:"actor_id"`
+	Action       *string            `json:"action"`
+	AppID        *string            `json:"app_id"`
+	OccurredFrom pgtype.Timestamptz `json:"occurred_from"`
+	OccurredTo   pgtype.Timestamptz `json:"occurred_to"`
+}
+
+// Same filters as ListAuditLogEvents minus the cursor: the total the viewer
+// shows next to the paginated list.
+func (q *Queries) CountAuditLogEvents(ctx context.Context, arg CountAuditLogEventsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAuditLogEvents,
+		arg.ActorID,
+		arg.Action,
+		arg.AppID,
+		arg.OccurredFrom,
+		arg.OccurredTo,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countGrantsByRole = `-- name: CountGrantsByRole :one
 SELECT COUNT(*) FROM user_app_grants
 WHERE role_id = $1
@@ -1492,6 +1524,68 @@ func (q *Queries) InsertApp(ctx context.Context, arg InsertAppParams) (pgtype.UU
 	return id, err
 }
 
+const insertAuditLogEvent = `-- name: InsertAuditLogEvent :one
+
+INSERT INTO audit_log_events (actor_type, actor_id, actor_display, action,
+                              target_type, target_id, target_display, app_id,
+                              outcome, ip, user_agent, metadata)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id, occurred_at, actor_type, actor_id, actor_display, action, target_type, target_id, target_display, app_id, outcome, ip, user_agent, metadata
+`
+
+type InsertAuditLogEventParams struct {
+	ActorType     string  `json:"actor_type"`
+	ActorID       string  `json:"actor_id"`
+	ActorDisplay  string  `json:"actor_display"`
+	Action        string  `json:"action"`
+	TargetType    string  `json:"target_type"`
+	TargetID      string  `json:"target_id"`
+	TargetDisplay string  `json:"target_display"`
+	AppID         *string `json:"app_id"`
+	Outcome       string  `json:"outcome"`
+	Ip            string  `json:"ip"`
+	UserAgent     string  `json:"user_agent"`
+	Metadata      []byte  `json:"metadata"`
+}
+
+// Enterprise audit log (ee/audit)
+// occurred_at is always the database's clock (column default), never a
+// caller-supplied time: one clock orders the whole log.
+func (q *Queries) InsertAuditLogEvent(ctx context.Context, arg InsertAuditLogEventParams) (AuditLogEvent, error) {
+	row := q.db.QueryRow(ctx, insertAuditLogEvent,
+		arg.ActorType,
+		arg.ActorID,
+		arg.ActorDisplay,
+		arg.Action,
+		arg.TargetType,
+		arg.TargetID,
+		arg.TargetDisplay,
+		arg.AppID,
+		arg.Outcome,
+		arg.Ip,
+		arg.UserAgent,
+		arg.Metadata,
+	)
+	var i AuditLogEvent
+	err := row.Scan(
+		&i.ID,
+		&i.OccurredAt,
+		&i.ActorType,
+		&i.ActorID,
+		&i.ActorDisplay,
+		&i.Action,
+		&i.TargetType,
+		&i.TargetID,
+		&i.TargetDisplay,
+		&i.AppID,
+		&i.Outcome,
+		&i.Ip,
+		&i.UserAgent,
+		&i.Metadata,
+	)
+	return i, err
+}
+
 const insertBranch = `-- name: InsertBranch :one
 INSERT INTO branches (app_id, name)
 VALUES ($1, $2)
@@ -1934,6 +2028,74 @@ func (q *Queries) ListAccessibleAppIDs(ctx context.Context, userID pgtype.UUID) 
 			return nil, err
 		}
 		items = append(items, app_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAuditLogEvents = `-- name: ListAuditLogEvents :many
+SELECT id, occurred_at, actor_type, actor_id, actor_display, action, target_type, target_id, target_display, app_id, outcome, ip, user_agent, metadata FROM audit_log_events
+WHERE ($1::TEXT IS NULL OR actor_id = $1)
+  AND ($2::TEXT IS NULL OR action = $2)
+  AND ($3::TEXT IS NULL OR app_id = $3)
+  AND ($4::TIMESTAMPTZ IS NULL OR occurred_at >= $4)
+  AND ($5::TIMESTAMPTZ IS NULL OR occurred_at <= $5)
+  AND ($6::BIGINT IS NULL OR id < $6)
+ORDER BY id DESC
+LIMIT $7
+`
+
+type ListAuditLogEventsParams struct {
+	ActorID      *string            `json:"actor_id"`
+	Action       *string            `json:"action"`
+	AppID        *string            `json:"app_id"`
+	OccurredFrom pgtype.Timestamptz `json:"occurred_from"`
+	OccurredTo   pgtype.Timestamptz `json:"occurred_to"`
+	BeforeID     *int64             `json:"before_id"`
+	RowLimit     int32              `json:"row_limit"`
+}
+
+// The viewer read: newest first, keyset-paginated on id (insert order, so no
+// tie-breaking column is needed), every filter optional. before_id is the
+// cursor: NULL on the first page, then the last id of the previous page.
+func (q *Queries) ListAuditLogEvents(ctx context.Context, arg ListAuditLogEventsParams) ([]AuditLogEvent, error) {
+	rows, err := q.db.Query(ctx, listAuditLogEvents,
+		arg.ActorID,
+		arg.Action,
+		arg.AppID,
+		arg.OccurredFrom,
+		arg.OccurredTo,
+		arg.BeforeID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuditLogEvent
+	for rows.Next() {
+		var i AuditLogEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.OccurredAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.ActorDisplay,
+			&i.Action,
+			&i.TargetType,
+			&i.TargetID,
+			&i.TargetDisplay,
+			&i.AppID,
+			&i.Outcome,
+			&i.Ip,
+			&i.UserAgent,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
