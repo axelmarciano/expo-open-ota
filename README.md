@@ -97,7 +97,7 @@ Plus expo-updates code signing, and Hermes source maps for Sentry or PostHog.
 
 ## Quick start
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/MGW3k1?referralCode=OEHlEK&utm_medium=integration&utm_source=template&utm_campaign=generic)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/expo-open-ota?referralCode=OEHlEK&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
 1. Deploy the server with the Railway button above, Docker or the Helm chart.
 2. Run `npx eoas init` in your Expo project to wire it to your server.
