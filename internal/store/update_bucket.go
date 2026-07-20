@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	bucket2 "expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/database/postgres/pgdb"
@@ -159,8 +160,11 @@ func (s *BucketUpdateStore) GetUpdateDetails(ctx context.Context, appId string, 
 	if err != nil {
 		return types.UpdateDetails{}, fmt.Errorf("failed to fetch update: %w", err)
 	}
+	// Rollback folders and phantom updates carry no metadata.json; the
+	// details page must still render them (with an empty manifest id) so
+	// they stay visible and deletable from the dashboard.
 	metadata, err := update2.GetMetadata(*update)
-	if err != nil {
+	if err != nil && !errors.Is(err, update2.ErrUpdateMetadataMissing) {
 		return types.UpdateDetails{}, fmt.Errorf("failed to get update metadata: %w", err)
 	}
 	expoConfig, err := update2.GetExpoConfig(*update)
@@ -217,7 +221,7 @@ func (s *BucketUpdateStore) GetUpdatesByRunTimeVersionAndBranchName(ctx context.
 		}
 
 		metadata, err := update2.GetMetadata(update)
-		if err != nil {
+		if err != nil && !errors.Is(err, update2.ErrUpdateMetadataMissing) {
 			continue
 		}
 		updateUUID := storedMetadata.UpdateUUID

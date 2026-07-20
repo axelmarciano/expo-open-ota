@@ -2,6 +2,7 @@ package update
 
 import (
 	"encoding/json"
+	"errors"
 	"expo-open-ota/config"
 	"expo-open-ota/internal/bucket"
 	cache2 "expo-open-ota/internal/cache"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 )
+var ErrUpdateMetadataMissing = errors.New("metadata.json missing from storage")
 
 func GetUpdateCheckStatus(update types.Update) time.Time {
 	resolvedBucket := bucket.GetBucket()
@@ -81,11 +83,19 @@ func VerifyUploadedUpdate(update types.Update) error {
 }
 
 func AreUpdatesIdentical(update1, update2 types.Update) (bool, error) {
+	// An update without metadata (a rollback folder, a partial upload) can
+	// never be identical to another update; comparing must not fail on it.
 	metadata1, errMetadata1 := GetMetadata(update1)
+	if errors.Is(errMetadata1, ErrUpdateMetadataMissing) {
+		return false, nil
+	}
 	if errMetadata1 != nil {
 		return false, errMetadata1
 	}
 	metadata2, errMetadata2 := GetMetadata(update2)
+	if errors.Is(errMetadata2, ErrUpdateMetadataMissing) {
+		return false, nil
+	}
 	if errMetadata2 != nil {
 		return false, errMetadata2
 	}
@@ -124,8 +134,11 @@ func GetMetadata(update types.Update) (types.UpdateMetadata, error) {
 	}
 	resolvedBucket := bucket.GetBucket()
 	file, errFile := resolvedBucket.GetFile(update, "metadata.json")
-	if errFile != nil || file == nil {
+	if errFile != nil {
 		return types.UpdateMetadata{}, errFile
+	}
+	if file == nil {
+		return types.UpdateMetadata{}, fmt.Errorf("%w for update %s/%s/%s/%s", ErrUpdateMetadataMissing, update.AppId, update.Branch, update.RuntimeVersion, update.UpdateId)
 	}
 	createdAt := file.CreatedAt
 	var metadata types.UpdateMetadata
