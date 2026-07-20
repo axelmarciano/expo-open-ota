@@ -54,18 +54,6 @@ func getAssetMetadata(req AssetsRequest, returnAsset bool) (AssetsResponse, *typ
 		log.Printf("[RequestID: %s] No update found", requestID)
 		return AssetsResponse{StatusCode: http.StatusNotFound, Body: []byte("No update found")}, nil, "", nil
 	}
-	if !returnAsset {
-		headers := map[string]string{
-			"expo-protocol-version": "1",
-			"expo-sfv-version":      "0",
-			"Cache-Control":         "public, max-age=31536000",
-		}
-		return AssetsResponse{
-			StatusCode: http.StatusOK,
-			Headers:    headers,
-		}, nil, lastUpdate.UpdateId, nil
-	}
-
 	metadata, err := update.GetMetadata(*lastUpdate)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error getting metadata: %v", requestID, err)
@@ -92,11 +80,17 @@ func getAssetMetadata(req AssetsRequest, returnAsset bool) (AssetsResponse, *typ
 		}
 	}
 
+	// Both delivery paths must refuse assets the manifest does not declare:
+	// the URL path hands req.AssetName to the CDN layer, which builds (and
+	// for CloudFront signs) whatever key it is given, and the file path
+	// would otherwise proxy internal objects like update-metadata.json
+	// living next to real assets.
+	if !isLaunchAsset && assetMetadata == (types.Asset{}) {
+		log.Printf("[RequestID: %s] Asset not found in metadata: %s", requestID, req.AssetName)
+		return AssetsResponse{StatusCode: http.StatusNotFound, Body: []byte("Asset not found")}, nil, "", nil
+	}
+
 	if !returnAsset {
-		if !isLaunchAsset && assetMetadata == (types.Asset{}) {
-			log.Printf("[RequestID: %s] Asset not found in metadata: %s", requestID, req.AssetName)
-			return AssetsResponse{StatusCode: http.StatusNotFound, Body: []byte("Asset not found")}, nil, "", nil
-		}
 		headers := map[string]string{
 			"expo-protocol-version": "1",
 			"expo-sfv-version":      "0",
