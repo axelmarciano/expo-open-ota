@@ -298,7 +298,7 @@ func ComposeUpdateManifest(
 		platformSpecificMetadata = metadata.MetadataJSON.FileMetadata.Android
 	}
 	if platformSpecificMetadata.Bundle == "" {
-		return types.UpdateManifest{}, fmt.Errorf("platform %s not supported", platform)
+		return types.UpdateManifest{}, fmt.Errorf("platform %s not supported, supported platform (metadata) %s", platform, platformSpecificMetadata)
 	}
 	var (
 		assets = make([]types.ManifestAsset, len(platformSpecificMetadata.Assets))

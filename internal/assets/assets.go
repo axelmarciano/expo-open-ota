@@ -159,7 +159,6 @@ func HandleAssetsWithURL(req AssetsRequest, resolvedCDN cdn.CDN) (AssetsResponse
 		log.Printf("[RequestID: %s] Error computing redirection URL: %v", req.RequestID, err)
 		return AssetsResponse{StatusCode: http.StatusInternalServerError, Body: []byte("Error computing redirection URL")}, err
 	}
-
 	return AssetsResponse{
 		StatusCode: http.StatusOK,
 		Headers:    expoProtocolHeaders(),

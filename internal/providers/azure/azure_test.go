@@ -1,12 +1,22 @@
 package azure
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/sas"
 )
+
+func sasProtocol(t *testing.T, signedURL string) string {
+	t.Helper()
+	parsed, err := url.Parse(signedURL)
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	return parsed.Query().Get("spr")
+}
 
 // Azurite well-known development credentials: signing is pure HMAC, so SAS
 // generation is fully testable offline.
@@ -31,10 +41,13 @@ func TestSignBlobSASUploadURLShape(t *testing.T) {
 	if !strings.HasPrefix(signedURL, wantPrefix) {
 		t.Fatalf("expected URL to start with %q, got %q", wantPrefix, signedURL)
 	}
-	for _, param := range []string{"sig=", "se=", "st=", "sp=cw", "spr="} {
+	for _, param := range []string{"sig=", "se=", "st=", "sp=cw"} {
 		if !strings.Contains(signedURL, param) {
 			t.Fatalf("expected URL to contain %q, got %q", param, signedURL)
 		}
+	}
+	if got := sasProtocol(t, signedURL); got != "https,http" {
+		t.Fatalf("expected both protocols on an http emulator endpoint, got spr=%q", got)
 	}
 }
 
@@ -53,9 +66,10 @@ func TestSignBlobSASDefaultEndpointIsHTTPS(t *testing.T) {
 		t.Fatalf("expected read permission in URL, got %q", signedURL)
 	}
 	// HTTPS-only SAS on the public endpoint, both protocols only for local
-	// emulators.
-	if strings.Contains(signedURL, "spr=https%2Chttp") {
-		t.Fatalf("expected HTTPS-only protocol on the public endpoint, got %q", signedURL)
+	// emulators. Exact match: a missing spr would default to both protocols
+	// server side.
+	if got := sasProtocol(t, signedURL); got != "https" {
+		t.Fatalf("expected HTTPS-only protocol on the public endpoint, got spr=%q", got)
 	}
 }
 
