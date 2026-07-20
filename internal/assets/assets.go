@@ -28,36 +28,50 @@ type AssetsResponse struct {
 	URL         string
 }
 
-func getAssetMetadata(req AssetsRequest, returnAsset bool) (AssetsResponse, *types.BucketFile, string, error) {
+// validatedAsset is the outcome of the shared request validation: the update
+// the asset is served from and its manifest entry.
+type validatedAsset struct {
+	update        *types.Update
+	isLaunchAsset bool
+	assetMetadata types.Asset
+}
+
+// validateAssetRequest runs the checks common to both delivery paths and must
+// stay their single entry point: the URL path hands req.AssetName to the CDN
+// layer, which builds (and for CloudFront signs) whatever key it is given,
+// and the file path would otherwise proxy internal objects like
+// update-metadata.json living next to real assets. A non-nil response means
+// the request must be refused as-is.
+func validateAssetRequest(req AssetsRequest) (validatedAsset, *AssetsResponse) {
 	requestID := req.RequestID
 
 	if req.AssetName == "" {
 		log.Printf("[RequestID: %s] No asset name provided", requestID)
-		return AssetsResponse{StatusCode: http.StatusBadRequest, Body: []byte("No asset name provided")}, nil, "", nil
+		return validatedAsset{}, &AssetsResponse{StatusCode: http.StatusBadRequest, Body: []byte("No asset name provided")}
 	}
 
 	if req.Platform == "" || (req.Platform != "ios" && req.Platform != "android") {
 		log.Printf("[RequestID: %s] Invalid platform: %s", requestID, req.Platform)
-		return AssetsResponse{StatusCode: http.StatusBadRequest, Body: []byte("Invalid platform")}, nil, "", nil
+		return validatedAsset{}, &AssetsResponse{StatusCode: http.StatusBadRequest, Body: []byte("Invalid platform")}
 	}
 
 	if req.RuntimeVersion == "" {
 		log.Printf("[RequestID: %s] No runtime version provided", requestID)
-		return AssetsResponse{StatusCode: http.StatusBadRequest, Body: []byte("No runtime version provided")}, nil, "", nil
+		return validatedAsset{}, &AssetsResponse{StatusCode: http.StatusBadRequest, Body: []byte("No runtime version provided")}
 	}
 
-	lastUpdate := req.Update
-	if lastUpdate == nil {
+	if req.Update == nil {
 		// The service resolves the update and 404s before reaching here, so
 		// a nil Update means "no matching update". Guard it rather than
 		// dereferencing into a SIGSEGV below.
 		log.Printf("[RequestID: %s] No update found", requestID)
-		return AssetsResponse{StatusCode: http.StatusNotFound, Body: []byte("No update found")}, nil, "", nil
+		return validatedAsset{}, &AssetsResponse{StatusCode: http.StatusNotFound, Body: []byte("No update found")}
 	}
-	metadata, err := update.GetMetadata(*lastUpdate)
+
+	metadata, err := update.GetMetadata(*req.Update)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error getting metadata: %v", requestID, err)
-		return AssetsResponse{StatusCode: http.StatusInternalServerError, Body: []byte("Error getting metadata")}, nil, "", nil
+		return validatedAsset{}, &AssetsResponse{StatusCode: http.StatusInternalServerError, Body: []byte("Error getting metadata")}
 	}
 
 	var platformMetadata types.PlatformMetadata
@@ -67,11 +81,10 @@ func getAssetMetadata(req AssetsRequest, returnAsset bool) (AssetsResponse, *typ
 	case "ios":
 		platformMetadata = metadata.MetadataJSON.FileMetadata.IOS
 	default:
-		return AssetsResponse{StatusCode: http.StatusBadRequest, Body: []byte("Platform not supported")}, nil, "", nil
+		return validatedAsset{}, &AssetsResponse{StatusCode: http.StatusBadRequest, Body: []byte("Platform not supported")}
 	}
 
-	bundle := platformMetadata.Bundle
-	isLaunchAsset := bundle == req.AssetName
+	isLaunchAsset := platformMetadata.Bundle == req.AssetName
 
 	var assetMetadata types.Asset
 	for _, asset := range platformMetadata.Assets {
@@ -80,108 +93,76 @@ func getAssetMetadata(req AssetsRequest, returnAsset bool) (AssetsResponse, *typ
 		}
 	}
 
-	// Both delivery paths must refuse assets the manifest does not declare:
-	// the URL path hands req.AssetName to the CDN layer, which builds (and
-	// for CloudFront signs) whatever key it is given, and the file path
-	// would otherwise proxy internal objects like update-metadata.json
-	// living next to real assets.
 	if !isLaunchAsset && assetMetadata == (types.Asset{}) {
 		log.Printf("[RequestID: %s] Asset not found in metadata: %s", requestID, req.AssetName)
-		return AssetsResponse{StatusCode: http.StatusNotFound, Body: []byte("Asset not found")}, nil, "", nil
+		return validatedAsset{}, &AssetsResponse{StatusCode: http.StatusNotFound, Body: []byte("Asset not found")}
 	}
 
-	if !returnAsset {
-		headers := map[string]string{
-			"expo-protocol-version": "1",
-			"expo-sfv-version":      "0",
-			"Cache-Control":         "public, max-age=31536000",
-		}
-		return AssetsResponse{
-			StatusCode: http.StatusOK,
-			Headers:    headers,
-		}, nil, lastUpdate.UpdateId, nil
-	}
+	return validatedAsset{update: req.Update, isLaunchAsset: isLaunchAsset, assetMetadata: assetMetadata}, nil
+}
 
-	resolvedBucket := bucket.GetBucket()
-	asset, err := resolvedBucket.GetFile(*lastUpdate, req.AssetName)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error getting asset: %v", requestID, err)
-		return AssetsResponse{StatusCode: http.StatusInternalServerError, Body: []byte("Error getting asset")}, nil, "", nil
-	}
-
-	var contentType string
-	if isLaunchAsset {
-		contentType = "application/javascript"
-	} else {
-		contentType = mime.TypeByExtension("." + string(assetMetadata.Ext))
-	}
-
-	headers := map[string]string{
+func expoProtocolHeaders() map[string]string {
+	return map[string]string{
 		"expo-protocol-version": "1",
 		"expo-sfv-version":      "0",
 		"Cache-Control":         "public, max-age=31536000",
-		"Content-Type":          contentType,
 	}
-
-	return AssetsResponse{
-		StatusCode:  http.StatusOK,
-		Headers:     headers,
-		ContentType: contentType,
-	}, asset, lastUpdate.UpdateId, nil
 }
 
 func HandleAssetsWithFile(req AssetsRequest) (AssetsResponse, error) {
-	resp, asset, _, err := getAssetMetadata(req, true)
-	if err != nil {
-		return resp, err
-	}
-	if resp.StatusCode != 200 {
-		return AssetsResponse{
-			StatusCode: resp.StatusCode,
-			Body:       resp.Body,
-		}, nil
+	validated, errResp := validateAssetRequest(req)
+	if errResp != nil {
+		return *errResp, nil
 	}
 
+	asset, err := bucket.GetBucket().GetFile(*validated.update, req.AssetName)
+	if err != nil {
+		log.Printf("[RequestID: %s] Error getting asset: %v", req.RequestID, err)
+		return AssetsResponse{StatusCode: http.StatusInternalServerError, Body: []byte("Error getting asset")}, nil
+	}
 	if asset == nil {
 		log.Printf("[RequestID: %s] Resolved file is nil", req.RequestID)
-		return AssetsResponse{
-			StatusCode: http.StatusInternalServerError,
-			Body:       []byte("Resolved file is nil"),
-		}, nil
+		return AssetsResponse{StatusCode: http.StatusInternalServerError, Body: []byte("Resolved file is nil")}, nil
 	}
 
 	buffer, err := bucket.ConvertReadCloserToBytes(asset.Reader)
 	defer asset.Reader.Close()
 	if err != nil {
 		log.Printf("[RequestID: %s] Error converting asset to buffer: %v", req.RequestID, err)
-		return AssetsResponse{
-			StatusCode: http.StatusInternalServerError,
-			Body:       []byte("Error converting asset to buffer"),
-		}, err
+		return AssetsResponse{StatusCode: http.StatusInternalServerError, Body: []byte("Error converting asset to buffer")}, err
 	}
 
-	resp.Body = buffer
-	return resp, nil
+	contentType := "application/javascript"
+	if !validated.isLaunchAsset {
+		contentType = mime.TypeByExtension("." + string(validated.assetMetadata.Ext))
+	}
+
+	headers := expoProtocolHeaders()
+	headers["Content-Type"] = contentType
+
+	return AssetsResponse{
+		StatusCode:  http.StatusOK,
+		Headers:     headers,
+		ContentType: contentType,
+		Body:        buffer,
+	}, nil
 }
 
 func HandleAssetsWithURL(req AssetsRequest, resolvedCDN cdn.CDN) (AssetsResponse, error) {
-	resp, _, updateId, err := getAssetMetadata(req, false)
-	if err != nil {
-		return resp, err
+	validated, errResp := validateAssetRequest(req)
+	if errResp != nil {
+		return *errResp, nil
 	}
-	if resp.StatusCode != 200 {
-		return AssetsResponse{
-			StatusCode: resp.StatusCode,
-			Body:       resp.Body,
-		}, nil
-	}
-	resp.URL, err = resolvedCDN.ComputeRedirectionURLForAsset(req.AppId, req.Branch, req.RuntimeVersion, updateId, req.AssetName)
+
+	redirectURL, err := resolvedCDN.ComputeRedirectionURLForAsset(req.AppId, req.Branch, req.RuntimeVersion, validated.update.UpdateId, req.AssetName)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error computing redirection URL: %v", req.RequestID, err)
-		return AssetsResponse{
-			StatusCode: http.StatusInternalServerError,
-			Body:       []byte("Error computing redirection URL"),
-		}, err
+		return AssetsResponse{StatusCode: http.StatusInternalServerError, Body: []byte("Error computing redirection URL")}, err
 	}
-	return resp, nil
+
+	return AssetsResponse{
+		StatusCode: http.StatusOK,
+		Headers:    expoProtocolHeaders(),
+		URL:        redirectURL,
+	}, nil
 }
