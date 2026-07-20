@@ -71,6 +71,17 @@ type GrantInput struct {
 	ExtraPermissions []Permission
 }
 
+// Subject is the authenticated account an authorization decision is made for.
+// IsAdmin must come from a fresh users-table read (the middleware does one on
+// every guarded request, exactly like the community admin gate), never from
+// the JWT claim alone: a revoked admin loses everything immediately, not at
+// token expiry. Every entry point below handles the admin bypass itself so no
+// call site can forget it.
+type Subject struct {
+	UserID  string
+	IsAdmin bool
+}
+
 // RBACRepository persists roles and grants. GetUserAppGrant and
 // ListAccessibleAppIDs are the enforcement reads on the dashboard request
 // path; a nil grant means the member has no access to the app at all.
@@ -244,19 +255,22 @@ func (s *RBACService) SetUserGrants(ctx context.Context, userID string, grants [
 	return s.repo.ReplaceUserGrants(ctx, userID, grants)
 }
 
-// AuthorizeMember decides one member mutation on one app. Admins never reach
-// it — the middleware bypasses them first. The distinction between its two
-// refusals is deliberate: no grant at all reads as a 404 (the app does not
-// exist for this member), a missing permission on a granted app reads as a
-// 403 naming the permission.
-func (s *RBACService) AuthorizeMember(ctx context.Context, userID string, appID string, perm Permission) error {
+// Authorize decides one dashboard mutation on one app. Admins are allowed
+// unconditionally. For members, the distinction between the two refusals is
+// deliberate: no grant at all reads as a 404 (the app does not exist for this
+// member), a missing permission on a granted app reads as a 403 naming the
+// permission.
+func (s *RBACService) Authorize(ctx context.Context, subject Subject, appID string, perm Permission) error {
+	if subject.IsAdmin {
+		return nil
+	}
 	if s.repo == nil {
 		return ErrRequiresControlPlane
 	}
 	if !s.licenseValid() {
 		return ErrRequiresValidLicense
 	}
-	grant, err := s.repo.GetUserAppGrant(ctx, userID, appID)
+	grant, err := s.repo.GetUserAppGrant(ctx, subject.UserID, appID)
 	if err != nil {
 		return err
 	}
@@ -269,27 +283,28 @@ func (s *RBACService) AuthorizeMember(ctx context.Context, userID string, appID 
 	return nil
 }
 
-// MemberCanSeeApp is the read-path sibling of AuthorizeMember: any grant on
-// the app, whatever its permissions, makes the app visible.
-func (s *RBACService) MemberCanSeeApp(ctx context.Context, userID string, appID string) (bool, error) {
-	if !s.Enabled() {
+// CanSeeApp is the read-path sibling of Authorize: any grant on the app,
+// whatever its permissions, makes the app visible to a member. Admins see
+// everything.
+func (s *RBACService) CanSeeApp(ctx context.Context, subject Subject, appID string) (bool, error) {
+	if subject.IsAdmin || !s.Enabled() {
 		return true, nil
 	}
-	grant, err := s.repo.GetUserAppGrant(ctx, userID, appID)
+	grant, err := s.repo.GetUserAppGrant(ctx, subject.UserID, appID)
 	if err != nil {
 		return false, err
 	}
 	return grant != nil, nil
 }
 
-// MemberVisibleApps returns the member's app scope for list filtering.
-// restricted=false means the community fallback is active and every app is
-// visible; when true, only the returned ids (possibly none) are.
-func (s *RBACService) MemberVisibleApps(ctx context.Context, userID string) (restricted bool, appIDs []string, err error) {
-	if !s.Enabled() {
+// VisibleApps returns the subject's app scope for list filtering.
+// restricted=false means every app is visible (admin, or community fallback);
+// when true, only the returned ids (possibly none) are.
+func (s *RBACService) VisibleApps(ctx context.Context, subject Subject) (restricted bool, appIDs []string, err error) {
+	if subject.IsAdmin || !s.Enabled() {
 		return false, nil, nil
 	}
-	ids, err := s.repo.ListAccessibleAppIDs(ctx, userID)
+	ids, err := s.repo.ListAccessibleAppIDs(ctx, subject.UserID)
 	if err != nil {
 		return true, nil, err
 	}

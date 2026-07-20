@@ -184,7 +184,7 @@ func TestSetUserGrantsValidatesInput(t *testing.T) {
 	require.Equal(t, grants, repo.replaced["user-1"])
 }
 
-func TestAuthorizeMember(t *testing.T) {
+func TestAuthorize(t *testing.T) {
 	ctx := context.Background()
 	repo := newFakeRepo()
 	roleID := "role-1"
@@ -195,28 +195,46 @@ func TestAuthorizeMember(t *testing.T) {
 		ExtraPermissions: []Permission{PermBranchCreate},
 	}}
 	service := licensedService(repo)
+	member := Subject{UserID: "user-1"}
 
 	// Through the role and through the direct grant.
-	require.NoError(t, service.AuthorizeMember(ctx, "user-1", "app-1", PermChannelRolloutManage))
-	require.NoError(t, service.AuthorizeMember(ctx, "user-1", "app-1", PermBranchCreate))
+	require.NoError(t, service.Authorize(ctx, member, "app-1", PermChannelRolloutManage))
+	require.NoError(t, service.Authorize(ctx, member, "app-1", PermBranchCreate))
 
 	// Granted app, missing permission: a 403 naming the permission.
-	err := service.AuthorizeMember(ctx, "user-1", "app-1", PermAppDelete)
+	err := service.Authorize(ctx, member, "app-1", PermAppDelete)
 	deniedErr := (*ErrPermissionDenied)(nil)
 	require.True(t, errors.As(err, &deniedErr), "expected ErrPermissionDenied, got %v", err)
 	require.Equal(t, PermAppDelete, deniedErr.Permission)
 
 	// No grant on the app: it does not exist for this member.
-	require.ErrorIs(t, service.AuthorizeMember(ctx, "user-1", "app-2", PermBranchCreate), ErrNoAppAccess)
-	require.ErrorIs(t, service.AuthorizeMember(ctx, "user-2", "app-1", PermBranchCreate), ErrNoAppAccess)
+	require.ErrorIs(t, service.Authorize(ctx, member, "app-2", PermBranchCreate), ErrNoAppAccess)
+	require.ErrorIs(t, service.Authorize(ctx, Subject{UserID: "user-2"}, "app-1", PermBranchCreate), ErrNoAppAccess)
 }
 
-func TestAuthorizeMemberFallsBackWithoutLicense(t *testing.T) {
+func TestAuthorizeAdminBypassesEverything(t *testing.T) {
+	ctx := context.Background()
+	admin := Subject{UserID: "admin-1", IsAdmin: true}
+
+	// No grant row, no license, not even a control plane: an admin is always
+	// allowed and always sees everything.
+	for _, service := range []*RBACService{licensedService(newFakeRepo()), unlicensedService(newFakeRepo()), unlicensedService(nil)} {
+		require.NoError(t, service.Authorize(ctx, admin, "any-app", PermAppDelete))
+		visible, err := service.CanSeeApp(ctx, admin, "any-app")
+		require.NoError(t, err)
+		require.True(t, visible)
+		restricted, _, err := service.VisibleApps(ctx, admin)
+		require.NoError(t, err)
+		require.False(t, restricted)
+	}
+}
+
+func TestAuthorizeFallsBackWithoutLicense(t *testing.T) {
 	ctx := context.Background()
 	repo := newFakeRepo()
 	repo.grants["user-1"] = []AppGrant{{AppID: "app-1", ExtraPermissions: []Permission{PermAppDelete}}}
 
-	err := unlicensedService(repo).AuthorizeMember(ctx, "user-1", "app-1", PermAppDelete)
+	err := unlicensedService(repo).Authorize(ctx, Subject{UserID: "user-1"}, "app-1", PermAppDelete)
 	require.ErrorIs(t, err, ErrRequiresValidLicense,
 		"an expired license must never widen member access beyond community rules")
 }
@@ -225,31 +243,33 @@ func TestMemberVisibility(t *testing.T) {
 	ctx := context.Background()
 	repo := newFakeRepo()
 	repo.grants["user-1"] = []AppGrant{{AppID: "app-1"}, {AppID: "app-2"}}
+	member := Subject{UserID: "user-1"}
+	strangerMember := Subject{UserID: "user-2"}
 
 	// Community fallback: nothing is restricted.
-	restricted, _, err := unlicensedService(repo).MemberVisibleApps(ctx, "user-1")
+	restricted, _, err := unlicensedService(repo).VisibleApps(ctx, member)
 	require.NoError(t, err)
 	require.False(t, restricted)
-	visible, err := unlicensedService(repo).MemberCanSeeApp(ctx, "user-1", "app-3")
+	visible, err := unlicensedService(repo).CanSeeApp(ctx, member, "app-3")
 	require.NoError(t, err)
 	require.True(t, visible)
 
 	// Enforced: only granted apps, and a grant-less member sees nothing.
 	service := licensedService(repo)
-	restricted, ids, err := service.MemberVisibleApps(ctx, "user-1")
+	restricted, ids, err := service.VisibleApps(ctx, member)
 	require.NoError(t, err)
 	require.True(t, restricted)
 	require.ElementsMatch(t, []string{"app-1", "app-2"}, ids)
 
-	restricted, ids, err = service.MemberVisibleApps(ctx, "user-2")
+	restricted, ids, err = service.VisibleApps(ctx, strangerMember)
 	require.NoError(t, err)
 	require.True(t, restricted)
 	require.Empty(t, ids)
 
-	visible, err = service.MemberCanSeeApp(ctx, "user-1", "app-2")
+	visible, err = service.CanSeeApp(ctx, member, "app-2")
 	require.NoError(t, err)
 	require.True(t, visible)
-	visible, err = service.MemberCanSeeApp(ctx, "user-1", "app-3")
+	visible, err = service.CanSeeApp(ctx, member, "app-3")
 	require.NoError(t, err)
 	require.False(t, visible)
 }
