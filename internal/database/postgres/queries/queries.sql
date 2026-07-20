@@ -881,3 +881,10 @@ WHERE user_id = $1;
 -- name: InsertUserAppGrant :exec
 INSERT INTO user_app_grants (user_id, app_id, role_id, extra_permissions)
 VALUES ($1, $2, $3, $4);
+
+-- name: CountGrantsPerUser :many
+-- Backs the Users page warning: members with zero grants see an empty
+-- dashboard, admins should notice at a glance.
+SELECT user_id, COUNT(*) AS grant_count
+FROM user_app_grants
+GROUP BY user_id;

@@ -192,6 +192,17 @@ export type RoleRecord = {
   updatedAt?: string;
 };
 
+// One member's access to one app: an optional role plus direct extra
+// permissions. effectivePermissions is the server-computed union the
+// enforcement actually uses.
+export type GrantRecord = {
+  appId: string;
+  roleId: string | null;
+  roleName: string | null;
+  extraPermissions: string[];
+  effectivePermissions: string[];
+};
+
 // The deployment's Enterprise Edition license status (/api/license,
 // control-plane only). `valid` is the single source of truth for "enterprise
 // features are on": `hasKey` can be true with `valid` false when the stored
@@ -487,6 +498,32 @@ export class ApiClient {
   public async deleteRole(roleId: string) {
     return this.request<void>(`/api/roles/${encodeURIComponent(roleId)}`, {
       method: 'DELETE',
+    });
+  }
+
+  public async getUserGrants(userId: string) {
+    return this.request<GrantRecord[]>(`/api/users/${encodeURIComponent(userId)}/grants`, {
+      method: 'GET',
+    });
+  }
+
+  // Per-user grant counts ({userId: count}); users absent from the map hold
+  // no grants. Backs the "no app access" warning on the Users page.
+  public async getUserGrantsSummary() {
+    return this.request<Record<string, number>>(`/api/users/grants/summary`, {
+      method: 'GET',
+    });
+  }
+
+  // Replaces the member's whole grant set in one transaction server-side.
+  public async setUserGrants(
+    userId: string,
+    grants: { appId: string; roleId: string | null; extraPermissions: string[] }[]
+  ) {
+    return this.request<void>(`/api/users/${encodeURIComponent(userId)}/grants`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(grants),
     });
   }
 

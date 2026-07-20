@@ -53,6 +53,39 @@ func (q *Queries) CountGrantsByRole(ctx context.Context, roleID pgtype.UUID) (in
 	return count, err
 }
 
+const countGrantsPerUser = `-- name: CountGrantsPerUser :many
+SELECT user_id, COUNT(*) AS grant_count
+FROM user_app_grants
+GROUP BY user_id
+`
+
+type CountGrantsPerUserRow struct {
+	UserID     pgtype.UUID `json:"user_id"`
+	GrantCount int64       `json:"grant_count"`
+}
+
+// Backs the Users page warning: members with zero grants see an empty
+// dashboard, admins should notice at a glance.
+func (q *Queries) CountGrantsPerUser(ctx context.Context) ([]CountGrantsPerUserRow, error) {
+	rows, err := q.db.Query(ctx, countGrantsPerUser)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CountGrantsPerUserRow
+	for rows.Next() {
+		var i CountGrantsPerUserRow
+		if err := rows.Scan(&i.UserID, &i.GrantCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteAppByID = `-- name: DeleteAppByID :execresult
 DELETE FROM apps
 WHERE id = $1

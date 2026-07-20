@@ -151,6 +151,12 @@ func TestReplaceUserGrantsRoundtrip(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{appOne, appTwo}, ids)
 
+	// The summary counts this user's grants (the database is shared across
+	// tests, so only assert this user's entry).
+	counts, err := rbacStore.GrantCountsByUser(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), counts[userID])
+
 	// A role that is assigned cannot be deleted.
 	require.ErrorIs(t, rbacStore.DeleteRole(ctx, role.ID), ErrRoleInUse)
 

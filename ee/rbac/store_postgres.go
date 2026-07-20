@@ -234,6 +234,18 @@ func replaceGrantError(err error, grant GrantInput) error {
 	return err
 }
 
+func (s *PostgresRBACStore) GrantCountsByUser(ctx context.Context) (map[string]int64, error) {
+	rows, err := s.engine.Queries.CountGrantsPerUser(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count grants per user from database: %w", err)
+	}
+	counts := make(map[string]int64, len(rows))
+	for _, row := range rows {
+		counts[row.UserID.String()] = row.GrantCount
+	}
+	return counts, nil
+}
+
 func (s *PostgresRBACStore) ListAccessibleAppIDs(ctx context.Context, userID string) ([]string, error) {
 	rows, err := s.engine.Queries.ListAccessibleAppIDs(ctx, store.ToPgUUID(userID))
 	if err != nil {

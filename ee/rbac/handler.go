@@ -217,6 +217,17 @@ func (h *RBACHandler) SetUserGrantsHandler(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// GetGrantSummaryHandler answers the per-user grant counts as a plain
+// {userId: count} map; users absent from the map hold no grants.
+func (h *RBACHandler) GetGrantSummaryHandler(w http.ResponseWriter, r *http.Request) {
+	counts, err := h.service.GrantCountsByUser(r.Context())
+	if err != nil {
+		renderRBACServiceError(w, err)
+		return
+	}
+	renderJSON(w, http.StatusOK, counts)
+}
+
 // MyPermissionsResponse tells the dashboard what to show the current account.
 // Enabled=false means fine-grained roles are not enforced (community rules:
 // isAdmin decides everything). For an admin, or when disabled, Apps is null.

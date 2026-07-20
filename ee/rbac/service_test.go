@@ -90,6 +90,16 @@ func (f *fakeRepo) ReplaceUserGrants(_ context.Context, userID string, grants []
 	return nil
 }
 
+func (f *fakeRepo) GrantCountsByUser(_ context.Context) (map[string]int64, error) {
+	counts := map[string]int64{}
+	for userID, grants := range f.grants {
+		if len(grants) > 0 {
+			counts[userID] = int64(len(grants))
+		}
+	}
+	return counts, nil
+}
+
 func (f *fakeRepo) ListAccessibleAppIDs(_ context.Context, userID string) ([]string, error) {
 	ids := make([]string, 0, len(f.grants[userID]))
 	for _, grant := range f.grants[userID] {

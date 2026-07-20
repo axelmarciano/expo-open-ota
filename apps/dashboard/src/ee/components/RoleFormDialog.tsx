@@ -21,7 +21,9 @@ import { PERMISSION_GROUPS } from '@/ee/lib/permissionCatalog';
 
 // Create/edit form for one role: a name and the permission catalog as
 // toggles. `role` null means create; the dialog resets its draft every time
-// it opens so a cancelled edit never leaks into the next one.
+// it opens so a cancelled edit never leaks into the next one. onSaved
+// receives the created role (creation only) so callers can select it
+// immediately, e.g. the grants editor's inline "New role" flow.
 export const RoleFormDialog = ({
   open,
   role,
@@ -31,7 +33,7 @@ export const RoleFormDialog = ({
   open: boolean;
   role: RoleRecord | null;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (created?: RoleRecord) => void;
 }) => {
   const { toast } = useToast();
   const [name, setName] = useState('');
@@ -68,11 +70,12 @@ export const RoleFormDialog = ({
       if (role) {
         await api.updateRole(role.id, payload);
         toast({ title: 'Role updated', description: `"${payload.name}" was saved.` });
+        onSaved();
       } else {
-        await api.createRole(payload);
+        const created = await api.createRole(payload);
         toast({ title: 'Role created', description: `"${payload.name}" is ready to assign.` });
+        onSaved(created);
       }
-      onSaved();
       onClose();
     } catch (error) {
       let errorTitle = role ? 'Update failed' : 'Creation failed';

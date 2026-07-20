@@ -97,6 +97,7 @@ type RBACRepository interface {
 	GetUserAppGrant(ctx context.Context, userID string, appID string) (*AppGrant, error)
 	ReplaceUserGrants(ctx context.Context, userID string, grants []GrantInput) error
 	ListAccessibleAppIDs(ctx context.Context, userID string) ([]string, error)
+	GrantCountsByUser(ctx context.Context) (map[string]int64, error)
 }
 
 var (
@@ -241,6 +242,15 @@ func (s *RBACService) GetUserGrants(ctx context.Context, userID string) ([]AppGr
 		return nil, ErrRequiresControlPlane
 	}
 	return s.repo.ListUserGrants(ctx, userID)
+}
+
+// GrantCountsByUser backs the Users page warning: a member with zero grants
+// sees an empty dashboard, and an admin should notice that at a glance.
+func (s *RBACService) GrantCountsByUser(ctx context.Context) (map[string]int64, error) {
+	if s.repo == nil {
+		return nil, ErrRequiresControlPlane
+	}
+	return s.repo.GrantCountsByUser(ctx)
 }
 
 // SetUserGrants replaces every grant of one member in a single transaction.
