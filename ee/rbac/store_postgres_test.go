@@ -238,6 +238,23 @@ func TestUpdateRoleRefusesNameCollision(t *testing.T) {
 	fetched, err := rbacStore.GetRoleByID(ctx, second.ID)
 	require.NoError(t, err)
 	require.Equal(t, second.Name, fetched.Name)
+
+	// The listing carries both, sorted by name (the database is shared across
+	// tests, so assert relative order rather than the full set).
+	roles, err := rbacStore.ListRoles(ctx)
+	require.NoError(t, err)
+	firstIndex, secondIndex := -1, -1
+	for i, role := range roles {
+		switch role.ID {
+		case first.ID:
+			firstIndex = i
+		case second.ID:
+			secondIndex = i
+		}
+	}
+	require.GreaterOrEqual(t, firstIndex, 0)
+	require.GreaterOrEqual(t, secondIndex, 0)
+	require.Less(t, firstIndex, secondIndex, "ListRoles must sort by name")
 }
 
 func TestGrantsFollowUserAndAppDeletion(t *testing.T) {
