@@ -37,15 +37,21 @@ interface ComboboxProps {
 }
 
 export function Combobox(props: ComboboxProps) {
-  const [open, setOpen] = React.useState(false);
   const { options, value, onChange, loading, label, disabled, action, className } = props;
+  const [open, setOpen] = React.useState(false);
+  // Disabling only blocks the trigger: a popover already open when disabled
+  // flips to true (e.g. the surrounding form starts saving) would stay
+  // interactive, so close it.
+  React.useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
           role="combobox"
-          aria-expanded={open}
+          aria-expanded={disabled ? false : open}
           disabled={disabled}
           className={cn('w-max justify-between font-normal', className)}>
           <span className="truncate">
