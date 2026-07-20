@@ -159,6 +159,7 @@ const (
 	S3BucketType    BucketType = "s3"
 	LocalBucketType BucketType = "local"
 	GCSBucketType   BucketType = "gcs"
+	AzureBucketType BucketType = "azure"
 )
 
 func ResolveBucketType() BucketType {
@@ -170,6 +171,8 @@ func ResolveBucketType() BucketType {
 		return S3BucketType
 	case "gcs":
 		return GCSBucketType
+	case "azure":
+		return AzureBucketType
 	default:
 		return LocalBucketType
 	}
@@ -196,6 +199,11 @@ func GetBucket() Bucket {
 				inner = &GCSBucket{
 					BucketName: config.GetEnv("GCS_BUCKET_NAME"),
 					KeyPrefix:  keyPrefix,
+				}
+			case AzureBucketType:
+				inner = &AzureBucket{
+					ContainerName: config.GetEnv("AZURE_BLOB_CONTAINER_NAME"),
+					KeyPrefix:     keyPrefix,
 				}
 			case LocalBucketType:
 				inner = &LocalBucket{
@@ -229,6 +237,11 @@ type FileUploadRequest struct {
 	RequestUploadUrl string `json:"requestUploadUrl"`
 	FileName         string `json:"fileName"`
 	FilePath         string `json:"filePath"`
+	// Headers must be sent verbatim by the uploader on its PUT to
+	// RequestUploadUrl. Azure Put Blob rejects requests missing
+	// x-ms-blob-type, and carrying the requirement in the response keeps
+	// the CLI provider-agnostic. Absent for the other backends.
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 func RequestUploadUrlsForFileUpdates(appId string, branch string, runtimeVersion string, updateId string, fileNames []string) ([]FileUploadRequest, error) {
@@ -238,6 +251,10 @@ func RequestUploadUrlsForFileUpdates(appId string, branch string, runtimeVersion
 	}
 
 	bucket := GetBucket()
+	var uploadHeaders map[string]string
+	if _, ok := UnwrapBucket(bucket).(*AzureBucket); ok {
+		uploadHeaders = map[string]string{"x-ms-blob-type": "BlockBlob"}
+	}
 
 	var requests []FileUploadRequest
 	var mu sync.Mutex
@@ -258,6 +275,7 @@ func RequestUploadUrlsForFileUpdates(appId string, branch string, runtimeVersion
 				RequestUploadUrl: requestUploadUrl,
 				FileName:         filepath.Base(fileName),
 				FilePath:         fileName,
+				Headers:          uploadHeaders,
 			})
 			mu.Unlock()
 		}(fileName)

@@ -47,6 +47,33 @@ func TestMissingBucketParamsForS3(t *testing2.T) {
 	assert.False(t, bucketParams)
 }
 
+func TestValidAzureStorageMode(t *testing2.T) {
+	teardown := setup(t)
+	defer teardown()
+	assert.True(t, validateStorageMode("azure"))
+}
+
+func TestMissingBucketParamsForAzure(t *testing2.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("AZURE_BLOB_CONTAINER_NAME", "")
+	os.Setenv("AZURE_STORAGE_ACCOUNT_NAME", "")
+	os.Setenv("AZURE_STORAGE_ACCOUNT_KEY", "")
+	assert.False(t, validateBucketParams("azure"))
+
+	os.Setenv("AZURE_BLOB_CONTAINER_NAME", "container")
+	os.Setenv("AZURE_STORAGE_ACCOUNT_NAME", "account")
+	assert.False(t, validateBucketParams("azure"), "account key must be required")
+
+	os.Setenv("AZURE_STORAGE_ACCOUNT_KEY", "key")
+	defer func() {
+		os.Unsetenv("AZURE_BLOB_CONTAINER_NAME")
+		os.Unsetenv("AZURE_STORAGE_ACCOUNT_NAME")
+		os.Unsetenv("AZURE_STORAGE_ACCOUNT_KEY")
+	}()
+	assert.True(t, validateBucketParams("azure"))
+}
+
 func TestMissingBucketParamsForLocal(t *testing2.T) {
 	teardown := setup(t)
 	defer teardown()
@@ -117,7 +144,6 @@ func TestNotSetEnv(t *testing2.T) {
 	assert.Empty(t, GetEnv("NOT_FOUND"))
 }
 
-
 func TestAwsBaseEndpointSet(t *testing2.T) {
 	teardown := setup(t)
 	defer teardown()
@@ -125,7 +151,7 @@ func TestAwsBaseEndpointSet(t *testing2.T) {
 	os.Setenv("BASE_URL", "http://test.com")
 	os.Setenv("JWT_SECRET", "test")
 	os.Setenv("LOCAL_BUCKET_BASE_PATH", "./updates")
-	
+
 	expectedEndpoint := "https://test-account.r2.cloudflarestorage.com"
 	os.Setenv("AWS_BASE_ENDPOINT", expectedEndpoint)
 	LoadConfig()
@@ -153,4 +179,3 @@ func TestTestMode(t *testing2.T) {
 	testMode := IsTestMode()
 	assert.True(t, testMode)
 }
-

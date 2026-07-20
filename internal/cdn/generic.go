@@ -43,6 +43,8 @@ func (c *GenericCDN) isCDNAvailable() bool {
 		return config.GetEnv("S3_BUCKET_NAME") != ""
 	case "gcs":
 		return config.GetEnv("GCS_BUCKET_NAME") != ""
+	case "azure":
+		return config.GetEnv("AZURE_BLOB_CONTAINER_NAME") != ""
 	default:
 		return false
 	}

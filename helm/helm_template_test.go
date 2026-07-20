@@ -217,6 +217,48 @@ func TestGenericCDNVarsRenderOptionalUnderToggle(t *testing.T) {
 	}
 }
 
+// Azure storage vars render only when storageMode=azure: the three required
+// ones as non-optional secret key refs, the endpoint override as optional.
+func TestAzureStorageVarsRenderUnderAzureMode(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not installed")
+	}
+
+	cmd := exec.Command("helm", "template", "expo-open-ota", ".")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, out)
+	}
+	env := deploymentEnvByName(t, out)
+	for _, name := range []string{"AZURE_BLOB_CONTAINER_NAME", "AZURE_STORAGE_ACCOUNT_NAME", "AZURE_STORAGE_ACCOUNT_KEY", "AZURE_BLOB_ENDPOINT"} {
+		if _, ok := env[name]; ok {
+			t.Fatalf("expected %s not to be rendered with the default storage mode", name)
+		}
+	}
+
+	cmd = exec.Command("helm", "template", "expo-open-ota", ".", "--set", "storageMode=azure")
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, out)
+	}
+	env = deploymentEnvByName(t, out)
+	for _, name := range []string{"AZURE_BLOB_CONTAINER_NAME", "AZURE_STORAGE_ACCOUNT_NAME", "AZURE_STORAGE_ACCOUNT_KEY"} {
+		ref, ok := env[name]
+		if !ok {
+			t.Fatalf("expected %s to be rendered in azure mode", name)
+		}
+		if secretKeyRefOptional(ref) {
+			t.Fatalf("expected %s to be a required secret key ref in azure mode", name)
+		}
+	}
+	if _, ok := env["AZURE_BLOB_ENDPOINT"]; !ok {
+		t.Fatal("expected AZURE_BLOB_ENDPOINT to be rendered in azure mode")
+	}
+	if !secretKeyRefOptional(env["AZURE_BLOB_ENDPOINT"]) {
+		t.Fatal("expected AZURE_BLOB_ENDPOINT to be an optional secret key ref")
+	}
+}
+
 // Liveness must stay on /hc (green during long bucket migrations) while
 // readiness moves to /ready (red until the migrations are done), otherwise
 // the orchestrator either kills migrating pods or routes traffic to them.

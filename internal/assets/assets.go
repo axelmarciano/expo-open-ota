@@ -1,6 +1,7 @@
 package assets
 
 import (
+	"errors"
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/cdn"
 	"expo-open-ota/internal/types"
@@ -69,6 +70,12 @@ func validateAssetRequest(req AssetsRequest) (validatedAsset, *AssetsResponse) {
 	}
 
 	metadata, err := update.GetMetadata(*req.Update)
+	if errors.Is(err, update.ErrUpdateMetadataMissing) {
+		// No metadata means no manifest ever advertised this asset: answer
+		// like any unknown asset instead of surfacing a server error.
+		log.Printf("[RequestID: %s] %v", requestID, err)
+		return validatedAsset{}, &AssetsResponse{StatusCode: http.StatusNotFound, Body: []byte("Asset not found")}
+	}
 	if err != nil {
 		log.Printf("[RequestID: %s] Error getting metadata: %v", requestID, err)
 		return validatedAsset{}, &AssetsResponse{StatusCode: http.StatusInternalServerError, Body: []byte("Error getting metadata")}
@@ -159,7 +166,6 @@ func HandleAssetsWithURL(req AssetsRequest, resolvedCDN cdn.CDN) (AssetsResponse
 		log.Printf("[RequestID: %s] Error computing redirection URL: %v", req.RequestID, err)
 		return AssetsResponse{StatusCode: http.StatusInternalServerError, Body: []byte("Error computing redirection URL")}, err
 	}
-
 	return AssetsResponse{
 		StatusCode: http.StatusOK,
 		Headers:    expoProtocolHeaders(),

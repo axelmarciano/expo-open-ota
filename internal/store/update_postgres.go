@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/database"
 	"expo-open-ota/internal/database/postgres/pgdb"
@@ -261,7 +262,9 @@ func (s *PostgresUpdateStore) GetUpdatesByRunTimeVersionAndBranchName(ctx contex
 					CreatedAt:      time.Duration(row.CreatedAt.Time.UnixNano()),
 					AppId:          appId,
 				})
-				if err != nil {
+				// A phantom row (files gone from storage) must stay listed,
+				// or it could not be deleted from the dashboard.
+				if err != nil && !errors.Is(err, update2.ErrUpdateMetadataMissing) {
 					continue
 				}
 				updateUUID = crypto.ConvertSHA256HashToUUID(metadata.ID)

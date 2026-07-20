@@ -15,7 +15,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       enabled: true,
       requestHeaders: {
         'expo-channel-name': process.env.RELEASE_CHANNEL,
-        'expo-app-id': '269795f1-f208-4b8d-9508-73353a5495fb',
+        'expo-app-id': 'b97123c0-7e77-48cf-826c-90e38e175aba',
       },
     },
   }

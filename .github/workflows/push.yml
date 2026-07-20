@@ -58,6 +58,7 @@ jobs:
 
     env:
       TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/eoota_test?sslmode=disable
+      TEST_AZURE_BLOB_ENDPOINT: http://localhost:10000/devstoreaccount1
 
     steps:
       - name: Checkout code
@@ -87,6 +88,20 @@ jobs:
         run: |
           go mod tidy 
           go mod download
+
+      # Not a service container: services cannot override the image command,
+      # and Azurite needs --skipApiVersionCheck because the Go SDK speaks API
+      # versions newer than the ones Azurite validates against.
+      - name: Start Azurite (Azure Blob emulator)
+        run: |
+          docker run --name azurite -d -p 10000:10000 mcr.microsoft.com/azure-storage/azurite azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck
+          for _ in {1..30}; do
+            if (echo > /dev/tcp/127.0.0.1/10000) 2>/dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "Azurite did not become ready" >&2
+          docker logs azurite
+          exit 1
 
       - name: Run tests
         run: make test_app html

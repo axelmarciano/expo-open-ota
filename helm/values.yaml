@@ -150,6 +150,28 @@ environment:
     required:
       - key: "storageMode"
         is: "gcs"
+  - name: "AZURE_BLOB_CONTAINER_NAME"
+    value: ""
+    required:
+      - key: "storageMode"
+        is: "azure"
+  - name: "AZURE_STORAGE_ACCOUNT_NAME"
+    value: ""
+    required:
+      - key: "storageMode"
+        is: "azure"
+  - name: "AZURE_STORAGE_ACCOUNT_KEY"
+    value: ""
+    required:
+      - key: "storageMode"
+        is: "azure"
+  # Optional blob service URL override (Azurite, private endpoints).
+  - name: "AZURE_BLOB_ENDPOINT"
+    value: ""
+    enabled:
+      - key: "storageMode"
+        is: "azure"
+    required: false
   - name: "AWS_ACCESS_KEY_ID"
     value: ""
     required:
