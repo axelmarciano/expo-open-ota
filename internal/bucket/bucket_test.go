@@ -84,6 +84,38 @@ func TestGetAzureBucketAppliesKeyPrefix(t *testing2.T) {
 	assert.Equal(t, "prefix/app/branch", azureBucket.prefixedKey("app/branch"))
 }
 
+func TestRequestUploadUrlsCarryAzureBlobTypeHeader(t *testing2.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("STORAGE_MODE", "azure")
+	os.Setenv("AZURE_BLOB_CONTAINER_NAME", "test-container")
+	os.Setenv("AZURE_STORAGE_ACCOUNT_NAME", "devstoreaccount1")
+	os.Setenv("AZURE_STORAGE_ACCOUNT_KEY", "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==")
+	defer func() {
+		os.Unsetenv("AZURE_BLOB_CONTAINER_NAME")
+		os.Unsetenv("AZURE_STORAGE_ACCOUNT_NAME")
+		os.Unsetenv("AZURE_STORAGE_ACCOUNT_KEY")
+	}()
+	requests, err := RequestUploadUrlsForFileUpdates("app", "branch", "1", "1674170951", []string{"bundles/android.js"})
+	assert.Nil(t, err)
+	assert.Len(t, requests, 1)
+	assert.Equal(t, "BlockBlob", requests[0].Headers["x-ms-blob-type"])
+	assert.Contains(t, requests[0].RequestUploadUrl, "sig=")
+}
+
+func TestRequestUploadUrlsCarryNoHeadersOnLocal(t *testing2.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("STORAGE_MODE", "local")
+	os.Setenv("LOCAL_BUCKET_BASE_PATH", t.TempDir())
+	os.Setenv("BASE_URL", "http://localhost:3000")
+	os.Setenv("JWT_SECRET", "test_jwt_secret")
+	requests, err := RequestUploadUrlsForFileUpdates("app", "branch", "1", "1674170951", []string{"bundles/android.js"})
+	assert.Nil(t, err)
+	assert.Len(t, requests, 1)
+	assert.Nil(t, requests[0].Headers)
+}
+
 func TestConvertReadCloserToBytes(t *testing2.T) {
 	teardown := setup(t)
 	defer teardown()

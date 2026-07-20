@@ -96,6 +96,9 @@ export interface RequestUploadUrlItem {
   requestUploadUrl: string;
   fileName: string;
   filePath: string;
+  // Extra headers the server requires on the PUT to requestUploadUrl
+  // (e.g. x-ms-blob-type for Azure Blob Storage). Absent on older servers.
+  headers?: Record<string, string>;
 }
 
 export function activeRolloutConflictMessage(branch: string): string {

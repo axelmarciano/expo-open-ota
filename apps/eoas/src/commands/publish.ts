@@ -371,6 +371,7 @@ export default class Publish extends Command {
             headers: {
               'Content-Type': contentType,
               'Cache-Control': 'max-age=31556926',
+              ...(itm.headers ?? {}),
             },
             body: buffer,
           });
