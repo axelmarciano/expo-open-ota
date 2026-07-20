@@ -239,8 +239,16 @@ export const BranchesTable = () => {
               header: '',
               id: 'actions',
               cell: ({ row }) => {
+                const isProtected = row.original.protected;
                 return (
-                  <div className="text-right">
+                  <div
+                    className="text-right"
+                    title={
+                      isProtected
+                        ? 'Protected branches cannot be deleted. Remove the protection first.'
+                        : undefined
+                    }
+                  >
                     <Button
                       variant="ghost"
                       size="sm"
@@ -248,8 +256,9 @@ export const BranchesTable = () => {
                         e.stopPropagation();
                         setBranchToDelete(row.original);
                       }}
+                      disabled={isProtected}
                       className="h-8 w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      title="Delete branch"
+                      title={isProtected ? undefined : 'Delete branch'}
                     >
                       <Trash2 />
                     </Button>
@@ -328,7 +337,8 @@ export const BranchesTable = () => {
                 "{branchToProtect?.branchName}"
               </strong>{' '}
               is protected, only API tokens explicitly allowed on protected branches can publish,
-              roll back or republish on it. Tokens handed to developers will be blocked.
+              roll back or republish on it. Tokens handed to developers will be blocked, and the
+              branch cannot be deleted until the protection is lifted.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="mt-4 gap-2 border-t pt-3 sm:gap-0">
