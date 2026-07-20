@@ -2,6 +2,7 @@ package infrastructure
 
 import (
 	"expo-open-ota/config"
+	"expo-open-ota/ee/rbac"
 	dashutils "expo-open-ota/internal/dashboard"
 	"expo-open-ota/internal/metrics"
 	"expo-open-ota/internal/middleware"
@@ -120,12 +121,18 @@ func NewRouter(container *AppContainer) *mux.Router {
 	authSubrouter.Use(middleware.NewAuthMiddleware(container.DashboardAuthService, container.CliAuthService))
 	authSubrouter.HandleFunc("/settings", container.SettingsHandler.GetSettingsHandler).Methods(http.MethodGet)
 
-	// adminOnly makes member accounts read-only: every dashboard mutation —
-	// users, apps, branches, channels, mappings, API tokens — plus the signing
-	// certificate download is admin-only. Members keep the GET routes, /api/me
-	// and their own password change. It wraps individual routes rather than a
-	// subrouter because admin and non-admin routes share path prefixes.
+	// Two gates share the mutation routes. adminOnly guards the global
+	// administration surface (users, roles, license, SSO, app creation).
+	// requirePermission guards the app-scoped mutations: admins always pass,
+	// members need the permission on the route's app through their enterprise
+	// grants (ee/rbac), and without a control plane or a valid license it
+	// degrades to exactly adminOnly's behavior, keeping members read-only.
+	// Both wrap individual routes rather than a subrouter because admin and
+	// non-admin routes share path prefixes.
 	adminOnly := middleware.NewAdminMiddleware(container.UserRepo)
+	requirePermission := func(perm rbac.Permission) mux.MiddlewareFunc {
+		return rbac.RequirePermission(container.RBACService, container.UserRepo, perm)
+	}
 
 	// Current account
 	authSubrouter.HandleFunc("/me", container.UsersHandler.GetMeHandler).Methods(http.MethodGet)
@@ -165,13 +172,15 @@ func NewRouter(container *AppContainer) *mux.Router {
 	authSubrouter.Handle("/users/{USER_ID}/grants", adminOnly(http.HandlerFunc(container.RBACHandler.SetUserGrantsHandler))).Methods(http.MethodPut)
 	authSubrouter.HandleFunc("/me/permissions", container.RBACHandler.GetMyPermissionsHandler).Methods(http.MethodGet)
 
-	// Apps management router
+	// Apps management router. Creating an app is global administration and
+	// stays admin-only; acting on an existing app is permission-gated.
 	authSubrouter.Handle("/apps", adminOnly(http.HandlerFunc(container.AppHandler.CreateAppHandler))).Methods(http.MethodPost)
-	authSubrouter.Handle("/apps/{APP_ID}", adminOnly(http.HandlerFunc(container.AppHandler.DeleteAppHandler))).Methods(http.MethodDelete)
-	authSubrouter.Handle("/apps/{APP_ID}", adminOnly(http.HandlerFunc(container.AppHandler.UpdateAppHandler))).Methods(http.MethodPatch)
+	authSubrouter.Handle("/apps/{APP_ID}", requirePermission(rbac.PermAppDelete)(http.HandlerFunc(container.AppHandler.DeleteAppHandler))).Methods(http.MethodDelete)
+	authSubrouter.Handle("/apps/{APP_ID}", requirePermission(rbac.PermAppRename)(http.HandlerFunc(container.AppHandler.UpdateAppHandler))).Methods(http.MethodPatch)
 	authSubrouter.HandleFunc("/apps", container.AppHandler.GetAppsHandler).Methods(http.MethodGet)
-	// The signing certificate is key material — admin eyes only.
-	authSubrouter.Handle("/apps/{APP_ID}/certificate", adminOnly(http.HandlerFunc(container.AppHandler.DownloadAppCertificateHandler))).Methods(http.MethodGet)
+	// The signing certificate is key material — admins, or the explicit
+	// certificate:read permission.
+	authSubrouter.Handle("/apps/{APP_ID}/certificate", requirePermission(rbac.PermCertificateRead)(http.HandlerFunc(container.AppHandler.DownloadAppCertificateHandler))).Methods(http.MethodGet)
 
 	// App-scoped dashboard routes: Auth first, then AppResolver validates the
 	// id and short-circuits unknown apps with 404 before handlers run. Without
@@ -182,37 +191,37 @@ func NewRouter(container *AppContainer) *mux.Router {
 	appAuthSubrouter.StrictSlash(true)
 	appAuthSubrouter.Use(middleware.AppResolverMiddleware(container.AppRepo))
 	appAuthSubrouter.HandleFunc("/", container.AppHandler.GetAppHandler).Methods(http.MethodGet)
-	appAuthSubrouter.Handle("/branches", adminOnly(http.HandlerFunc(container.BranchHandler.CreateBranchHandler))).Methods(http.MethodPost)
-	appAuthSubrouter.Handle("/branches/{BRANCH}", adminOnly(http.HandlerFunc(container.BranchHandler.DeleteBranchHandler))).Methods(http.MethodDelete)
+	appAuthSubrouter.Handle("/branches", requirePermission(rbac.PermBranchCreate)(http.HandlerFunc(container.BranchHandler.CreateBranchHandler))).Methods(http.MethodPost)
+	appAuthSubrouter.Handle("/branches/{BRANCH}", requirePermission(rbac.PermBranchDelete)(http.HandlerFunc(container.BranchHandler.DeleteBranchHandler))).Methods(http.MethodDelete)
 	appAuthSubrouter.HandleFunc("/branches", container.BranchHandler.GetBranchesHandler).Methods(http.MethodGet)
-	appAuthSubrouter.Handle("/channels", adminOnly(http.HandlerFunc(container.ChannelHandler.CreateChannelHandler))).Methods(http.MethodPost)
-	appAuthSubrouter.Handle("/channels/{CHANNEL}", adminOnly(http.HandlerFunc(container.ChannelHandler.DeleteChannelHandler))).Methods(http.MethodDelete)
+	appAuthSubrouter.Handle("/channels", requirePermission(rbac.PermChannelCreate)(http.HandlerFunc(container.ChannelHandler.CreateChannelHandler))).Methods(http.MethodPost)
+	appAuthSubrouter.Handle("/channels/{CHANNEL}", requirePermission(rbac.PermChannelDelete)(http.HandlerFunc(container.ChannelHandler.DeleteChannelHandler))).Methods(http.MethodDelete)
 	appAuthSubrouter.HandleFunc("/channels", container.ChannelHandler.GetChannelsHandler).Methods(http.MethodGet)
-	// Progressive rollouts (control-plane only; reads stay open like the sibling
-	// listings, every mutation is admin-only). Channel rollouts are keyed by channel
-	// name, per-update rollouts by (branch, runtime version).
+	// Progressive rollouts (control-plane only; reads stay open like the
+	// sibling listings). One permission covers a channel rollout's whole
+	// lifecycle, its per-update sibling has its own.
 	appAuthSubrouter.HandleFunc("/channels/{CHANNEL}/rollout", container.RolloutHandler.GetChannelRolloutHandler).Methods(http.MethodGet)
-	appAuthSubrouter.Handle("/channels/{CHANNEL}/rollout", adminOnly(http.HandlerFunc(container.RolloutHandler.StartChannelRolloutHandler))).Methods(http.MethodPost)
-	appAuthSubrouter.Handle("/channels/{CHANNEL}/rollout", adminOnly(http.HandlerFunc(container.RolloutHandler.UpdateChannelRolloutHandler))).Methods(http.MethodPatch)
-	appAuthSubrouter.Handle("/channels/{CHANNEL}/rollout/end", adminOnly(http.HandlerFunc(container.RolloutHandler.EndChannelRolloutHandler))).Methods(http.MethodPost)
+	appAuthSubrouter.Handle("/channels/{CHANNEL}/rollout", requirePermission(rbac.PermChannelRolloutManage)(http.HandlerFunc(container.RolloutHandler.StartChannelRolloutHandler))).Methods(http.MethodPost)
+	appAuthSubrouter.Handle("/channels/{CHANNEL}/rollout", requirePermission(rbac.PermChannelRolloutManage)(http.HandlerFunc(container.RolloutHandler.UpdateChannelRolloutHandler))).Methods(http.MethodPatch)
+	appAuthSubrouter.Handle("/channels/{CHANNEL}/rollout/end", requirePermission(rbac.PermChannelRolloutManage)(http.HandlerFunc(container.RolloutHandler.EndChannelRolloutHandler))).Methods(http.MethodPost)
 	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/rollout", container.RolloutHandler.GetUpdateRolloutHandler).Methods(http.MethodGet)
-	appAuthSubrouter.Handle("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/rollout", adminOnly(http.HandlerFunc(container.RolloutHandler.SetUpdateRolloutPercentageHandler))).Methods(http.MethodPut)
-	appAuthSubrouter.Handle("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/rollout/revert", adminOnly(http.HandlerFunc(container.RolloutHandler.RevertUpdateRolloutHandler))).Methods(http.MethodPost)
+	appAuthSubrouter.Handle("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/rollout", requirePermission(rbac.PermUpdateRolloutManage)(http.HandlerFunc(container.RolloutHandler.SetUpdateRolloutPercentageHandler))).Methods(http.MethodPut)
+	appAuthSubrouter.Handle("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/rollout/revert", requirePermission(rbac.PermUpdateRolloutManage)(http.HandlerFunc(container.RolloutHandler.RevertUpdateRolloutHandler))).Methods(http.MethodPost)
 	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersions", container.BranchHandler.GetRuntimeVersionsHandler).Methods(http.MethodGet)
 	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates", container.UpdateHandler.GetUpdatesHandler).Methods(http.MethodGet)
 	appAuthSubrouter.HandleFunc("/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates/{UPDATE_ID}", container.UpdateHandler.GetUpdateDetailsHandler).Methods(http.MethodGet)
-	appAuthSubrouter.Handle("/branch/{BRANCH_ID}/updateChannelBranchMapping", adminOnly(http.HandlerFunc(container.BranchHandler.UpdateChannelBranchMappingHandler))).Methods(http.MethodPost)
-	// An API token is publishing power over the app — minting and revoking are
-	// admin actions. The list stays readable: it only carries names and hints.
-	appAuthSubrouter.Handle("/apiKeys", adminOnly(http.HandlerFunc(container.ApiKeyHandler.CreateApiKeyHandler))).Methods(http.MethodPost)
+	appAuthSubrouter.Handle("/branch/{BRANCH_ID}/updateChannelBranchMapping", requirePermission(rbac.PermChannelEditBranch)(http.HandlerFunc(container.BranchHandler.UpdateChannelBranchMappingHandler))).Methods(http.MethodPost)
+	// An API token is publishing power over the app — minting and revoking
+	// need the apikeys:manage permission (or an admin). The list stays
+	// readable: it only carries names and hints.
+	appAuthSubrouter.Handle("/apiKeys", requirePermission(rbac.PermApiKeysManage)(http.HandlerFunc(container.ApiKeyHandler.CreateApiKeyHandler))).Methods(http.MethodPost)
 	appAuthSubrouter.HandleFunc("/apiKeys", container.ApiKeyHandler.GetApiKeysHandler).Methods(http.MethodGet)
-	appAuthSubrouter.Handle("/apiKeys/{API_KEY_ID}/revoke", adminOnly(http.HandlerFunc(container.ApiKeyHandler.RevokeApiKeyHandler))).Methods(http.MethodDelete)
-	// Enterprise: per-key access restrictions (protected-branch access + IP
-	// allowlist) and branch protection. Reads stay open like the key list;
-	// the writes change what a token can do, so they are admin-only and
-	// license-gated in the service.
+	appAuthSubrouter.Handle("/apiKeys/{API_KEY_ID}/revoke", requirePermission(rbac.PermApiKeysManage)(http.HandlerFunc(container.ApiKeyHandler.RevokeApiKeyHandler))).Methods(http.MethodDelete)
+	// Enterprise: per-key access restrictions ride with the token permission
+	// (they change what a token can do); toggling branch protection is its
+	// own permission. Both stay license-gated in their service.
 	appAuthSubrouter.HandleFunc("/apiKeys/restrictions", container.ApiKeyRestrictionHandler.GetApiKeyRestrictionsHandler).Methods(http.MethodGet)
-	appAuthSubrouter.Handle("/apiKeys/{API_KEY_ID}/restrictions", adminOnly(http.HandlerFunc(container.ApiKeyRestrictionHandler.SetApiKeyRestrictionsHandler))).Methods(http.MethodPut)
-	appAuthSubrouter.Handle("/branches/{BRANCH}/protection", adminOnly(http.HandlerFunc(container.ApiKeyRestrictionHandler.SetBranchProtectionHandler))).Methods(http.MethodPut)
+	appAuthSubrouter.Handle("/apiKeys/{API_KEY_ID}/restrictions", requirePermission(rbac.PermApiKeysManage)(http.HandlerFunc(container.ApiKeyRestrictionHandler.SetApiKeyRestrictionsHandler))).Methods(http.MethodPut)
+	appAuthSubrouter.Handle("/branches/{BRANCH}/protection", requirePermission(rbac.PermBranchProtect)(http.HandlerFunc(container.ApiKeyRestrictionHandler.SetBranchProtectionHandler))).Methods(http.MethodPut)
 	return r
 }
