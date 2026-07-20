@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 )
+
 var ErrUpdateMetadataMissing = errors.New("metadata.json missing from storage")
 
 func GetUpdateCheckStatus(update types.Update) time.Time {
@@ -311,7 +312,7 @@ func ComposeUpdateManifest(
 		platformSpecificMetadata = metadata.MetadataJSON.FileMetadata.Android
 	}
 	if platformSpecificMetadata.Bundle == "" {
-		return types.UpdateManifest{}, fmt.Errorf("platform %s not supported, supported platform (metadata) %s", platform, platformSpecificMetadata)
+		return types.UpdateManifest{}, fmt.Errorf("platform %s not supported by update %s/%s/%s/%s", platform, update.AppId, update.Branch, update.RuntimeVersion, update.UpdateId)
 	}
 	var (
 		assets = make([]types.ManifestAsset, len(platformSpecificMetadata.Assets))
