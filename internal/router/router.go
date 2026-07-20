@@ -150,6 +150,21 @@ func NewRouter(container *AppContainer) *mux.Router {
 	authSubrouter.Handle("/users/{USER_ID}", adminOnly(http.HandlerFunc(container.UsersHandler.UpdateUserHandler))).Methods(http.MethodPatch)
 	authSubrouter.Handle("/users/{USER_ID}", adminOnly(http.HandlerFunc(container.UsersHandler.DeleteUserHandler))).Methods(http.MethodDelete)
 
+	// Enterprise user roles & per-app grants (control-plane only). Managing
+	// who can do what is an administration surface, so every route is
+	// admin-only; the license gate lives in the service (reads work without a
+	// license so the dashboard can show dormant grants, writes refuse).
+	// /me/permissions is the one exception: every signed-in account may ask
+	// what it is allowed to do — display support, the middlewares re-check
+	// every mutation anyway.
+	authSubrouter.Handle("/roles", adminOnly(http.HandlerFunc(container.RBACHandler.ListRolesHandler))).Methods(http.MethodGet)
+	authSubrouter.Handle("/roles", adminOnly(http.HandlerFunc(container.RBACHandler.CreateRoleHandler))).Methods(http.MethodPost)
+	authSubrouter.Handle("/roles/{ROLE_ID}", adminOnly(http.HandlerFunc(container.RBACHandler.UpdateRoleHandler))).Methods(http.MethodPut)
+	authSubrouter.Handle("/roles/{ROLE_ID}", adminOnly(http.HandlerFunc(container.RBACHandler.DeleteRoleHandler))).Methods(http.MethodDelete)
+	authSubrouter.Handle("/users/{USER_ID}/grants", adminOnly(http.HandlerFunc(container.RBACHandler.GetUserGrantsHandler))).Methods(http.MethodGet)
+	authSubrouter.Handle("/users/{USER_ID}/grants", adminOnly(http.HandlerFunc(container.RBACHandler.SetUserGrantsHandler))).Methods(http.MethodPut)
+	authSubrouter.HandleFunc("/me/permissions", container.RBACHandler.GetMyPermissionsHandler).Methods(http.MethodGet)
+
 	// Apps management router
 	authSubrouter.Handle("/apps", adminOnly(http.HandlerFunc(container.AppHandler.CreateAppHandler))).Methods(http.MethodPost)
 	authSubrouter.Handle("/apps/{APP_ID}", adminOnly(http.HandlerFunc(container.AppHandler.DeleteAppHandler))).Methods(http.MethodDelete)
