@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TriangleAlert } from 'lucide-react';
 import { api, UserRecord, describeApiError } from '@/lib/api';
+import { ApiError } from '@/components/APIError';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -48,6 +49,10 @@ export const UserRolesSheet = ({
     if (user) {
       setIsAdminDraft(user.isAdmin);
     }
+    // Changing the target (or closing) must never carry the previous
+    // member's draft over: the sheet stays mounted across opens, and a
+    // failed fetch would otherwise show, and save, the last user's grants.
+    setDraft([]);
   }, [user]);
 
   useEffect(() => {
@@ -128,6 +133,15 @@ export const UserRolesSheet = ({
                   <Skeleton className="h-12 w-full" />
                   <Skeleton className="h-4 w-1/2" />
                 </div>
+              ) : grantsQuery.isError ? (
+                // A failed fetch must never render as "no grants": with an
+                // empty draft, Save would wipe the member's real grants.
+                <div className="space-y-3">
+                  <ApiError error={grantsQuery.error} />
+                  <Button variant="outline" size="sm" onClick={() => grantsQuery.refetch()}>
+                    Try again
+                  </Button>
+                </div>
               ) : (
                 <div className="space-y-4">
                   {draft.length === 0 && (
@@ -149,7 +163,11 @@ export const UserRolesSheet = ({
             <Button variant="outline" onClick={onClose} disabled={isSaving}>
               Cancel
             </Button>
-            <Button onClick={handleSave} disabled={isSaving || (!isAdminDraft && grantsQuery.isLoading)}>
+            <Button
+              onClick={handleSave}
+              // isSuccess, not !isLoading: saving grants over a failed fetch
+              // would replace the member's set with the empty draft.
+              disabled={isSaving || (!isAdminDraft && !grantsQuery.isSuccess)}>
               {isSaving ? 'Saving…' : 'Save'}
             </Button>
           </div>
