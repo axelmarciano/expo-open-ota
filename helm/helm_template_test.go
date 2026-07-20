@@ -184,6 +184,39 @@ func TestOptionalTuningVarsAreRendered(t *testing.T) {
 	}
 }
 
+// The generic CDN pair only renders when the toggle is on, and both keys stay
+// optional so a secret holding only the deprecated S3_CDN_PREFIX keeps working
+// after an upgrade.
+func TestGenericCDNVarsRenderOptionalUnderToggle(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not installed")
+	}
+
+	cmd := exec.Command("helm", "template", "expo-open-ota", ".")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, out)
+	}
+	env := deploymentEnvByName(t, out)
+	for _, name := range []string{"CDN_BASE_URL", "S3_CDN_PREFIX"} {
+		if _, ok := env[name]; ok {
+			t.Fatalf("expected %s not to be rendered with useGenericCDN=false", name)
+		}
+	}
+
+	cmd = exec.Command("helm", "template", "expo-open-ota", ".", "--set", "useGenericCDN=true")
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, out)
+	}
+	env = deploymentEnvByName(t, out)
+	for _, name := range []string{"CDN_BASE_URL", "S3_CDN_PREFIX"} {
+		if !secretKeyRefOptional(env[name]) {
+			t.Fatalf("expected %s to be rendered as an optional secret key ref", name)
+		}
+	}
+}
+
 // Liveness must stay on /hc (green during long bucket migrations) while
 // readiness moves to /ready (red until the migrations are done), otherwise
 // the orchestrator either kills migrating pods or routes traffic to them.

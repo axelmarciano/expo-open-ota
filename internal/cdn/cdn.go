@@ -19,19 +19,22 @@ var (
 func GetCDN() CDN {
 	once.Do(func() {
 		cloudfrontCDN := CloudfrontCDN{}
-		isCloudfrontCDNavailable := (&cloudfrontCDN).isCDNAvailable()
-		if isCloudfrontCDNavailable {
+		if (&cloudfrontCDN).isCDNAvailable() {
 			cdnInstance = &cloudfrontCDN
-		} else {
-			gcsCDN := GCSDirectCDN{}
-			if (&gcsCDN).isCDNAvailable() {
-				cdnInstance = &gcsCDN
-			} else {
-				genericCDN := GenericCDN{}
-				if (&genericCDN).isCDNAvailable() {
-					cdnInstance = &genericCDN
-				}
-			}
+			return
+		}
+		// An explicitly configured CDN base URL wins over the implicit
+		// direct-to-storage modes: gcs-direct is available on any GCS
+		// deployment with signing credentials, so it would otherwise
+		// always shadow a deliberate CDN_BASE_URL configuration.
+		genericCDN := GenericCDN{}
+		if (&genericCDN).isCDNAvailable() {
+			cdnInstance = &genericCDN
+			return
+		}
+		gcsCDN := GCSDirectCDN{}
+		if (&gcsCDN).isCDNAvailable() {
+			cdnInstance = &gcsCDN
 		}
 	})
 	return cdnInstance

@@ -190,11 +190,23 @@ environment:
     value: ""
     enabled: true
     required: false
-  - name: "S3_CDN_PREFIX"
+  # Base URL of a CDN fronting the storage bucket. Works with any cloud
+  # storage mode; the bucket must be publicly readable. Optional so that
+  # deployments migrating from the deprecated S3_CDN_PREFIX can keep either
+  # key in their secret.
+  - name: "CDN_BASE_URL"
     value: ""
-    required:
+    enabled:
       - key: "useGenericCDN"
         is: "true"
+    required: false
+  # TODO: remove S3_CDN_PREFIX once users have migrated to CDN_BASE_URL
+  - name: "S3_CDN_PREFIX"
+    value: ""
+    enabled:
+      - key: "useGenericCDN"
+        is: "true"
+    required: false
   - name: "LOCAL_BUCKET_BASE_PATH"
     value: ""
     required:

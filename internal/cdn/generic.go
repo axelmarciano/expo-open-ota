@@ -3,24 +3,59 @@ package cdn
 import (
 	"expo-open-ota/config"
 	"expo-open-ota/internal/bucket"
+	"log"
 	"net/url"
 	"strings"
+	"sync"
 )
+
+var s3CDNPrefixDeprecationOnce sync.Once
+
+// ResolveCDNBaseURL returns the base URL of the CDN fronting the storage
+// bucket. It reads CDN_BASE_URL first and falls back to the legacy
+// S3_CDN_PREFIX env var, which predates non-S3 storage backends.
+func ResolveCDNBaseURL() string {
+	baseURL := config.GetEnv("CDN_BASE_URL")
+	if baseURL == "" {
+		// TODO: remove S3_CDN_PREFIX backward-compat once users migrated to CDN_BASE_URL
+		baseURL = config.GetEnv("S3_CDN_PREFIX")
+		if baseURL != "" {
+			s3CDNPrefixDeprecationOnce.Do(func() {
+				log.Println("WARNING: S3_CDN_PREFIX is deprecated and will be removed in a future release; use CDN_BASE_URL instead")
+			})
+		}
+	}
+	return baseURL
+}
 
 type GenericCDN struct{}
 
+// A generic CDN serves the bucket's objects from a base URL, so it needs a
+// storage backend whose objects are reachable over HTTP behind that URL.
+// Cloud backends qualify; local storage has no object URLs a CDN could use
+// as origin.
 func (c *GenericCDN) isCDNAvailable() bool {
-	return config.GetEnv("STORAGE_MODE") == "s3" && config.GetEnv("S3_BUCKET_NAME") != "" && config.GetEnv("S3_CDN_PREFIX") != ""
+	if ResolveCDNBaseURL() == "" {
+		return false
+	}
+	switch config.GetEnv("STORAGE_MODE") {
+	case "s3":
+		return config.GetEnv("S3_BUCKET_NAME") != ""
+	case "gcs":
+		return config.GetEnv("GCS_BUCKET_NAME") != ""
+	default:
+		return false
+	}
 }
 
 func (c *GenericCDN) ComputeRedirectionURLForAsset(appId, branch, runtimeVersion, updateId, asset string) (string, error) {
-	prefix := config.GetEnv("S3_CDN_PREFIX")
+	baseURL := ResolveCDNBaseURL()
 	keyPrefix := strings.TrimSuffix(bucket.ResolveKeyPrefix(), "/")
 	elems := []string{appId, branch, runtimeVersion, updateId, asset}
 	if keyPrefix != "" {
 		elems = append([]string{keyPrefix}, elems...)
 	}
-	cdnUrl, err := url.JoinPath(prefix, elems...)
+	cdnUrl, err := url.JoinPath(baseURL, elems...)
 	if err != nil {
 		return "", err
 	}

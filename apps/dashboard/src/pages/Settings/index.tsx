@@ -221,13 +221,13 @@ export const Settings = () => {
               </Row>
             </>
           )}
-          {settings.CDN_TYPE === 's3-cdn-prefix' && (
+          {settings.CDN_TYPE === 'generic' && (
             <>
-              <Row label="Provider" hint="Assets are redirected to a CDN in front of the S3 bucket.">
-                <span className="font-medium">Custom CDN prefix</span>
+              <Row label="Provider" hint="Assets are redirected to a CDN in front of the storage bucket.">
+                <span className="font-medium">Custom CDN</span>
               </Row>
-              <Row label="Prefix">
-                <Mono>{settings.S3_CDN_PREFIX}</Mono>
+              <Row label="Base URL">
+                <Mono>{settings.CDN_BASE_URL}</Mono>
               </Row>
             </>
           )}

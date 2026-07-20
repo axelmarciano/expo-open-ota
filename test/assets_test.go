@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"expo-open-ota/internal/assets"
 	"expo-open-ota/internal/cdn"
+	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/update"
 	"github.com/andybalholm/brotli"
 	"github.com/gorilla/mux"
@@ -378,23 +379,93 @@ func TestAutomaticUrlRedirectionIfCDNIsSet(t *testing.T) {
 	assert.Equal(t, 302, w.Code, "Expected status code 302")
 }
 
+// End-to-end shape of a generic CDN redirect for a real fixture asset: the
+// resolved update and the asset name must land in the URL exactly as the
+// bucket layout stores them, or every client download 404s on the CDN.
+func TestGenericCDNRedirectURLForRealAsset(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("CDN_BASE_URL", "https://cdn.example.com")
+	defer os.Unsetenv("CDN_BASE_URL")
+	request := assets.AssetsRequest{
+		AppId:          "test-app-id",
+		Branch:         "branch-1",
+		AssetName:      "bundles/android-82adadb1fb6e489d04ad95fd79670deb.js",
+		RuntimeVersion: "1",
+		Platform:       "android",
+		RequestID:      "test",
+		Update: &types.Update{
+			AppId:          "test-app-id",
+			Branch:         "branch-1",
+			RuntimeVersion: "1",
+			UpdateId:       "1674170951",
+		},
+	}
+	response, err := assets.HandleAssetsWithURL(request, &cdn.GenericCDN{})
+	assert.Nil(t, err)
+	assert.Equal(t, 200, response.StatusCode)
+	assert.Equal(t, "https://cdn.example.com/test-app-id/branch-1/1/1674170951/bundles/android-82adadb1fb6e489d04ad95fd79670deb.js", response.URL)
+}
+
 func TestPathTraversalRejectedForCDNAsset(t *testing.T) {
 	teardown := setup(t)
 	defer teardown()
 	mockWorkingExpoResponse("staging")
 	os.Setenv("S3_CDN_PREFIX", "https://cdn.example.com")
 	defer os.Unsetenv("S3_CDN_PREFIX")
+	// A resolved update is required: without it the request 404s on the
+	// nil-update guard and the traversal never reaches the manifest check
+	// this test exists to exercise.
 	request := assets.AssetsRequest{
+		AppId:          "test-app-id",
 		Branch:         "branch-1",
 		AssetName:      "../../etc/passwd",
 		RuntimeVersion: "1",
 		Platform:       "android",
 		RequestID:      "test",
+		Update: &types.Update{
+			AppId:          "test-app-id",
+			Branch:         "branch-1",
+			RuntimeVersion: "1",
+			UpdateId:       "1674170951",
+		},
 	}
 	response, err := assets.HandleAssetsWithURL(request, &cdn.GenericCDN{})
 	assert.Nil(t, err)
 	assert.Equal(t, 404, response.StatusCode)
 	assert.Empty(t, response.URL)
+}
+
+// A file that exists in the update folder but is not declared by the manifest
+// (update-metadata.json here) must be neither redirected to nor proxied.
+func TestUnlistedAssetRejectedOnBothPaths(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("CDN_BASE_URL", "https://cdn.example.com")
+	defer os.Unsetenv("CDN_BASE_URL")
+	request := assets.AssetsRequest{
+		AppId:          "test-app-id",
+		Branch:         "branch-1",
+		AssetName:      "update-metadata.json",
+		RuntimeVersion: "1",
+		Platform:       "android",
+		RequestID:      "test",
+		Update: &types.Update{
+			AppId:          "test-app-id",
+			Branch:         "branch-1",
+			RuntimeVersion: "1",
+			UpdateId:       "1674170951",
+		},
+	}
+
+	urlResponse, err := assets.HandleAssetsWithURL(request, &cdn.GenericCDN{})
+	assert.Nil(t, err)
+	assert.Equal(t, 404, urlResponse.StatusCode)
+	assert.Empty(t, urlResponse.URL)
+
+	fileResponse, err := assets.HandleAssetsWithFile(request)
+	assert.Nil(t, err)
+	assert.Equal(t, 404, fileResponse.StatusCode)
 }
 
 func TestPreventCDNRedirectionHeader(t *testing.T) {
@@ -406,7 +477,9 @@ func TestPreventCDNRedirectionHeader(t *testing.T) {
 	os.Setenv("CLOUDFRONT_KEY_PAIR_ID", "test")
 
 	mockWorkingExpoResponse("staging")
-	url, _ := update.BuildFinalManifestAssetUrlURL("http://localhost:3000", "bundles/ios-9d01842d6ee1224f7188971c5d397115.js", "1", "android", "staging", "1674170951")
+	// The requested bundle must match the requested platform: the manifest
+	// whitelist rejects the ios bundle on an android request.
+	url, _ := update.BuildFinalManifestAssetUrlURL("http://localhost:3000", "bundles/android-82adadb1fb6e489d04ad95fd79670deb.js", "1", "android", "staging", "1674170951")
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", url, nil)
 	r.Header.Set("Accept-Encoding", "gzip")
