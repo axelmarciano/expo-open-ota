@@ -254,7 +254,7 @@ export type ServerSettings = {
   REDIS_SENTINEL_MASTER_NAME: string;
   STORAGE_MODE: string;
   S3_BUCKET_NAME: string;
-  S3_CDN_PREFIX: string;
+  CDN_BASE_URL: string;
   GCS_BUCKET_NAME: string;
   LOCAL_BUCKET_BASE_PATH: string;
   AWS_REGION: string;
@@ -267,7 +267,7 @@ export type ServerSettings = {
   AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID: string;
   PRIVATE_CLOUDFRONT_KEY_PATH: string;
   PROMETHEUS_ENABLED: string;
-  CDN_TYPE: '' | 'cloudfront' | 'gcs-direct' | 's3-cdn-prefix';
+  CDN_TYPE: '' | 'cloudfront' | 'gcs-direct' | 'generic';
   EXPO_ACCOUNT_USERNAME: string;
   SSO_ENABLED: boolean;
   APPS: { id: string; name?: string }[];

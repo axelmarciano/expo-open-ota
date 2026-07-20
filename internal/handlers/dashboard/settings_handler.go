@@ -28,16 +28,18 @@ func NewSettingsHandler(appService *services.AppService, ssoEnabled func(context
 }
 
 type SettingsEnv struct {
-	BASE_URL                               string `json:"BASE_URL"`
-	CONTROL_PLANE_ENABLED                  bool   `json:"CONTROL_PLANE_ENABLED"`
-	CACHE_MODE                             string `json:"CACHE_MODE"`
-	REDIS_HOST                             string `json:"REDIS_HOST"`
-	REDIS_PORT                             string `json:"REDIS_PORT"`
-	REDIS_SENTINEL_ADDRS                   string `json:"REDIS_SENTINEL_ADDRS"`
-	REDIS_SENTINEL_MASTER_NAME             string `json:"REDIS_SENTINEL_MASTER_NAME"`
-	STORAGE_MODE                           string `json:"STORAGE_MODE"`
-	S3_BUCKET_NAME                         string `json:"S3_BUCKET_NAME"`
-	S3_CDN_PREFIX                          string `json:"S3_CDN_PREFIX"`
+	BASE_URL                   string `json:"BASE_URL"`
+	CONTROL_PLANE_ENABLED      bool   `json:"CONTROL_PLANE_ENABLED"`
+	CACHE_MODE                 string `json:"CACHE_MODE"`
+	REDIS_HOST                 string `json:"REDIS_HOST"`
+	REDIS_PORT                 string `json:"REDIS_PORT"`
+	REDIS_SENTINEL_ADDRS       string `json:"REDIS_SENTINEL_ADDRS"`
+	REDIS_SENTINEL_MASTER_NAME string `json:"REDIS_SENTINEL_MASTER_NAME"`
+	STORAGE_MODE               string `json:"STORAGE_MODE"`
+	S3_BUCKET_NAME             string `json:"S3_BUCKET_NAME"`
+	// CDN_BASE_URL is the resolved generic CDN base URL, whether it was
+	// configured through CDN_BASE_URL or the deprecated S3_CDN_PREFIX.
+	CDN_BASE_URL                           string `json:"CDN_BASE_URL"`
 	GCS_BUCKET_NAME                        string `json:"GCS_BUCKET_NAME"`
 	LOCAL_BUCKET_BASE_PATH                 string `json:"LOCAL_BUCKET_BASE_PATH"`
 	AWS_REGION                             string `json:"AWS_REGION"`
@@ -51,7 +53,7 @@ type SettingsEnv struct {
 	PRIVATE_CLOUDFRONT_KEY_PATH            string `json:"PRIVATE_CLOUDFRONT_KEY_PATH"`
 	PROMETHEUS_ENABLED                     string `json:"PROMETHEUS_ENABLED"`
 	// CDN_TYPE is the CDN the server actually resolved at boot ("cloudfront",
-	// "gcs-direct", "s3-cdn-prefix" or "" when assets are served directly),
+	// "gcs-direct", "generic" or "" when assets are served directly),
 	// so the dashboard can display the effective setup instead of making the
 	// user re-derive it from raw variables.
 	CDN_TYPE string `json:"CDN_TYPE"`
@@ -77,7 +79,7 @@ func resolvedCDNType() string {
 	case *cdn.GCSDirectCDN:
 		return "gcs-direct"
 	case *cdn.GenericCDN:
-		return "s3-cdn-prefix"
+		return "generic"
 	default:
 		return ""
 	}
@@ -103,7 +105,7 @@ func (h *SettingsHandler) GetSettingsHandler(w http.ResponseWriter, r *http.Requ
 		REDIS_SENTINEL_MASTER_NAME:             config.GetEnv("REDIS_SENTINEL_MASTER_NAME"),
 		STORAGE_MODE:                           config.GetEnv("STORAGE_MODE"),
 		S3_BUCKET_NAME:                         config.GetEnv("S3_BUCKET_NAME"),
-		S3_CDN_PREFIX:                          config.GetEnv("S3_CDN_PREFIX"),
+		CDN_BASE_URL:                           cdn.ResolveCDNBaseURL(),
 		GCS_BUCKET_NAME:                        config.GetEnv("GCS_BUCKET_NAME"),
 		LOCAL_BUCKET_BASE_PATH:                 config.GetEnv("LOCAL_BUCKET_BASE_PATH"),
 		AWS_REGION:                             config.GetEnv("AWS_REGION"),
