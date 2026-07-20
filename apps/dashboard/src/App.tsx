@@ -17,6 +17,7 @@ import { License } from '@/ee/pages/License';
 import { Sso } from '@/ee/pages/Sso';
 import { SettingsProvider } from '@/lib/SettingsContext';
 import { CurrentUserProvider } from '@/lib/CurrentUserContext';
+import { PermissionsProvider } from '@/ee/lib/PermissionsContext';
 
 function withLayout(children: ReactNode) {
   return <Layout>{children}</Layout>;
@@ -43,7 +44,8 @@ export const App = () => {
             isLoggedIn ? (
               <SettingsProvider>
                 <CurrentUserProvider>
-                  <SelectedAppProvider>
+                  <PermissionsProvider>
+                    <SelectedAppProvider>
                     <Routes>
                       <Route path="/" element={withLayout(<Updates />)} />
                       <Route path="/settings" element={withLayout(<Settings />)} />
@@ -56,7 +58,8 @@ export const App = () => {
                       <Route path="/account" element={withLayout(<Account />)} />
                       <Route path="/logout" element={withLayout(<Logout />)} />
                     </Routes>
-                  </SelectedAppProvider>
+                    </SelectedAppProvider>
+                  </PermissionsProvider>
                 </CurrentUserProvider>
               </SettingsProvider>
             ) : null

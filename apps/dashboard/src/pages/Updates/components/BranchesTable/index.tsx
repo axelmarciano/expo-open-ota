@@ -22,7 +22,7 @@ import { ResourceCreateForm } from '@/components/ui/resource-create-form';
 import { DeleteDialog } from '@/components/ui/delete-dialog';
 import { AdminOnlyNote } from '@/components/ui/admin-only-note';
 import { useSettings } from '@/lib/SettingsContext';
-import { useCurrentUser } from '@/lib/CurrentUserContext';
+import { useAppPermission } from '@/ee/lib/PermissionsContext';
 import { EnterpriseExplainerDialog } from '@/ee/components/EnterpriseExplainerDialog';
 
 interface TableColumnConfig {
@@ -36,8 +36,11 @@ interface TableColumnConfig {
 
 export const BranchesTable = () => {
   const { CONTROL_PLANE_ENABLED } = useSettings();
-  // Member accounts are read-only; every mutation is admin-only server-side.
-  const { isAdmin } = useCurrentUser();
+  // Display gating only: the server re-checks each of these permissions on
+  // its route (admins always pass, members follow their enterprise grants).
+  const canCreateBranch = useAppPermission('branch:create');
+  const canDeleteBranch = useAppPermission('branch:delete');
+  const canProtectBranch = useAppPermission('branch:protect');
   const [, setSearchParams] = useSearchParams();
   const { selectedAppId } = useSelectedApp();
   const queryClient = useQueryClient();
@@ -213,9 +216,9 @@ export const BranchesTable = () => {
                     {isProtected ? 'Protected' : 'Unprotected'}
                   </span>
                 );
-                // Members see the state read-only; the server gates the write
-                // to admins anyway.
-                if (!isAdmin) {
+                // Without the permission the state is read-only; the server
+                // gates the write anyway.
+                if (!canProtectBranch) {
                   return label;
                 }
                 return (
@@ -233,7 +236,7 @@ export const BranchesTable = () => {
             } satisfies TableColumnConfig,
           ]
         : []),
-      ...(CONTROL_PLANE_ENABLED && isAdmin
+      ...(CONTROL_PLANE_ENABLED && canDeleteBranch
         ? [
             {
               header: '',
@@ -269,19 +272,25 @@ export const BranchesTable = () => {
           ]
         : []),
     ];
-  }, [CONTROL_PLANE_ENABLED, isAdmin, branchBeingToggled, handleToggleProtection]);
+  }, [
+    CONTROL_PLANE_ENABLED,
+    canDeleteBranch,
+    canProtectBranch,
+    branchBeingToggled,
+    handleToggleProtection,
+  ]);
 
   return (
     <div className="w-full flex-1 space-y-4">
       {!!error && <ApiError error={error} />}
 
-      {CONTROL_PLANE_ENABLED && !isAdmin && (
+      {CONTROL_PLANE_ENABLED && !canCreateBranch && !canDeleteBranch && !canProtectBranch && (
         <AdminOnlyNote>
-          You are signed in with a member account, which is read-only. Ask an admin to create or
-          delete branches.
+          You do not have permission to manage branches on this app. Ask an admin to grant you
+          access.
         </AdminOnlyNote>
       )}
-      {CONTROL_PLANE_ENABLED && isAdmin && (
+      {CONTROL_PLANE_ENABLED && canCreateBranch && (
         <div className="flex justify-end">
           <ResourceCreateForm
             id="branch-name"
@@ -305,7 +314,7 @@ export const BranchesTable = () => {
         onRowClick={row => setSearchParams({ branch: row.branchName })}
       />
 
-      {CONTROL_PLANE_ENABLED && isAdmin && (
+      {CONTROL_PLANE_ENABLED && canDeleteBranch && (
         <DeleteDialog
           isOpen={!!branchToDelete}
           onClose={() => setBranchToDelete(null)}

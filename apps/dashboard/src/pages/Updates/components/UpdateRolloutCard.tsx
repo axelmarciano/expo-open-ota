@@ -24,12 +24,12 @@ export const UpdateRolloutCard = ({
   branch,
   runtimeVersion,
   updates,
-  isAdmin,
+  canManageRollout,
 }: {
   branch: string;
   runtimeVersion: string;
   updates: UpdateRolloutInfo[];
-  isAdmin: boolean;
+  canManageRollout: boolean;
 }) => {
   const { selectedAppId } = useSelectedApp();
   const { toast } = useToast();
@@ -143,7 +143,7 @@ export const UpdateRolloutCard = ({
             <RolloutBar value={percentage} />
           </div>
 
-          {isAdmin && (
+          {canManageRollout && (
             <div className="flex flex-wrap items-center gap-2">
               {canIncrease && (
                 <div className="flex items-center gap-1.5">

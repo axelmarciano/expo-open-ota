@@ -393,6 +393,20 @@ export class ApiClient {
     });
   }
 
+  // The current account's permission map (enterprise user roles, ee/rbac).
+  // enabled=false means fine-grained roles are not enforced and the UI falls
+  // back to the community rule: isAdmin decides everything. apps is null for
+  // admins and when disabled.
+  public async getMyPermissions() {
+    return this.request<{
+      enabled: boolean;
+      isAdmin: boolean;
+      apps: Record<string, string[]> | null;
+    }>(`/api/me/permissions`, {
+      method: 'GET',
+    });
+  }
+
   public async changeMyPassword(payload: { currentPassword: string; newPassword: string }) {
     return this.request<void>(`/api/me/password`, {
       method: 'PUT',

@@ -11,13 +11,14 @@ import { DeleteDialog } from '@/components/ui/delete-dialog';
 import { KeystoreCard } from './components/KeystoreCard';
 import { AdminOnlyNote } from '@/components/ui/admin-only-note';
 import { useSettings } from '@/lib/SettingsContext';
-import { useCurrentUser } from '@/lib/CurrentUserContext';
+import { useAppPermission } from '@/ee/lib/PermissionsContext';
 
 export const AppInfo = () => {
   const { CONTROL_PLANE_ENABLED } = useSettings();
-  // Renaming and deleting an app are admin actions (the server enforces it),
-  // so hide the controls from everyone else.
-  const { isAdmin } = useCurrentUser();
+  // Display gating only: the server re-checks each permission on its route.
+  const canRenameApp = useAppPermission('app:rename');
+  const canDeleteApp = useAppPermission('app:delete');
+  const canReadCertificate = useAppPermission('certificate:read');
   const { selectedAppId, refreshApps } = useSelectedApp();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -179,7 +180,7 @@ export const AppInfo = () => {
           ) : (
             <span className="flex items-center gap-2">
               {appData?.name || selectedAppId}
-              {CONTROL_PLANE_ENABLED && isAdmin && (
+              {CONTROL_PLANE_ENABLED && canRenameApp && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -200,8 +201,8 @@ export const AppInfo = () => {
           </span>
         }
         actions={
-          // Key material: the server only serves it to admins.
-          isDownloadAvailable && isAdmin ? (
+          // Key material: the server only serves it with certificate:read.
+          isDownloadAvailable && canReadCertificate ? (
             <Button variant="outline" size="sm" onClick={handleDownloadCertificate}>
               <Download className="h-4 w-4" />
               Download certificate
@@ -211,16 +212,16 @@ export const AppInfo = () => {
       />
 
       <div className="max-w-2xl space-y-6">
-        {CONTROL_PLANE_ENABLED && !isAdmin && (
+        {CONTROL_PLANE_ENABLED && !canRenameApp && !canDeleteApp && !canReadCertificate && (
           <AdminOnlyNote>
-            You are signed in with a member account, which is read-only. Only admins can rename or
-            delete the app and download its signing certificate.
+            You do not have permission to rename or delete this app or download its signing
+            certificate. Ask an admin to grant you access.
           </AdminOnlyNote>
         )}
 
         <KeystoreCard isLoading={appDetailsQuery.isLoading} appData={appData} />
 
-        {CONTROL_PLANE_ENABLED && isAdmin && (
+        {CONTROL_PLANE_ENABLED && canDeleteApp && (
           <div className="overflow-hidden rounded-xl border border-destructive/30">
             <div className="flex flex-wrap items-center justify-between gap-4 p-5">
               <div>
@@ -241,7 +242,7 @@ export const AppInfo = () => {
         )}
       </div>
 
-      {CONTROL_PLANE_ENABLED && isAdmin && (
+      {CONTROL_PLANE_ENABLED && canDeleteApp && (
         <DeleteDialog
           isOpen={showDeleteAppDialog}
           onClose={() => setShowDeleteAppDialog(false)}

@@ -9,7 +9,7 @@ import { UpdateDetailsRef, UpdateDetailsSheet } from '@/components/UpdateDetails
 import { useRef } from 'react';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
 import { useSettings } from '@/lib/SettingsContext';
-import { useCurrentUser } from '@/lib/CurrentUserContext';
+import { useAppPermission } from '@/ee/lib/PermissionsContext';
 import { TimestampCell } from '@/components/ui/timestamp-cell';
 import { UpdatesBreadcrumb } from '@/pages/Updates/components/UpdatesBreadcrumb';
 import { UpdateRolloutCard } from '@/pages/Updates/components/UpdateRolloutCard';
@@ -24,7 +24,7 @@ export const UpdatesTable = ({
   const sheetRef = useRef<UpdateDetailsRef>(null);
   const { selectedAppId } = useSelectedApp();
   const { CONTROL_PLANE_ENABLED } = useSettings();
-  const { isAdmin } = useCurrentUser();
+  const canManageUpdateRollout = useAppPermission('update-rollout:manage');
   const { data, isLoading, error } = useQuery({
     queryKey: ['updates', selectedAppId, branch, runtimeVersion],
     queryFn: () => api.getUpdates(branch, runtimeVersion),
@@ -51,7 +51,7 @@ export const UpdatesTable = ({
           branch={branch}
           runtimeVersion={runtimeVersion}
           updates={activeRollout}
-          isAdmin={isAdmin}
+          canManageRollout={canManageUpdateRollout}
         />
       )}
       <UpdateDetailsSheet ref={sheetRef} branch={branch} runtimeVersion={runtimeVersion} />
