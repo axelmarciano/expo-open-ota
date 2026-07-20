@@ -15,11 +15,20 @@ import { Users } from '@/pages/Users';
 import { Account } from '@/pages/Account';
 import { License } from '@/ee/pages/License';
 import { Sso } from '@/ee/pages/Sso';
+import { Roles } from '@/ee/pages/Roles';
 import { SettingsProvider } from '@/lib/SettingsContext';
 import { CurrentUserProvider } from '@/lib/CurrentUserContext';
+import { PermissionsProvider } from '@/ee/lib/PermissionsContext';
+import { RequiresApp } from '@/components/RequiresApp';
 
 function withLayout(children: ReactNode) {
   return <Layout>{children}</Layout>;
+}
+
+// App-scoped pages have nothing to render without a visible app: RequiresApp
+// swaps them for the "No app available" empty state.
+function withApp(children: ReactNode) {
+  return <RequiresApp>{children}</RequiresApp>;
 }
 
 export const App = () => {
@@ -43,20 +52,23 @@ export const App = () => {
             isLoggedIn ? (
               <SettingsProvider>
                 <CurrentUserProvider>
-                  <SelectedAppProvider>
+                  <PermissionsProvider>
+                    <SelectedAppProvider>
                     <Routes>
-                      <Route path="/" element={withLayout(<Updates />)} />
+                      <Route path="/" element={withLayout(withApp(<Updates />))} />
                       <Route path="/settings" element={withLayout(<Settings />)} />
-                      <Route path="/channels" element={withLayout(<Channels />)} />
-                      <Route path="/app-info" element={withLayout(<AppInfo />)} />
-                      <Route path="/tokens" element={withLayout(<ApiTokens />)} />
+                      <Route path="/channels" element={withLayout(withApp(<Channels />))} />
+                      <Route path="/app-info" element={withLayout(withApp(<AppInfo />))} />
+                      <Route path="/tokens" element={withLayout(withApp(<ApiTokens />))} />
                       <Route path="/users" element={withLayout(<Users />)} />
+                      <Route path="/roles" element={withLayout(<Roles />)} />
                       <Route path="/sso" element={withLayout(<Sso />)} />
                       <Route path="/license" element={withLayout(<License />)} />
                       <Route path="/account" element={withLayout(<Account />)} />
                       <Route path="/logout" element={withLayout(<Logout />)} />
                     </Routes>
-                  </SelectedAppProvider>
+                    </SelectedAppProvider>
+                  </PermissionsProvider>
                 </CurrentUserProvider>
               </SettingsProvider>
             ) : null

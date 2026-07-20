@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/img/social_card.png" alt="Expo Open OTA" />
+  <img src=".github/img/cover.svg" alt="Expo Open OTA" />
 </p>
 
 <h3 align="center">Self-hosted over-the-air updates for Expo apps, built for production at scale.</h3>

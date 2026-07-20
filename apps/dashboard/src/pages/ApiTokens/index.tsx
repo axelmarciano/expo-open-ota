@@ -12,13 +12,13 @@ import { DataTable } from '@/components/DataTable';
 import { TimestampCell } from '@/components/ui/timestamp-cell';
 import { DeleteDialog } from '@/components/ui/delete-dialog';
 import { AdminOnlyNote } from '@/components/ui/admin-only-note';
-import { useCurrentUser } from '@/lib/CurrentUserContext';
+import { useAppPermission } from '@/ee/lib/PermissionsContext';
 import { ApiKeyRestrictionsSheet } from '@/ee/components/ApiKeyRestrictionsSheet';
 
 export const ApiTokens = () => {
   const { CONTROL_PLANE_ENABLED } = useSettings();
-  // Member accounts are read-only: minting and revoking tokens is admin-only.
-  const { isAdmin } = useCurrentUser();
+  // Display gating only: the server re-checks the permission on its routes.
+  const canManageApiKeys = useAppPermission('apikeys:manage');
   const { selectedAppId } = useSelectedApp();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -134,13 +134,13 @@ export const ApiTokens = () => {
       />
 
       <div className="space-y-4">
-        {!isAdmin && (
+        {!canManageApiKeys && (
           <AdminOnlyNote>
-            You are signed in with a member account, which is read-only. Ask an admin to create or
-            revoke tokens.
+            You do not have permission to manage this app's tokens. Ask an admin to grant you
+            access.
           </AdminOnlyNote>
         )}
-        {isAdmin && (
+        {canManageApiKeys && (
           <div className="flex justify-end">
             <ResourceCreateForm
               id="token-name"
@@ -226,7 +226,7 @@ export const ApiTokens = () => {
                 ) : (
                   <span className="text-sm text-muted-foreground/60">None</span>
                 );
-                if (!isAdmin) {
+                if (!canManageApiKeys) {
                   return state;
                 }
                 return (
@@ -244,7 +244,7 @@ export const ApiTokens = () => {
                 );
               },
             },
-            ...(isAdmin
+            ...(canManageApiKeys
               ? [
                   {
                     header: '',

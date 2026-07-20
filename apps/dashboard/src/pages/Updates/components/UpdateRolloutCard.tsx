@@ -17,19 +17,20 @@ import {
 } from '@/components/ui/dialog';
 import { RolloutBar } from '@/components/rollout/RolloutBar';
 
-// Renders the active per-update rollout for a (branch, runtime version) with
-// its admin controls: progress forward, finish, or revert. `updates` holds one
+// Renders the active per-update rollout for a (branch, runtime version). The
+// controls (progress forward, finish, or revert) only show when the account
+// holds the update-rollout permission (canManageRollout). `updates` holds one
 // row per platform, all sharing the same update id and percentage.
 export const UpdateRolloutCard = ({
   branch,
   runtimeVersion,
   updates,
-  isAdmin,
+  canManageRollout,
 }: {
   branch: string;
   runtimeVersion: string;
   updates: UpdateRolloutInfo[];
-  isAdmin: boolean;
+  canManageRollout: boolean;
 }) => {
   const { selectedAppId } = useSelectedApp();
   const { toast } = useToast();
@@ -143,7 +144,7 @@ export const UpdateRolloutCard = ({
             <RolloutBar value={percentage} />
           </div>
 
-          {isAdmin && (
+          {canManageRollout && (
             <div className="flex flex-wrap items-center gap-2">
               {canIncrease && (
                 <div className="flex items-center gap-1.5">

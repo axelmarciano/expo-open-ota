@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { api, describeApiError } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
   DialogContent,
@@ -14,6 +15,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordRulesChecklist } from '@/components/ui/password-rules-checklist';
 import { isPasswordValid } from '@/lib/password-policy';
+import { usePermissions } from '@/ee/lib/PermissionsContext';
+import { DraftGrant, GrantsEditor } from '@/ee/components/GrantsEditor';
 
 type CreateUserModalProps = {
   isOpen: boolean;
@@ -23,15 +26,22 @@ type CreateUserModalProps = {
 
 export const CreateUserModal = ({ isOpen, onClose, onUserCreated }: CreateUserModalProps) => {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+  // While enterprise roles are enforced, a member created without a grant
+  // sees an empty dashboard, so the modal offers the role assignment
+  // directly. Without a license the modal keeps its community shape.
+  const { enabled: rbacEnabled } = usePermissions();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [grants, setGrants] = useState<DraftGrant[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleClose = () => {
     setEmail('');
     setPassword('');
     setIsAdmin(false);
+    setGrants([]);
     onClose();
   };
 
@@ -43,10 +53,30 @@ export const CreateUserModal = ({ isOpen, onClose, onUserCreated }: CreateUserMo
     setIsSubmitting(true);
     try {
       const user = await api.createUser({ email: email.trim(), password, isAdmin });
+      // The grants ride a second call; the account already exists if it
+      // fails, so say exactly that instead of a generic creation error.
+      if (!isAdmin && rbacEnabled && grants.length > 0) {
+        try {
+          await api.setUserGrants(user.id, grants);
+          queryClient.invalidateQueries({ queryKey: ['userGrantsSummary'] });
+        } catch (grantError) {
+          toast({
+            ...describeApiError(
+              grantError,
+              `"${user.email}" was created but assigning their roles failed. Open Roles on their row to retry.`
+            ),
+            variant: 'destructive',
+          });
+          onUserCreated?.();
+          handleClose();
+          return;
+        }
+      }
       toast({
         title: 'User created',
         description: `"${user.email}" can now sign in to the dashboard.`,
       });
+      queryClient.invalidateQueries({ queryKey: ['userGrantsSummary'] });
       onUserCreated?.();
       handleClose();
     } catch (error) {
@@ -58,7 +88,10 @@ export const CreateUserModal = ({ isOpen, onClose, onUserCreated }: CreateUserMo
 
   return (
     <Dialog open={isOpen} onOpenChange={open => !open && handleClose()}>
-      <DialogContent className="sm:max-w-[420px]">
+      <DialogContent
+        className={
+          rbacEnabled ? 'max-h-[85vh] overflow-y-auto sm:max-w-[560px]' : 'sm:max-w-[420px]'
+        }>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle className="text-lg">Create user</DialogTitle>
@@ -109,6 +142,16 @@ export const CreateUserModal = ({ isOpen, onClose, onUserCreated }: CreateUserMo
               />
               <span>Admin account</span>
             </label>
+            {rbacEnabled && !isAdmin && (
+              <div className="space-y-2 border-t pt-4">
+                <p className="text-xs font-medium text-foreground">App access</p>
+                <p className="text-xs text-muted-foreground">
+                  Members only see the apps you grant them. Without any grant this account will see
+                  an empty dashboard.
+                </p>
+                <GrantsEditor draft={grants} onChange={setGrants} disabled={isSubmitting} />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={handleClose} disabled={isSubmitting}>

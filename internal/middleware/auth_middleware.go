@@ -27,6 +27,24 @@ func WithPrincipal(ctx context.Context, principal *services.DashboardPrincipal) 
 	return context.WithValue(ctx, principalContextKey{}, principal)
 }
 
+type cliAuthContextKey struct{}
+
+// WithCliAuth marks the request as authenticated by an app-scoped CLI
+// credential. The marker exists so downstream gates can assert "validated CLI
+// request" as a fact instead of inferring it from the absence of a dashboard
+// principal, which would silently fail open on a route someone mounts without
+// the auth middleware.
+func WithCliAuth(ctx context.Context, appId string) context.Context {
+	return context.WithValue(ctx, cliAuthContextKey{}, appId)
+}
+
+// CliAuthAppFromContext returns the app the CLI credential was validated for,
+// or "" when the request did not authenticate through the CLI path.
+func CliAuthAppFromContext(ctx context.Context) string {
+	appId, _ := ctx.Value(cliAuthContextKey{}).(string)
+	return appId
+}
+
 // NewAuthMiddleware guards a route with one of two unrelated credentials,
 // picked by the Use-Cli-Auth header:
 //   - "true": a CLI credential scoped to an app (an eoo_ API key in DB mode, an
@@ -64,7 +82,7 @@ func NewAuthMiddleware(dashboardAuthService *services.DashboardAuthService, cliA
 					return
 				}
 
-				next.ServeHTTP(w, r)
+				next.ServeHTTP(w, r.WithContext(WithCliAuth(r.Context(), appId)))
 				return
 			}
 			bearerToken, err := helpers.GetBearerToken(r)

@@ -41,6 +41,51 @@ func (q *Queries) ClearUpdateRollout(ctx context.Context, arg ClearUpdateRollout
 	return result.RowsAffected(), nil
 }
 
+const countGrantsByRole = `-- name: CountGrantsByRole :one
+SELECT COUNT(*) FROM user_app_grants
+WHERE role_id = $1
+`
+
+func (q *Queries) CountGrantsByRole(ctx context.Context, roleID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countGrantsByRole, roleID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countGrantsPerUser = `-- name: CountGrantsPerUser :many
+SELECT user_id, COUNT(*) AS grant_count
+FROM user_app_grants
+GROUP BY user_id
+`
+
+type CountGrantsPerUserRow struct {
+	UserID     pgtype.UUID `json:"user_id"`
+	GrantCount int64       `json:"grant_count"`
+}
+
+// Backs the Users page warning: members with zero grants see an empty
+// dashboard, admins should notice at a glance.
+func (q *Queries) CountGrantsPerUser(ctx context.Context) ([]CountGrantsPerUserRow, error) {
+	rows, err := q.db.Query(ctx, countGrantsPerUser)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CountGrantsPerUserRow
+	for rows.Next() {
+		var i CountGrantsPerUserRow
+		if err := rows.Scan(&i.UserID, &i.GrantCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteAppByID = `-- name: DeleteAppByID :execresult
 DELETE FROM apps
 WHERE id = $1
@@ -52,7 +97,7 @@ func (q *Queries) DeleteAppByID(ctx context.Context, id pgtype.UUID) (pgconn.Com
 
 const deleteBranchByName = `-- name: DeleteBranchByName :execresult
 DELETE FROM branches
-WHERE name = $1 AND app_id = $2
+WHERE name = $1 AND app_id = $2 AND NOT protected
 `
 
 type DeleteBranchByNameParams struct {
@@ -60,6 +105,10 @@ type DeleteBranchByNameParams struct {
 	AppID pgtype.UUID `json:"app_id"`
 }
 
+// NOT protected: a protected branch cannot be deleted by anyone, admins
+// included — protection must be lifted first. The guard runs inside the
+// DELETE itself so a concurrent protect cannot race it; the store
+// disambiguates the 0-rows result into protected vs not-found.
 func (q *Queries) DeleteBranchByName(ctx context.Context, arg DeleteBranchByNameParams) (pgconn.CommandTag, error) {
 	return q.db.Exec(ctx, deleteBranchByName, arg.Name, arg.AppID)
 }
@@ -105,12 +154,35 @@ func (q *Queries) DeleteEnterpriseLicense(ctx context.Context) error {
 	return err
 }
 
+const deleteRole = `-- name: DeleteRole :execresult
+DELETE FROM roles
+WHERE id = $1
+`
+
+// The FK from user_app_grants is ON DELETE RESTRICT: deleting a role that is
+// still assigned fails with a foreign-key violation the store maps to a
+// friendly "role in use" error.
+func (q *Queries) DeleteRole(ctx context.Context, id pgtype.UUID) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, deleteRole, id)
+}
+
 const deleteSSOConfig = `-- name: DeleteSSOConfig :exec
 DELETE FROM sso_config
 `
 
 func (q *Queries) DeleteSSOConfig(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, deleteSSOConfig)
+	return err
+}
+
+const deleteUserAppGrantsByUser = `-- name: DeleteUserAppGrantsByUser :exec
+DELETE FROM user_app_grants
+WHERE user_id = $1
+`
+
+// Grants are replaced wholesale (delete + insert in one transaction).
+func (q *Queries) DeleteUserAppGrantsByUser(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteUserAppGrantsByUser, userID)
 	return err
 }
 
@@ -776,6 +848,24 @@ func (q *Queries) GetLatestUpdateWithRollout(ctx context.Context, arg GetLatestU
 	return i, err
 }
 
+const getRoleByID = `-- name: GetRoleByID :one
+SELECT id, name, permissions, created_at, updated_at FROM roles
+WHERE id = $1 LIMIT 1
+`
+
+func (q *Queries) GetRoleByID(ctx context.Context, id pgtype.UUID) (Role, error) {
+	row := q.db.QueryRow(ctx, getRoleByID, id)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Permissions,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getRuntimeVersionsWithUpdateCount = `-- name: GetRuntimeVersionsWithUpdateCount :many
 SELECT 
     rv.id, 
@@ -1169,6 +1259,43 @@ func (q *Queries) GetUpdatesMetadataByBranchName(ctx context.Context, arg GetUpd
 	return items, nil
 }
 
+const getUserAppGrant = `-- name: GetUserAppGrant :one
+SELECT g.user_id, g.app_id, g.role_id, g.extra_permissions,
+       r.permissions AS role_permissions
+FROM user_app_grants g
+LEFT JOIN roles r ON r.id = g.role_id
+WHERE g.user_id = $1 AND g.app_id = $2
+LIMIT 1
+`
+
+type GetUserAppGrantParams struct {
+	UserID pgtype.UUID `json:"user_id"`
+	AppID  pgtype.UUID `json:"app_id"`
+}
+
+type GetUserAppGrantRow struct {
+	UserID           pgtype.UUID `json:"user_id"`
+	AppID            pgtype.UUID `json:"app_id"`
+	RoleID           pgtype.UUID `json:"role_id"`
+	ExtraPermissions []string    `json:"extra_permissions"`
+	RolePermissions  []string    `json:"role_permissions"`
+}
+
+// The enforcement read behind every member mutation: the grant row for one
+// (user, app) pair with the role's permissions resolved.
+func (q *Queries) GetUserAppGrant(ctx context.Context, arg GetUserAppGrantParams) (GetUserAppGrantRow, error) {
+	row := q.db.QueryRow(ctx, getUserAppGrant, arg.UserID, arg.AppID)
+	var i GetUserAppGrantRow
+	err := row.Scan(
+		&i.UserID,
+		&i.AppID,
+		&i.RoleID,
+		&i.ExtraPermissions,
+		&i.RolePermissions,
+	)
+	return i, err
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, email, password_hash, is_admin, created_at, updated_at, last_connected_at, enabled FROM users
 WHERE email = $1 LIMIT 1
@@ -1437,6 +1564,33 @@ func (q *Queries) InsertChannelRollout(ctx context.Context, arg InsertChannelRol
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const insertRole = `-- name: InsertRole :one
+
+INSERT INTO roles (id, name, permissions)
+VALUES ($1, $2, $3)
+RETURNING id, name, permissions, created_at, updated_at
+`
+
+type InsertRoleParams struct {
+	ID          pgtype.UUID `json:"id"`
+	Name        string      `json:"name"`
+	Permissions []string    `json:"permissions"`
+}
+
+// Enterprise user roles & per-app grants (ee/rbac)
+func (q *Queries) InsertRole(ctx context.Context, arg InsertRoleParams) (Role, error) {
+	row := q.db.QueryRow(ctx, insertRole, arg.ID, arg.Name, arg.Permissions)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Permissions,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const insertRuntimeVersion = `-- name: InsertRuntimeVersion :one
@@ -1723,6 +1877,28 @@ func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) (InsertU
 	return i, err
 }
 
+const insertUserAppGrant = `-- name: InsertUserAppGrant :exec
+INSERT INTO user_app_grants (user_id, app_id, role_id, extra_permissions)
+VALUES ($1, $2, $3, $4)
+`
+
+type InsertUserAppGrantParams struct {
+	UserID           pgtype.UUID `json:"user_id"`
+	AppID            pgtype.UUID `json:"app_id"`
+	RoleID           pgtype.UUID `json:"role_id"`
+	ExtraPermissions []string    `json:"extra_permissions"`
+}
+
+func (q *Queries) InsertUserAppGrant(ctx context.Context, arg InsertUserAppGrantParams) error {
+	_, err := q.db.Exec(ctx, insertUserAppGrant,
+		arg.UserID,
+		arg.AppID,
+		arg.RoleID,
+		arg.ExtraPermissions,
+	)
+	return err
+}
+
 const isBranchProtected = `-- name: IsBranchProtected :one
 SELECT protected FROM branches
 WHERE app_id = $1 AND name = $2
@@ -1738,6 +1914,108 @@ func (q *Queries) IsBranchProtected(ctx context.Context, arg IsBranchProtectedPa
 	var protected bool
 	err := row.Scan(&protected)
 	return protected, err
+}
+
+const listAccessibleAppIDs = `-- name: ListAccessibleAppIDs :many
+SELECT app_id FROM user_app_grants
+WHERE user_id = $1
+`
+
+func (q *Queries) ListAccessibleAppIDs(ctx context.Context, userID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listAccessibleAppIDs, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var app_id pgtype.UUID
+		if err := rows.Scan(&app_id); err != nil {
+			return nil, err
+		}
+		items = append(items, app_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRoles = `-- name: ListRoles :many
+SELECT id, name, permissions, created_at, updated_at FROM roles
+ORDER BY name ASC
+`
+
+func (q *Queries) ListRoles(ctx context.Context) ([]Role, error) {
+	rows, err := q.db.Query(ctx, listRoles)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Role
+	for rows.Next() {
+		var i Role
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Permissions,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserAppGrants = `-- name: ListUserAppGrants :many
+SELECT g.user_id, g.app_id, g.role_id, g.extra_permissions,
+       r.name AS role_name, r.permissions AS role_permissions
+FROM user_app_grants g
+LEFT JOIN roles r ON r.id = g.role_id
+WHERE g.user_id = $1
+ORDER BY g.app_id ASC
+`
+
+type ListUserAppGrantsRow struct {
+	UserID           pgtype.UUID `json:"user_id"`
+	AppID            pgtype.UUID `json:"app_id"`
+	RoleID           pgtype.UUID `json:"role_id"`
+	ExtraPermissions []string    `json:"extra_permissions"`
+	RoleName         *string     `json:"role_name"`
+	RolePermissions  []string    `json:"role_permissions"`
+}
+
+// The member's grants with their role resolved, one row per granted app.
+func (q *Queries) ListUserAppGrants(ctx context.Context, userID pgtype.UUID) ([]ListUserAppGrantsRow, error) {
+	rows, err := q.db.Query(ctx, listUserAppGrants, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserAppGrantsRow
+	for rows.Next() {
+		var i ListUserAppGrantsRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.AppID,
+			&i.RoleID,
+			&i.ExtraPermissions,
+			&i.RoleName,
+			&i.RolePermissions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const markUpdateAsChecked = `-- name: MarkUpdateAsChecked :execrows
@@ -2255,6 +2533,22 @@ func (q *Queries) UpdateChannelRolloutPercentage(ctx context.Context, arg Update
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updateRole = `-- name: UpdateRole :execresult
+UPDATE roles
+SET name = $2, permissions = $3, updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+`
+
+type UpdateRoleParams struct {
+	ID          pgtype.UUID `json:"id"`
+	Name        string      `json:"name"`
+	Permissions []string    `json:"permissions"`
+}
+
+func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, updateRole, arg.ID, arg.Name, arg.Permissions)
 }
 
 const updateUserEnabledByID = `-- name: UpdateUserEnabledByID :execresult

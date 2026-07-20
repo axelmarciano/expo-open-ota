@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"expo-open-ota/config"
 	cache2 "expo-open-ota/internal/cache"
 	"expo-open-ota/internal/dashboard"
 	"expo-open-ota/internal/handlers"
+	"expo-open-ota/internal/middleware"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
 	"expo-open-ota/internal/validation"
@@ -16,14 +18,49 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// AppVisibilityFilter narrows the dashboard app list to what the requesting
+// account may see. Injected from the wiring (ee/rbac) so this community
+// handler needs no ee import; nil-safe for tests that build the handler
+// directly. restricted=false means nothing is filtered (admin, community
+// fallback); otherwise only the ids in visible are.
+type AppVisibilityFilter func(ctx context.Context, principal *services.DashboardPrincipal) (restricted bool, visible map[string]bool, err error)
+
 type AppHandler struct {
 	appService *services.AppService
+	// visibleApps filters the responses of the app listing; the cache keeps
+	// the unfiltered list (keyed per app set, not per user), so filtering
+	// always happens after the cache read.
+	visibleApps AppVisibilityFilter
 }
 
-func NewAppHandler(appService *services.AppService) *AppHandler {
+func NewAppHandler(appService *services.AppService, visibleApps AppVisibilityFilter) *AppHandler {
 	return &AppHandler{
-		appService: appService,
+		appService:  appService,
+		visibleApps: visibleApps,
 	}
+}
+
+// filterVisibleApps applies the visibility filter for this request. The
+// returned error means the filter itself failed and the caller must 500
+// rather than fall back to the unfiltered list.
+func (h *AppHandler) filterVisibleApps(r *http.Request, apps []config.AppDescriptor) ([]config.AppDescriptor, error) {
+	if h.visibleApps == nil {
+		return apps, nil
+	}
+	restricted, visible, err := h.visibleApps(r.Context(), middleware.PrincipalFromContext(r.Context()))
+	if err != nil {
+		return nil, err
+	}
+	if !restricted {
+		return apps, nil
+	}
+	filtered := make([]config.AppDescriptor, 0, len(apps))
+	for _, app := range apps {
+		if visible[app.Id] {
+			filtered = append(filtered, app)
+		}
+	}
+	return filtered, nil
 }
 
 func (h *AppHandler) CreateAppHandler(w http.ResponseWriter, r *http.Request) {
@@ -127,25 +164,32 @@ func (h *AppHandler) DeleteAppHandler(w http.ResponseWriter, r *http.Request) {
 func (h *AppHandler) GetAppsHandler(w http.ResponseWriter, r *http.Request) {
 	cache := cache2.GetCache()
 	cacheKey := dashboard.ComputeGetAppsCacheKey()
-	if cacheValue := cache.Get(cacheKey); cacheValue != "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(cacheValue))
-		return
+	// The cache holds the unfiltered list: entries are shared across
+	// accounts, so per-user visibility is applied after the read, never
+	// baked into the key or the cached value.
+	var apps []config.AppDescriptor
+	cachedValue := cache.Get(cacheKey)
+	if cachedValue == "" || json.Unmarshal([]byte(cachedValue), &apps) != nil {
+		var err error
+		apps, err = h.appService.GetApps(r.Context())
+		if err != nil {
+			handlers.RenderError(w, http.StatusInternalServerError, "An internal error occurred while fetching apps.")
+			return
+		}
+		marshaledFullList, _ := json.Marshal(apps)
+		ttl := 3600
+		cache.Set(cacheKey, string(marshaledFullList), &ttl)
 	}
-	apps, err := h.appService.GetApps(r.Context())
+
+	visibleAppsList, err := h.filterVisibleApps(r, apps)
 	if err != nil {
 		handlers.RenderError(w, http.StatusInternalServerError, "An internal error occurred while fetching apps.")
 		return
 	}
-
-	marshaledResponse, _ := json.Marshal(apps)
+	marshaledResponse, _ := json.Marshal(visibleAppsList)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(marshaledResponse)
-
-	ttl := 3600
-	cache.Set(cacheKey, string(marshaledResponse), &ttl)
 }
 
 func (h *AppHandler) UpdateAppHandler(w http.ResponseWriter, r *http.Request) {

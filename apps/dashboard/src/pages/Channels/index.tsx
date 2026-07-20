@@ -17,7 +17,7 @@ import { TimestampCell } from '@/components/ui/timestamp-cell';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Trash2, Plus, Split, Lock } from 'lucide-react';
 import { useSettings } from '@/lib/SettingsContext';
-import { useCurrentUser } from '@/lib/CurrentUserContext';
+import { useAppPermission } from '@/ee/lib/PermissionsContext';
 import { RolloutBar } from '@/components/rollout/RolloutBar';
 import { StartRolloutDialog } from '@/pages/Channels/components/StartRolloutDialog';
 import { ManageRolloutDialog } from '@/pages/Channels/components/ManageRolloutDialog';
@@ -31,7 +31,11 @@ interface TableColumnConfig {
 
 export const Channels = () => {
   const { CONTROL_PLANE_ENABLED } = useSettings();
-  const { isAdmin } = useCurrentUser();
+  // Display gating only: the server re-checks each permission on its route.
+  const canCreateChannel = useAppPermission('channel:create');
+  const canDeleteChannel = useAppPermission('channel:delete');
+  const canEditChannelBranch = useAppPermission('channel:edit-branch');
+  const canManageRollout = useAppPermission('channel-rollout:manage');
   const { selectedAppId } = useSelectedApp();
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['channels', selectedAppId],
@@ -222,7 +226,7 @@ export const Channels = () => {
               </TooltipProvider>
             );
           }
-          return isAdmin ? (
+          return canEditChannelBranch ? (
             <SelectBranch
               currentBranch={row.original.branchId || ''}
               loading={isLoading || loading}
@@ -247,7 +251,7 @@ export const Channels = () => {
                       <span className="text-xs text-muted-foreground">
                         to {channel.rollout.rolloutBranchName}
                       </span>
-                      {isAdmin && (
+                      {canManageRollout && (
                         <button
                           type="button"
                           onClick={() => setRolloutAction({ type: 'manage', channel })}
@@ -262,7 +266,7 @@ export const Channels = () => {
                 if (!channel.branchId) {
                   return <span className="text-muted-foreground/60">None</span>;
                 }
-                if (isAdmin) {
+                if (canManageRollout) {
                   return (
                     <Button
                       variant="ghost"
@@ -284,8 +288,8 @@ export const Channels = () => {
             } satisfies TableColumnConfig,
           ]
         : []),
-      // Deleting a channel is an admin action (the server enforces it).
-      ...(CONTROL_PLANE_ENABLED && isAdmin
+      // Deleting a channel needs its permission (the server enforces it).
+      ...(CONTROL_PLANE_ENABLED && canDeleteChannel
         ? [
             {
               header: '',
@@ -306,7 +310,15 @@ export const Channels = () => {
           ]
         : []),
     ];
-  }, [CONTROL_PLANE_ENABLED, isAdmin, isLoading, loading, onBranchChange]);
+  }, [
+    CONTROL_PLANE_ENABLED,
+    canDeleteChannel,
+    canEditChannelBranch,
+    canManageRollout,
+    isLoading,
+    loading,
+    onBranchChange,
+  ]);
 
   return (
     <div className="w-full">
@@ -335,13 +347,17 @@ export const Channels = () => {
       {!!error && <ApiError error={error} />}
 
       <div className="space-y-4">
-        {CONTROL_PLANE_ENABLED && !isAdmin && (
-          <AdminOnlyNote>
-            You are signed in with a member account, which is read-only. Ask an admin to create or
-            delete channels, change which branch a channel serves, or manage progressive rollouts.
-          </AdminOnlyNote>
-        )}
-        {CONTROL_PLANE_ENABLED && isAdmin && (
+        {CONTROL_PLANE_ENABLED &&
+          !canCreateChannel &&
+          !canDeleteChannel &&
+          !canEditChannelBranch &&
+          !canManageRollout && (
+            <AdminOnlyNote>
+              You do not have permission to manage channels on this app. Ask an admin to grant you
+              access.
+            </AdminOnlyNote>
+          )}
+        {CONTROL_PLANE_ENABLED && canCreateChannel && (
           <Card>
             <CardContent className="p-5">
               <form
@@ -394,7 +410,7 @@ export const Channels = () => {
         />
       </div>
 
-      {CONTROL_PLANE_ENABLED && isAdmin && (
+      {CONTROL_PLANE_ENABLED && canDeleteChannel && (
         <DeleteDialog
           isOpen={!!channelToDelete}
           onClose={() => setChannelToDelete(null)}
@@ -408,7 +424,7 @@ export const Channels = () => {
         />
       )}
 
-      {CONTROL_PLANE_ENABLED && isAdmin && (
+      {CONTROL_PLANE_ENABLED && canManageRollout && (
         <>
           <StartRolloutDialog
             channel={rolloutAction?.type === 'start' ? rolloutActionChannel : null}

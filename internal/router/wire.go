@@ -5,6 +5,7 @@ import (
 	"expo-open-ota/config"
 	"expo-open-ota/ee/apikeyrestrictions"
 	"expo-open-ota/ee/licensing"
+	"expo-open-ota/ee/rbac"
 	"expo-open-ota/ee/sso"
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/database"
@@ -30,6 +31,8 @@ type AppContainer struct {
 	ChannelHandler           *dashhandlers.ChannelHandler
 	ExpoProtocolHandler      *handlers.ExpoProtocolHandler
 	LicenseHandler           *licensing.LicenseHandler
+	RBACHandler              *rbac.RBACHandler
+	RBACService              *rbac.RBACService
 	RollbackHandler          *handlers.RollbackHandler
 	RolloutHandler           *dashhandlers.RolloutHandler
 	SettingsHandler          *dashhandlers.SettingsHandler
@@ -76,6 +79,9 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// And again: per-key access restrictions and branch protection are an
 	// enterprise feature backed by the database.
 	var apiKeyRestrictionRepo apikeyrestrictions.ApiKeyRestrictionRepository
+	// User roles and per-app grants (ee/rbac) live in the database too; nil
+	// keeps the whole feature on the community fallback.
+	var rbacRepo rbac.RBACRepository
 
 	cleanup := func() {}
 	dbUrl := config.GetDBURL()
@@ -106,6 +112,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		licenseRepo = licensing.NewPostgresLicenseStore(dbEngine)
 		ssoRepo = sso.NewPostgresSSOStore(dbEngine)
 		apiKeyRestrictionRepo = apikeyrestrictions.NewPostgresApiKeyRestrictionStore(dbEngine)
+		rbacRepo = rbac.NewPostgresRBACStore(dbEngine)
 		branchRepo = store.NewPostgresBranchStore(dbEngine)
 		channelRepo = store.NewPostgresChannelStore(dbEngine)
 		updateRepo = store.NewPostgresUpdateStore(dbEngine)
@@ -135,6 +142,11 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	licenseService.StartSync(ctx, 30*time.Second)
 
 	apiKeyRestrictionService := apikeyrestrictions.NewApiKeyRestrictionService(apiKeyRestrictionRepo)
+	rbacService := rbac.NewRBACService(rbacRepo, userRepo)
+	// The community list handlers (apps, settings) receive this method as
+	// their AppVisibilityFilter: they filter what a member sees without their
+	// package ever importing ee/rbac.
+	visibleApps := rbacService.VisibleAppsForPrincipal
 	dashboardAuthService := services.NewDashboardAuthService(userRepo)
 	// The restriction service doubles as the CLI access policy: every CLI
 	// request runs through its enforcement after authenticating.
@@ -160,16 +172,18 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		CliAuthService:           cliAuthService,
 		ApiKeyHandler:            dashhandlers.NewApiKeyHandler(cliAuthService),
 		ApiKeyRestrictionHandler: apikeyrestrictions.NewApiKeyRestrictionHandler(apiKeyRestrictionService),
-		AppHandler:               dashhandlers.NewAppHandler(appService),
+		AppHandler:               dashhandlers.NewAppHandler(appService, visibleApps),
 		AppRepo:                  appRepo,
 		BranchHandler:            dashhandlers.NewBranchHandler(branchService),
 		ChannelHandler:           dashhandlers.NewChannelHandler(channelService),
 		ExpoProtocolHandler:      handlers.NewExpoProtocolHandler(expoProtocolService),
 		LicenseHandler:           licensing.NewLicenseHandler(licenseService),
+		RBACHandler:              rbac.NewRBACHandler(rbacService),
+		RBACService:              rbacService,
 		RepublishHandler:         handlers.NewRepublishHandler(cliAuthService, deploymentService),
 		RollbackHandler:          handlers.NewRollbackHandler(cliAuthService, deploymentService),
 		RolloutHandler:           dashhandlers.NewRolloutHandler(rolloutService, updateService),
-		SettingsHandler:          dashhandlers.NewSettingsHandler(appService, ssoService.Enabled),
+		SettingsHandler:          dashhandlers.NewSettingsHandler(appService, ssoService.Enabled, visibleApps),
 		SSOHandler:               sso.NewSSOHandler(ssoService),
 		UpdateHandler:            dashhandlers.NewUpdateHandler(updateService),
 		UploadHandler:            handlers.NewUploadHandler(cliAuthService, deploymentService),

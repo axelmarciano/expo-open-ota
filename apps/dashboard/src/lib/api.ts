@@ -182,6 +182,27 @@ export type UserRecord = {
   lastConnectedAt?: string;
 };
 
+// A named permission bundle (enterprise user roles, ee/rbac). Roles are
+// global; they apply to an app only through a user's grant.
+export type RoleRecord = {
+  id: string;
+  name: string;
+  permissions: string[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+// One member's access to one app: an optional role plus direct extra
+// permissions. effectivePermissions is the server-computed union the
+// enforcement actually uses.
+export type GrantRecord = {
+  appId: string;
+  roleId: string | null;
+  roleName: string | null;
+  extraPermissions: string[];
+  effectivePermissions: string[];
+};
+
 // The deployment's Enterprise Edition license status (/api/license,
 // control-plane only). `valid` is the single source of truth for "enterprise
 // features are on": `hasKey` can be true with `valid` false when the stored
@@ -393,6 +414,20 @@ export class ApiClient {
     });
   }
 
+  // The current account's permission map (enterprise user roles, ee/rbac).
+  // enabled=false means fine-grained roles are not enforced and the UI falls
+  // back to the community rule: isAdmin decides everything. apps is null for
+  // admins and when disabled.
+  public async getMyPermissions() {
+    return this.request<{
+      enabled: boolean;
+      isAdmin: boolean;
+      apps: Record<string, string[]> | null;
+    }>(`/api/me/permissions`, {
+      method: 'GET',
+    });
+  }
+
   public async changeMyPassword(payload: { currentPassword: string; newPassword: string }) {
     return this.request<void>(`/api/me/password`, {
       method: 'PUT',
@@ -434,6 +469,61 @@ export class ApiClient {
   public async deleteUser(userId: string) {
     return this.request<void>(`/api/users/${encodeURIComponent(userId)}`, {
       method: 'DELETE',
+    });
+  }
+
+  // Enterprise user roles (admin only; writes are license-gated server-side).
+  public async getRoles() {
+    return this.request<RoleRecord[]>(`/api/roles`, {
+      method: 'GET',
+    });
+  }
+
+  public async createRole(payload: { name: string; permissions: string[] }) {
+    return this.request<RoleRecord>(`/api/roles`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async updateRole(roleId: string, payload: { name: string; permissions: string[] }) {
+    return this.request<void>(`/api/roles/${encodeURIComponent(roleId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async deleteRole(roleId: string) {
+    return this.request<void>(`/api/roles/${encodeURIComponent(roleId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  public async getUserGrants(userId: string) {
+    return this.request<GrantRecord[]>(`/api/users/${encodeURIComponent(userId)}/grants`, {
+      method: 'GET',
+    });
+  }
+
+  // Per-user grant counts ({userId: count}); users absent from the map hold
+  // no grants. Backs the "no app access" warning on the Users page.
+  public async getUserGrantsSummary() {
+    return this.request<Record<string, number>>(`/api/users/grants/summary`, {
+      method: 'GET',
+    });
+  }
+
+  // Replaces the member's whole grant set in one transaction server-side.
+  public async setUserGrants(
+    userId: string,
+    grants: { appId: string; roleId: string | null; extraPermissions: string[] }[]
+  ) {
+    return this.request<void>(`/api/users/${encodeURIComponent(userId)}/grants`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(grants),
     });
   }
 

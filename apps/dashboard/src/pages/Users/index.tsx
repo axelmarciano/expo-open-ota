@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Plus, Shield, ShieldOff, Trash2 } from 'lucide-react';
+import { KeyRound, Plus, Trash2, UserCog } from 'lucide-react';
 import { api, UserRecord, describeApiError } from '@/lib/api';
+import { UserRolesSheet } from '@/ee/components/UserRolesSheet';
+import { usePermissions } from '@/ee/lib/PermissionsContext';
 import { useSettings } from '@/lib/SettingsContext';
 import { useCurrentUser } from '@/lib/CurrentUserContext';
 import { useToast } from '@/hooks/use-toast';
@@ -21,35 +23,28 @@ export const Users = () => {
   const queryClient = useQueryClient();
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [userForRoles, setUserForRoles] = useState<UserRecord | null>(null);
   const [userToDelete, setUserToDelete] = useState<UserRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
   const [togglingEnabledId, setTogglingEnabledId] = useState<string | null>(null);
+
+  // While fine-grained roles are enforced, a member without a single grant
+  // sees an empty dashboard; the summary lets the table warn about them.
+  const { enabled: rbacEnabled } = usePermissions();
 
   const usersQuery = useQuery({
     queryKey: ['users'],
     queryFn: () => api.getUsers(),
     enabled: CONTROL_PLANE_ENABLED && isAdmin,
   });
+  const grantsSummaryQuery = useQuery({
+    queryKey: ['userGrantsSummary'],
+    queryFn: () => api.getUserGrantsSummary(),
+    enabled: CONTROL_PLANE_ENABLED && isAdmin && rbacEnabled,
+  });
 
   const notifyError = (error: unknown, fallbackTitle: string) =>
     toast({ ...describeApiError(error, fallbackTitle), variant: 'destructive' });
-
-  const handleToggleAdmin = async (user: UserRecord) => {
-    setTogglingUserId(user.id);
-    try {
-      await api.updateUserAdmin(user.id, !user.isAdmin);
-      queryClient.invalidateQueries({ queryKey: ['users'] });
-      toast({
-        title: user.isAdmin ? 'Admin removed' : 'Admin granted',
-        description: `"${user.email}" is ${user.isAdmin ? 'no longer' : 'now'} an admin.`,
-      });
-    } catch (error) {
-      notifyError(error, 'Error updating user');
-    } finally {
-      setTogglingUserId(null);
-    }
-  };
 
   const handleToggleEnabled = async (user: UserRecord) => {
     setTogglingEnabledId(user.id);
@@ -153,12 +148,30 @@ export const Users = () => {
             {
               header: 'Role',
               accessorKey: 'isAdmin',
-              cell: ({ row }) =>
-                row.original.isAdmin ? (
-                  <Badge>Admin</Badge>
-                ) : (
-                  <Badge variant="secondary">Member</Badge>
-                ),
+              cell: ({ row }) => {
+                if (row.original.isAdmin) {
+                  return <Badge>Admin</Badge>;
+                }
+                // Only meaningful while roles are enforced: without a license
+                // members keep the community read-only access to every app.
+                const hasNoAccess =
+                  rbacEnabled &&
+                  grantsSummaryQuery.data &&
+                  !(grantsSummaryQuery.data[row.original.id] > 0);
+                return (
+                  <span className="flex items-center gap-1.5">
+                    <Badge variant="secondary">Member</Badge>
+                    {hasNoAccess && (
+                      <Badge
+                        variant="outline"
+                        className="border-amber-300/80 bg-amber-50 font-normal text-amber-800"
+                        title="This member holds no grant: they see an empty dashboard. Open Roles to give them access.">
+                        No app access
+                      </Badge>
+                    )}
+                  </span>
+                );
+              },
             },
             {
               header: 'Access',
@@ -216,13 +229,13 @@ export const Users = () => {
                 return (
                   <div className="flex items-center justify-end gap-1">
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
-                      onClick={() => handleToggleAdmin(row.original)}
-                      disabled={togglingUserId === row.original.id}
-                      className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-                      title={row.original.isAdmin ? 'Remove admin' : 'Make admin'}>
-                      {row.original.isAdmin ? <ShieldOff /> : <Shield />}
+                      onClick={() => setUserForRoles(row.original)}
+                      className="h-8 gap-1.5 text-muted-foreground hover:text-foreground"
+                      title="Admin status and per-app roles">
+                      <UserCog className="h-3.5 w-3.5" />
+                      Roles
                     </Button>
                     <Button
                       variant="ghost"
@@ -247,6 +260,8 @@ export const Users = () => {
         onClose={() => setIsCreateModalOpen(false)}
         onUserCreated={() => queryClient.invalidateQueries({ queryKey: ['users'] })}
       />
+
+      <UserRolesSheet user={userForRoles} onClose={() => setUserForRoles(null)} />
 
       <DeleteDialog
         isOpen={!!userToDelete}
