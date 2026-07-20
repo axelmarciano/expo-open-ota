@@ -56,6 +56,9 @@ func up(b bucket.Bucket) error {
 		if err := concrete.MoveRootEntriesUnder(appId); err != nil {
 			return fmt.Errorf("GCSBucket re-path: %w", err)
 		}
+	case *bucket.AzureBucket:
+		// The Azure backend shipped after the v2 layout, so no v1 Azure
+		// deployment can exist and there is nothing to re-path.
 	default:
 		return fmt.Errorf("unsupported bucket backend for v1-to-v2 migration: %T", inner)
 	}

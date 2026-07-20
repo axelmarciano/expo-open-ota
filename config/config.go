@@ -11,7 +11,7 @@ import (
 )
 
 func validateStorageMode(storageMode string) bool {
-	return storageMode == "local" || storageMode == "s3" || storageMode == "gcs"
+	return storageMode == "local" || storageMode == "s3" || storageMode == "gcs" || storageMode == "azure"
 }
 
 func GetPort() string {
@@ -60,6 +60,21 @@ func validateBucketParams(storageMode string) bool {
 		bucketName := GetEnv("GCS_BUCKET_NAME")
 		if bucketName == "" {
 			log.Printf("GCS_BUCKET_NAME not set")
+			return false
+		}
+	case "azure":
+		if GetEnv("AZURE_BLOB_CONTAINER_NAME") == "" {
+			log.Printf("AZURE_BLOB_CONTAINER_NAME not set")
+			return false
+		}
+		if GetEnv("AZURE_STORAGE_ACCOUNT_NAME") == "" {
+			log.Printf("AZURE_STORAGE_ACCOUNT_NAME not set")
+			return false
+		}
+		// The account key is required in every case: shared key auth is the
+		// only supported mode and SAS URLs cannot be signed without it.
+		if GetEnv("AZURE_STORAGE_ACCOUNT_KEY") == "" {
+			log.Printf("AZURE_STORAGE_ACCOUNT_KEY not set")
 			return false
 		}
 	case "local":

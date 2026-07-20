@@ -159,6 +159,7 @@ const (
 	S3BucketType    BucketType = "s3"
 	LocalBucketType BucketType = "local"
 	GCSBucketType   BucketType = "gcs"
+	AzureBucketType BucketType = "azure"
 )
 
 func ResolveBucketType() BucketType {
@@ -170,6 +171,8 @@ func ResolveBucketType() BucketType {
 		return S3BucketType
 	case "gcs":
 		return GCSBucketType
+	case "azure":
+		return AzureBucketType
 	default:
 		return LocalBucketType
 	}
@@ -196,6 +199,11 @@ func GetBucket() Bucket {
 				inner = &GCSBucket{
 					BucketName: config.GetEnv("GCS_BUCKET_NAME"),
 					KeyPrefix:  keyPrefix,
+				}
+			case AzureBucketType:
+				inner = &AzureBucket{
+					ContainerName: config.GetEnv("AZURE_BLOB_CONTAINER_NAME"),
+					KeyPrefix:     keyPrefix,
 				}
 			case LocalBucketType:
 				inner = &LocalBucket{
