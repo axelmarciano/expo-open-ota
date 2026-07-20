@@ -17,8 +17,9 @@ import {
 } from '@/components/ui/dialog';
 import { RolloutBar } from '@/components/rollout/RolloutBar';
 
-// Renders the active per-update rollout for a (branch, runtime version) with
-// its admin controls: progress forward, finish, or revert. `updates` holds one
+// Renders the active per-update rollout for a (branch, runtime version). The
+// controls (progress forward, finish, or revert) only show when the account
+// holds the update-rollout permission (canManageRollout). `updates` holds one
 // row per platform, all sharing the same update id and percentage.
 export const UpdateRolloutCard = ({
   branch,

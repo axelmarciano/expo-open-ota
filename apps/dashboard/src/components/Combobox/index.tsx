@@ -26,6 +26,8 @@ interface ComboboxProps {
   onChange: (value: string) => void;
   loading?: boolean;
   label?: string;
+  // Disables the trigger entirely (e.g. while the surrounding form saves).
+  disabled?: boolean;
   // Optional action pinned under the options (e.g. "New Application"). Stays
   // visible whatever the search input, since it is not one of the options.
   action?: { label: string; icon?: React.ReactNode; onSelect: () => void };
@@ -36,7 +38,7 @@ interface ComboboxProps {
 
 export function Combobox(props: ComboboxProps) {
   const [open, setOpen] = React.useState(false);
-  const { options, value, onChange, loading, label, action, className } = props;
+  const { options, value, onChange, loading, label, disabled, action, className } = props;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -44,6 +46,7 @@ export function Combobox(props: ComboboxProps) {
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          disabled={disabled}
           className={cn('w-max justify-between font-normal', className)}>
           <span className="truncate">
             {value ? options.find(opt => opt.value === value)?.label : label || 'Select option'}

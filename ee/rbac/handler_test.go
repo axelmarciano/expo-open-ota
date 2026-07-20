@@ -5,6 +5,7 @@
 package rbac
 
 import (
+	"context"
 	"encoding/json"
 	"expo-open-ota/internal/middleware"
 	"expo-open-ota/internal/services"
@@ -33,10 +34,11 @@ func newHandlerRig(handler *RBACHandler) func(t *testing.T, method, path, body s
 	router.HandleFunc("/me/permissions", handler.GetMyPermissionsHandler).Methods(http.MethodGet)
 	return func(t *testing.T, method, path, body string, principal *services.DashboardPrincipal) *httptest.ResponseRecorder {
 		t.Helper()
-		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		ctx := context.Background()
 		if principal != nil {
-			req = req.WithContext(middleware.WithPrincipal(req.Context(), principal))
+			ctx = middleware.WithPrincipal(ctx, principal)
 		}
+		req := httptest.NewRequestWithContext(ctx, method, path, strings.NewReader(body))
 		recorder := httptest.NewRecorder()
 		router.ServeHTTP(recorder, req)
 		return recorder

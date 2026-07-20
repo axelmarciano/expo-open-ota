@@ -1,5 +1,6 @@
 import { ReactNode, useState } from 'react';
 import { PackageOpen, Plus } from 'lucide-react';
+import { ApiError } from '@/components/APIError';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
 import { useCurrentUser } from '@/lib/CurrentUserContext';
 import { useSettings } from '@/lib/SettingsContext';
@@ -13,7 +14,7 @@ import { CreateAppModal } from '@/components/app-creation-modal';
 // path right there; members learn who to ask.
 export const RequiresApp = ({ children }: { children: ReactNode }) => {
   const { CONTROL_PLANE_ENABLED } = useSettings();
-  const { apps, isLoading, refreshApps, setSelectedAppId } = useSelectedApp();
+  const { apps, isLoading, error, refreshApps, setSelectedAppId } = useSelectedApp();
   const { isAdmin } = useCurrentUser();
   const { enabled: rbacEnabled } = usePermissions();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -22,6 +23,16 @@ export const RequiresApp = ({ children }: { children: ReactNode }) => {
   // state only takes over once we know there is truly nothing to show.
   if (isLoading || apps.length > 0) {
     return <>{children}</>;
+  }
+
+  // A failed app list is not an empty one: show the error instead of a
+  // misleading "no app available".
+  if (error) {
+    return (
+      <div className="w-full pt-8">
+        <ApiError error={error} />
+      </div>
+    );
   }
 
   const canCreateApp = CONTROL_PLANE_ENABLED && isAdmin;

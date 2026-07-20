@@ -134,6 +134,7 @@ export const GrantsEditor = ({
             <p className="text-xs font-medium text-muted-foreground">Role on this app</p>
             <Combobox
               options={roleOptions}
+              disabled={disabled}
               value={grant.roleId ?? NO_ROLE_VALUE}
               onChange={value =>
                 updateGrant(grant.appId, {
@@ -195,6 +196,7 @@ export const GrantsEditor = ({
           <p className="text-xs font-medium text-muted-foreground">Grant access to</p>
           <Combobox
             options={availableApps.map(app => ({ value: app.id, label: app.name || app.id }))}
+            disabled={disabled}
             value=""
             onChange={appId => {
               if (appId) {
