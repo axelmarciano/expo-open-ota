@@ -13,8 +13,6 @@ permissions:
 jobs:
   docker:
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -25,40 +23,25 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # The personal token has write access to both the mercuretechnologies and
+      # the legacy axelmarciano namespaces (GHCR packages do not follow repo
+      # transfers, and existing deployments still pull the old path).
       - name: Log in to GitHub Container Registry
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        run: echo "${{ secrets.DOCKER_GITHUB_CONTAINER_REGISTRY_TOKEN }}" | docker login ghcr.io -u axelmarciano --password-stdin
 
       - name: Build and push multi-platform Docker image
         run: |
           IMAGE_TAG="${GITHUB_REF#refs/tags/}"
           REPO="ghcr.io/${{ github.repository_owner }}/expo-open-ota"
+          LEGACY_REPO="ghcr.io/axelmarciano/expo-open-ota"
 
           echo "Building Docker image with tag: $IMAGE_TAG"
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --build-arg VERSION="$IMAGE_TAG" \
             -t "$REPO:$IMAGE_TAG" \
+            -t "$LEGACY_REPO:$IMAGE_TAG" \
             --push .
-
-      - name: Check latest version and update latest tag
-        env:
-          IMAGE_TAG: ${{ github.ref_name }}
-        run: |
-          REPO="ghcr.io/${{ github.repository_owner }}/expo-open-ota"
-
-          echo "Fetching the latest version tag from GHCR..."
-          LATEST_TAG=$(gh api "https://api.github.com/users/${{ github.repository_owner }}/packages/container/expo-open-ota/versions?per_page=100" \
-            --jq '[.[].metadata.container.tags[]] | map(select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))) | sort_by(ltrimstr("v") | split(".") | map(tonumber)) | last' | tr -d '"')
-
-          echo "Latest found version: $LATEST_TAG"
-          echo "Current version: $IMAGE_TAG"
-
-          if [ "$LATEST_TAG" = "$IMAGE_TAG" ]; then
-            echo "$IMAGE_TAG is the latest version. Updating latest tag..."
-            docker buildx imagetools create -t "$REPO:latest" "$REPO:$IMAGE_TAG"
-          else
-            echo "$IMAGE_TAG is not the latest version. Skipping latest tag update."
-          fi
 
   helm:
     runs-on: ubuntu-latest
@@ -79,7 +62,7 @@ jobs:
           helm package ./helm -d ./charts --version "$CHART_VERSION" --app-version "$IMAGE_TAG"
 
       - name: Log in to GitHub Container Registry
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+        run: echo "${{ secrets.DOCKER_GITHUB_CONTAINER_REGISTRY_TOKEN }}" | helm registry login ghcr.io -u axelmarciano --password-stdin
 
       - name: Push Helm chart to GHCR
         run: |
@@ -87,6 +70,7 @@ jobs:
           CHART_VERSION="${IMAGE_TAG#v}"
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           helm push "./charts/expo-open-ota-${CHART_VERSION}.tgz" "oci://ghcr.io/${OWNER}/charts"
+          helm push "./charts/expo-open-ota-${CHART_VERSION}.tgz" "oci://ghcr.io/axelmarciano/charts"
 
       - name: Rename chart archive for release assets
         run: |

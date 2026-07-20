@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/mercuretechnologies/expo-open-ota/releases"><img src="https://img.shields.io/github/v/release/mercuretechnologies/expo-open-ota?include_prereleases&label=release" alt="Latest release" /></a>
+  <a href="https://github.com/mercuretechnologies/expo-open-ota/releases"><img src="https://img.shields.io/github/v/release/mercuretechnologies/expo-open-ota?label=release" alt="Latest release" /></a>
   <a href="https://www.npmjs.com/package/eoas"><img src="https://img.shields.io/npm/v/eoas?label=eoas%20CLI" alt="eoas on npm" /></a>
   <a href="https://github.com/mercuretechnologies/expo-open-ota/actions"><img src="https://img.shields.io/github/actions/workflow/status/mercuretechnologies/expo-open-ota/push.yml?label=CI" alt="CI status" /></a>
   <a href="./LICENSE.md"><img src="https://img.shields.io/badge/license-MIT%20%2B%20Enterprise-blue" alt="License" /></a>
