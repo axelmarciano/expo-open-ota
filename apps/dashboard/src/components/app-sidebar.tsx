@@ -12,6 +12,7 @@ import {
   Plus,
   Radio,
   Settings,
+  ShieldCheck,
   Users,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -196,6 +197,9 @@ export function AppSidebar() {
                     ) : undefined
                   }>
                   Users
+                </NavLink>
+                <NavLink to="/roles" icon={ShieldCheck} badge={<EnterpriseNavBadge />}>
+                  Roles
                 </NavLink>
                 <NavLink to="/sso" icon={Fingerprint} badge={<EnterpriseNavBadge />}>
                   SSO

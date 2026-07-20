@@ -15,6 +15,7 @@ import { Users } from '@/pages/Users';
 import { Account } from '@/pages/Account';
 import { License } from '@/ee/pages/License';
 import { Sso } from '@/ee/pages/Sso';
+import { Roles } from '@/ee/pages/Roles';
 import { SettingsProvider } from '@/lib/SettingsContext';
 import { CurrentUserProvider } from '@/lib/CurrentUserContext';
 import { PermissionsProvider } from '@/ee/lib/PermissionsContext';
@@ -53,6 +54,7 @@ export const App = () => {
                       <Route path="/app-info" element={withLayout(<AppInfo />)} />
                       <Route path="/tokens" element={withLayout(<ApiTokens />)} />
                       <Route path="/users" element={withLayout(<Users />)} />
+                      <Route path="/roles" element={withLayout(<Roles />)} />
                       <Route path="/sso" element={withLayout(<Sso />)} />
                       <Route path="/license" element={withLayout(<License />)} />
                       <Route path="/account" element={withLayout(<Account />)} />

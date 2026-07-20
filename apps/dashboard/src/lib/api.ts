@@ -182,6 +182,16 @@ export type UserRecord = {
   lastConnectedAt?: string;
 };
 
+// A named permission bundle (enterprise user roles, ee/rbac). Roles are
+// global; they apply to an app only through a user's grant.
+export type RoleRecord = {
+  id: string;
+  name: string;
+  permissions: string[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 // The deployment's Enterprise Edition license status (/api/license,
 // control-plane only). `valid` is the single source of truth for "enterprise
 // features are on": `hasKey` can be true with `valid` false when the stored
@@ -447,6 +457,35 @@ export class ApiClient {
 
   public async deleteUser(userId: string) {
     return this.request<void>(`/api/users/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Enterprise user roles (admin only; writes are license-gated server-side).
+  public async getRoles() {
+    return this.request<RoleRecord[]>(`/api/roles`, {
+      method: 'GET',
+    });
+  }
+
+  public async createRole(payload: { name: string; permissions: string[] }) {
+    return this.request<RoleRecord>(`/api/roles`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async updateRole(roleId: string, payload: { name: string; permissions: string[] }) {
+    return this.request<void>(`/api/roles/${encodeURIComponent(roleId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async deleteRole(roleId: string) {
+    return this.request<void>(`/api/roles/${encodeURIComponent(roleId)}`, {
       method: 'DELETE',
     });
   }
