@@ -2,14 +2,15 @@ package test
 
 import (
 	cache2 "expo-open-ota/internal/cache"
+	"expo-open-ota/internal/providers/expo"
 	infrastructure "expo-open-ota/internal/router"
-	"expo-open-ota/internal/services"
-	"github.com/jarcoal/httpmock"
-	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/jarcoal/httpmock"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestChannelMappingIsCached(t *testing.T) {
@@ -18,7 +19,7 @@ func TestChannelMappingIsCached(t *testing.T) {
 	mockWorkingExpoResponse("staging")
 
 	// First call — hits the Expo GraphQL API
-	mapping1, err := services.FetchExpoChannelMapping("staging")
+	mapping1, err := expo.FetchChannelMapping("test-app-id", "staging")
 	assert.NoError(t, err)
 	assert.NotNil(t, mapping1)
 	assert.Equal(t, "branch-1", mapping1.BranchName)
@@ -27,7 +28,7 @@ func TestChannelMappingIsCached(t *testing.T) {
 	httpmock.Reset()
 
 	// Second call — mock is gone, so this must use cache
-	mapping2, err := services.FetchExpoChannelMapping("staging")
+	mapping2, err := expo.FetchChannelMapping("test-app-id", "staging")
 	assert.NoError(t, err)
 	assert.NotNil(t, mapping2)
 	assert.Equal(t, mapping1.BranchName, mapping2.BranchName)
@@ -40,14 +41,14 @@ func TestUpdateChannelBranchMappingInvalidatesChannelMappingCache(t *testing.T) 
 	mockWorkingExpoResponse("staging")
 
 	// Populate the channel mapping cache
-	mapping1, err := services.FetchExpoChannelMapping("staging")
+	mapping1, err := expo.FetchChannelMapping("test-app-id", "staging")
 	assert.NoError(t, err)
 	assert.NotNil(t, mapping1)
 	assert.Equal(t, "branch-1", mapping1.BranchName)
 
 	// Verify cache is populated (reset mock — cached call should still work)
 	httpmock.Reset()
-	cachedMapping, err := services.FetchExpoChannelMapping("staging")
+	cachedMapping, err := expo.FetchChannelMapping("test-app-id", "staging")
 	assert.NoError(t, err)
 	assert.Equal(t, "branch-1", cachedMapping.BranchName)
 
@@ -89,23 +90,26 @@ func TestUpdateChannelBranchMappingInvalidatesChannelMappingCache(t *testing.T) 
 			return httpmock.NewStringResponse(404, "Unknown operation"), nil
 		})
 
-	// Call UpdateChannelBranchMappingHandler via the router — this should invalidate the cache
-	router := infrastructure.NewRouter()
-	body := `{"releaseChannel":"staging"}`
-	req, _ := http.NewRequest("POST", "/api/branch/branch-2-id/updateChannelBranchMapping", strings.NewReader(body))
+	// Call UpdateChannelBranchMappingHandler via the router — this should invalidate the cache.
+	// The channel's id and name differ on purpose, mirroring what the dashboard
+	// sends: the remap is keyed by id while the mapping cache is keyed by name,
+	// so invalidating with the id would silently leave the stale entry behind.
+	router := infrastructure.NewRouter(testContainer())
+	body := `{"releaseChannelId":"staging-id","releaseChannelName":"staging"}`
+	req, _ := http.NewRequest("POST", "/api/apps/test-app-id/branch/branch-2-id/updateChannelBranchMapping", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+login().Token)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusNoContent, w.Code)
 
 	// Verify the channel mapping cache key was deleted
 	cache := cache2.GetCache()
-	cacheKey := services.ComputeChannelMappingCacheKey("staging")
+	cacheKey := expo.ComputeChannelMappingCacheKey("test-app-id", "staging")
 	assert.Equal(t, "", cache.Get(cacheKey), "Channel mapping cache should be invalidated after handler call")
 
 	// FetchExpoChannelMapping should now hit the API and return the updated mapping
-	mapping2, err := services.FetchExpoChannelMapping("staging")
+	mapping2, err := expo.FetchChannelMapping("test-app-id", "staging")
 	assert.NoError(t, err)
 	assert.NotNil(t, mapping2)
 	assert.Equal(t, "branch-2", mapping2.BranchName, "After UpdateChannelBranchMappingHandler, should fetch new mapping from API")

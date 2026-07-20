@@ -2,20 +2,33 @@ package handlers
 
 import (
 	"encoding/json"
-	"expo-open-ota/internal/branch"
+	"errors"
 	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/services"
 	types2 "expo-open-ota/internal/types"
-	update2 "expo-open-ota/internal/update"
-	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 	"log"
 	"net/http"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 )
 
-func RepublishHandler(w http.ResponseWriter, r *http.Request) {
+type RepublishHandler struct {
+	cliAuthService    *services.CliAuthService
+	deploymentService *services.DeploymentService
+}
+
+func NewRepublishHandler(cliAuthService *services.CliAuthService, deploymentService *services.DeploymentService) *RepublishHandler {
+	return &RepublishHandler{
+		cliAuthService:    cliAuthService,
+		deploymentService: deploymentService,
+	}
+}
+
+func (h *RepublishHandler) HandleRepublish(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	vars := mux.Vars(r)
+	appId := vars["APP_ID"]
 	branchName := vars["BRANCH"]
 	platform := r.URL.Query().Get("platform")
 	if platform == "" || (platform != "ios" && platform != "android") {
@@ -28,16 +41,11 @@ func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No branch provided", http.StatusBadRequest)
 		return
 	}
-	expoAuth := helpers.GetExpoAuth(r)
-	expoAccount, err := services.FetchExpoUserAccountInformations(expoAuth)
+	auth := helpers.GetAuth(r)
+	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth, branchName, helpers.ClientIP(r))
 	if err != nil {
-		log.Printf("[RequestID: %s] Error fetching expo account informations: %v", requestID, err)
-		http.Error(w, "Error fetching expo account informations", http.StatusUnauthorized)
-		return
-	}
-	if expoAccount == nil {
-		log.Printf("[RequestID: %s] No expo account found", requestID)
-		http.Error(w, "No expo account found", http.StatusUnauthorized)
+		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
+		RenderCliAuthError(w, err)
 		return
 	}
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")
@@ -53,54 +61,24 @@ func RepublishHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No updateId provided", http.StatusBadRequest)
 		return
 	}
-	err = branch.UpsertBranch(branchName)
+	previousUpdate := &types2.Update{
+		AppId:          appId,
+		Branch:         branchName,
+		RuntimeVersion: runtimeVersion,
+		UpdateId:       updateId,
+	}
+	newUpdate, err := h.deploymentService.RepublishUpdate(r.Context(), previousUpdate, platform, commitHash)
 	if err != nil {
-		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, err)
-		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
-		return
-	}
-	update, err := update2.GetUpdate(branchName, runtimeVersion, updateId)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error getting update: %v", requestID, err)
-		http.Error(w, "Error getting update", http.StatusBadRequest)
-		return
-	}
-	if update == nil {
-		log.Printf("[RequestID: %s] No update found for runtimeVersion: %s in branch: %s", requestID, runtimeVersion, branchName)
-		http.Error(w, "No update found", http.StatusNotFound)
-		return
-	}
-	updateType := update2.GetUpdateType(*update)
-	if updateType != types2.NormalUpdate {
-		log.Printf("[RequestID: %s] Update type is not normal update", requestID)
-		http.Error(w, "Update type is not normal update", http.StatusBadRequest)
-		return
-	}
-	storedMetadata, err := update2.RetrieveUpdateStoredMetadata(*update)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error retrieving update commit hash and platform: %v", requestID, err)
-		http.Error(w, "Error retrieving update commit hash and platform", http.StatusInternalServerError)
-		return
-	}
-	if storedMetadata == nil {
-		log.Printf("[RequestID: %s] No stored metadata found for update: %s", requestID, updateId)
-		http.Error(w, "No stored metadata found for update", http.StatusNotFound)
-		return
-	}
-	isValid := update2.IsUpdateValid(*update)
-	if !isValid {
-		log.Printf("[RequestID: %s] Update is not valid", requestID)
-		http.Error(w, "Update is not valid", http.StatusBadRequest)
-		return
-	}
-	if storedMetadata.Platform != platform {
-		log.Printf("[RequestID: %s] Update platform mismatch: %s != %s", requestID, storedMetadata.Platform, platform)
-		http.Error(w, "Update platform mismatch", http.StatusBadRequest)
-		return
-	}
-	newUpdate, err := update2.RepublishUpdate(update, platform, commitHash)
-	if err != nil {
-		log.Printf("[RequestID: %s] Error republishing update: %v", requestID, err)
+		if errors.Is(err, services.ErrActiveRolloutBlocksPublish) {
+			log.Printf("[RequestID: %s] Republish blocked by active rollout: %v", requestID, err)
+			http.Error(w, activeRolloutConflictMessage, http.StatusConflict)
+			return
+		}
+		var rErr *services.RepublishError
+		if errors.As(err, &rErr) {
+			http.Error(w, rErr.Message, rErr.Status)
+			return
+		}
 		http.Error(w, "Error republishing update", http.StatusInternalServerError)
 		return
 	}

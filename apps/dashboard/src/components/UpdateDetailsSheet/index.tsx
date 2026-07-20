@@ -1,4 +1,5 @@
-import { forwardRef, useImperativeHandle, useState } from 'react';
+import { forwardRef, useImperativeHandle, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -6,12 +7,16 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet.tsx';
-import { Label } from '@/components/ui/label.tsx';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api.ts';
 import { Skeleton } from '@/components/ui/skeleton.tsx';
 import { ApiError } from '@/components/APIError';
 import { Badge } from '@/components/ui/badge.tsx';
+import { Button } from '@/components/ui/button.tsx';
+import { useSelectedApp } from '@/lib/SelectedAppContext';
+import { formatTimestamp } from '@/lib/utils';
+import { RolloutBar } from '@/components/rollout/RolloutBar';
+import { Check, ChevronDown, ChevronUp, Copy, Package, Split, Undo2 } from 'lucide-react';
 
 interface Update {
   updateUUID: string;
@@ -26,138 +31,232 @@ export type UpdateDetailsRef = {
   closeSheet: () => void;
 };
 
-const UpdateDetails = ({
+const CopyButton = ({ value, label }: { value: string; label: string }) => {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          setCopied(false);
+        }
+      }}>
+      {copied ? (
+        <Check className="h-3.5 w-3.5 text-emerald-600" />
+      ) : (
+        <Copy className="h-3.5 w-3.5" />
+      )}
+      <span className="sr-only">Copy {label}</span>
+    </Button>
+  );
+};
+
+const DetailSection = ({ title, children }: { title: string; children: ReactNode }) => (
+  <section className="space-y-2">
+    <h3 className="text-sm font-medium">{title}</h3>
+    <div className="divide-y rounded-xl border bg-card shadow-sm">{children}</div>
+  </section>
+);
+
+const DetailRow = ({ label, children }: { label: string; children: ReactNode }) => (
+  <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+    <span className="shrink-0 text-sm text-muted-foreground">{label}</span>
+    <div className="flex min-w-0 items-center gap-1 text-sm font-medium">{children}</div>
+  </div>
+);
+
+const MonoValue = ({ value }: { value: string }) => (
+  <code className="truncate font-mono text-xs" title={value}>
+    {value}
+  </code>
+);
+
+const platformLabel = (platform: string) =>
+  platform === 'ios' ? 'iOS' : platform === 'android' ? 'Android' : platform;
+
+const UpdateDetailsBody = ({
   update,
   branch,
   runtimeVersion,
 }: {
-  update: Update | null;
+  update: Update;
   branch: string;
   runtimeVersion: string;
 }) => {
+  const { selectedAppId } = useSelectedApp();
+  const [showRawConfig, setShowRawConfig] = useState(false);
   const { data, isLoading, error } = useQuery({
-    queryKey: [`update-details-${update?.updateUUID}`],
-    enabled: !!update?.updateId,
-    queryFn: () => api.getUpdateDetails(branch, runtimeVersion, update?.updateId as string),
+    queryKey: ['update-details', selectedAppId, update.updateUUID],
+    enabled: !!update.updateId && !!selectedAppId,
+    queryFn: () => api.getUpdateDetails(branch, runtimeVersion, update.updateId),
   });
-  const updateDetails = data;
-  if (!update) {
+
+  const expoConfig = useMemo(() => {
+    if (!data?.expoConfig) return null;
+    try {
+      const parsed = JSON.parse(data.expoConfig);
+      return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
+  }, [data?.expoConfig]);
+
+  if (isLoading || (!data && !error)) {
     return (
-      <SheetContent>
-        <SheetHeader>
-          <SheetTitle>Update details</SheetTitle>
-        </SheetHeader>
-        <Skeleton className="h-full w-full" />
-      </SheetContent>
-    );
-  }
-  if (isLoading) {
-    return (
-      <SheetContent>
-        <SheetHeader>
-          <SheetTitle>Update details</SheetTitle>
-          <SheetDescription>{update.updateId}</SheetDescription>
-        </SheetHeader>
-        <Skeleton className="h-full w-full" />
-      </SheetContent>
+      <div className="space-y-4 py-4">
+        <Skeleton className="h-24 w-full rounded-xl" />
+        <Skeleton className="h-40 w-full rounded-xl" />
+        <Skeleton className="h-40 w-full rounded-xl" />
+      </div>
     );
   }
   if (error) {
     return (
-      <SheetContent>
-        <SheetHeader>
-          <SheetTitle>Update details</SheetTitle>
-          <SheetDescription>{update.updateId}</SheetDescription>
-        </SheetHeader>
-        <div className="flex flex-col items-center justify-center h-full">
-          <ApiError error={error} />
-        </div>
-      </SheetContent>
+      <div className="flex h-full flex-col items-center justify-center">
+        <ApiError error={error} />
+      </div>
     );
   }
-  if (!updateDetails) {
-    return (
-      <SheetContent>
-        <SheetHeader>
-          <SheetTitle>Update details</SheetTitle>
-          <SheetDescription>{update.updateId}</SheetDescription>
-        </SheetHeader>
-        <Skeleton className="h-full w-full" />
-      </SheetContent>
-    );
-  }
+  if (!data) return null;
+
+  const isRollback = data.type !== 0;
+  const rolloutActive = data.rolloutPercentage != null;
+  const rolloutEnded = !rolloutActive && data.controlUpdateId != null;
+  const publishedAt = formatTimestamp(data.createdAt, true);
+  const configEntries = (
+    [
+      ['App name', expoConfig?.name],
+      ['Slug', expoConfig?.slug],
+      ['App version', expoConfig?.version],
+      ['SDK version', expoConfig?.sdkVersion],
+    ] as [string, unknown][]
+  ).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1] !== '');
+
   return (
-    <SheetContent style={{ maxWidth: 'none' }} className="w-[800px] overflow-scroll">
+    <>
       <SheetHeader>
-        <SheetTitle>Update details</SheetTitle>
-        <SheetDescription>{updateDetails.updateId}</SheetDescription>
-      </SheetHeader>
-      <div className="grid gap-4 py-4 overflow-scroll">
-        <div className="grid grid-cols-4 items-center gap-4">
-          <Label>Update ID</Label>
-          <Badge variant="outline" className="col-span-3">
-            {updateDetails.updateId}
-          </Badge>
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border bg-muted/50 text-muted-foreground">
+            {isRollback ? <Undo2 className="h-5 w-5" /> : <Package className="h-5 w-5" />}
+          </div>
+          <div className="min-w-0">
+            <SheetTitle className="truncate">Update {data.updateId}</SheetTitle>
+            <SheetDescription>
+              {publishedAt ? `Published ${publishedAt}` : 'Legacy record'}
+            </SheetDescription>
+          </div>
         </div>
-        <div className="grid grid-cols-4 items-center gap-4">
-          <Label>Branch</Label>
-          <Badge variant="outline" className="col-span-3">
-            {branch}
-          </Badge>
-        </div>
-        <div className="grid grid-cols-4 items-center gap-4">
-          <Label>Runtime version</Label>
-          <Badge variant="outline" className="col-span-3">
-            {runtimeVersion}
-          </Badge>
-        </div>
-        <div className="grid grid-cols-4 items-center gap-4">
-          <Label>Created At</Label>
-          <Badge variant="outline" className="col-span-3">
-            {new Date(updateDetails.createdAt).toLocaleDateString('en-GB', {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-              hour: 'numeric',
-              minute: 'numeric',
-              second: 'numeric',
-            })}
-          </Badge>
-        </div>
-        <div className="grid grid-cols-4 items-center gap-4">
-          <Label>UUID</Label>
-          <Badge variant="outline" className="col-span-3">
-            {updateDetails.updateUUID}
-          </Badge>
-        </div>
-        <div className="grid grid-cols-4 items-center gap-4">
-          <Label>Commit</Label>
-          <Badge variant="outline" className="col-span-3 break-all">
-            {updateDetails.commitHash}
-          </Badge>
-        </div>
-        {updateDetails.message && (
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label>Message</Label>
-            <Badge variant="outline" className="col-span-3 break-all">
-              {updateDetails.message}
+        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+          <Badge variant="outline">{platformLabel(data.platform)}</Badge>
+          {isRollback ? (
+            <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+              Rollback
             </Badge>
+          ) : (
+            <Badge variant="outline">Normal update</Badge>
+          )}
+          {rolloutActive && (
+            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+              <Split className="mr-1 h-3 w-3" />
+              Rollout in progress
+            </Badge>
+          )}
+        </div>
+      </SheetHeader>
+
+      <div className="space-y-5 py-4">
+        {rolloutActive && (
+          <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm font-medium text-emerald-800">Progressive rollout</span>
+              <RolloutBar value={data.rolloutPercentage as number} />
+            </div>
+            {data.controlUpdateId && (
+              <p className="text-xs text-muted-foreground">
+                Devices outside the rollout bucket keep receiving update {data.controlUpdateId}.
+              </p>
+            )}
           </div>
         )}
-        <div className="grid grid-cols-4 items-center gap-4">
-          <Label>Platform</Label>
-          <Badge variant="outline" className="col-span-3 break-all">
-            {updateDetails.platform}
-          </Badge>
-        </div>
-        <div className="grid grid-cols-4 items-center gap-4">
-          <Label>Type</Label>
-          <Badge variant="outline" className="col-span-3 break-all">
-            {updateDetails.type === 0 ? 'Normal update' : 'Rollback'}
-          </Badge>
-        </div>
+
+        <DetailSection title="Deployment">
+          <DetailRow label="Branch">{branch}</DetailRow>
+          <DetailRow label="Runtime version">{runtimeVersion}</DetailRow>
+          <DetailRow label="Platform">{platformLabel(data.platform)}</DetailRow>
+          <DetailRow label="Published">
+            {publishedAt || <span className="italic text-muted-foreground">Legacy record</span>}
+          </DetailRow>
+          {rolloutEnded && (
+            <DetailRow label="Rollout">
+              <span className="text-muted-foreground">
+                Ended, previously gated against update {data.controlUpdateId}
+              </span>
+            </DetailRow>
+          )}
+        </DetailSection>
+
+        <DetailSection title="Source">
+          <DetailRow label="Commit">
+            <MonoValue value={data.commitHash} />
+            <CopyButton value={data.commitHash} label="commit hash" />
+          </DetailRow>
+          {data.message && (
+            <div className="space-y-1 px-4 py-2.5">
+              <span className="text-sm text-muted-foreground">Message</span>
+              <p className="text-sm font-medium">{data.message}</p>
+            </div>
+          )}
+        </DetailSection>
+
+        <DetailSection title="Identifiers">
+          <DetailRow label="Update ID">
+            <MonoValue value={data.updateId} />
+            <CopyButton value={data.updateId} label="update ID" />
+          </DetailRow>
+          <DetailRow label="UUID">
+            <MonoValue value={data.updateUUID} />
+            <CopyButton value={data.updateUUID} label="update UUID" />
+          </DetailRow>
+        </DetailSection>
+
+        {expoConfig && (
+          <DetailSection title="App configuration">
+            {configEntries.map(([label, value]) => (
+              <DetailRow key={label} label={label}>
+                <span className="truncate">{value}</span>
+              </DetailRow>
+            ))}
+            <div className="px-4 py-2.5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="-ml-2 h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setShowRawConfig(v => !v)}>
+                {showRawConfig ? (
+                  <ChevronUp className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                )}
+                {showRawConfig ? 'Hide raw configuration' : 'Show raw configuration'}
+              </Button>
+              {showRawConfig && (
+                <pre className="mt-2 max-h-72 overflow-auto rounded-lg border bg-muted/50 p-3 font-mono text-xs">
+                  {JSON.stringify(expoConfig, null, 2)}
+                </pre>
+              )}
+            </div>
+          </DetailSection>
+        )}
       </div>
-    </SheetContent>
+    </>
   );
 };
 
@@ -167,16 +266,7 @@ type Props = {
 };
 
 export const UpdateDetailsSheet = forwardRef<UpdateDetailsRef, Props>(
-  (
-    {
-      branch,
-      runtimeVersion,
-    }: {
-      branch: string;
-      runtimeVersion: string;
-    },
-    ref
-  ) => {
+  ({ branch, runtimeVersion }: Props, ref) => {
     const [currentUpdate, setCurrentUpdate] = useState<Update | null>(null);
     useImperativeHandle(ref, () => ({
       openSheet: update => {
@@ -195,7 +285,20 @@ export const UpdateDetailsSheet = forwardRef<UpdateDetailsRef, Props>(
             setCurrentUpdate(null);
           }
         }}>
-        <UpdateDetails branch={branch} runtimeVersion={runtimeVersion} update={currentUpdate} />
+        <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
+          {currentUpdate ? (
+            <UpdateDetailsBody
+              key={currentUpdate.updateUUID}
+              update={currentUpdate}
+              branch={branch}
+              runtimeVersion={runtimeVersion}
+            />
+          ) : (
+            <SheetHeader>
+              <SheetTitle>Update details</SheetTitle>
+            </SheetHeader>
+          )}
+        </SheetContent>
       </Sheet>
     );
   }

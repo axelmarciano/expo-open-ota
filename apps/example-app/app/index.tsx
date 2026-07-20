@@ -48,8 +48,8 @@ export default function HomeScreen() {
         load(false)
         await Updates.reloadAsync()
       } else if (update.isRollBackToEmbedded) {
-        load(true)
         setLogs(logEntries)
+        load(true)
         await Updates.reloadAsync()
         // add alert on rollback
         load(false)

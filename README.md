@@ -1,70 +1,130 @@
-> [!IMPORTANT]
-> ## 🚀 v3 is coming
-> The next major version of Expo Open OTA is in release candidate. Key features:
-> - **Control plane mode** — run the server on PostgreSQL, manage everything from the dashboard, no Expo account required
-> - **Multi-app support** — host several Expo apps on a single server
-> - **Per-app API keys** — publish from CI without sharing your Expo access token
-> - **Secure key management** — signing keys sealed in the database with AES-GCM
-> - **Per-app Prometheus metrics** and a redesigned dashboard
-> - **Progressive Rollouts**
-> - **Enterprise features: SSO, IP Whitelist, Protected branches...**
->
-> 📖 Check out the **[new documentation](https://mercure-technologies.gitbook.io/expo-open-ota)**, including the [v2 → v3 migration guide](https://mercure-technologies.gitbook.io/expo-open-ota/migrate-from-v2-to-v3) — your installed clients will keep working without a rebuild.
->
-> v2 remains the current stable release (`docker pull ghcr.io/axelmarciano/expo-open-ota:latest`, `npm i eoas`). Contributions: please target the `release/v3` branch.
-
 <p align="center">
-  <img src="apps/docs/static/img/social_card.png" alt="Expo Open OTA" />
-  <img src="apps/docs/static/img/dashboard_screenshot.png" alt="Expo Open OTA - Dashboard" />
+  <img src=".github/img/social_card.png" alt="Expo Open OTA" />
 </p>
 
-
-<h3 align="center">Self-hosted OTA updates for Expo — multi-cloud, production-ready.</h3>
+<h3 align="center">Self-hosted over-the-air updates for Expo apps, built for production at scale.</h3>
 
 <p align="center">
-  An open-source Go server implementing the <a href="https://docs.expo.dev/technical-specs/expo-updates-1/">Expo Updates protocol</a>.<br/>
-  Deploy on AWS, GCP, or locally.
+  An open-source Go server implementing the <a href="https://docs.expo.dev/technical-specs/expo-updates-1/">Expo Updates protocol</a>,<br/>
+  with a web dashboard, multi-app support, progressive rollouts, instant rollbacks and one-command publishing.
 </p>
 
 <p align="center">
-  <a href="https://axelmarciano.github.io/expo-open-ota/">Documentation</a> · <a href="https://github.com/axelmarciano/expo-open-ota/issues">Issues</a> · <a href="mailto:expoopenota@gmail.com">Contact</a>
+  <a href="https://github.com/mercuretechnologies/expo-open-ota/releases"><img src="https://img.shields.io/github/v/release/mercuretechnologies/expo-open-ota?label=release" alt="Latest release" /></a>
+  <a href="https://www.npmjs.com/package/eoas"><img src="https://img.shields.io/npm/v/eoas?label=eoas%20CLI" alt="eoas on npm" /></a>
+  <a href="https://github.com/mercuretechnologies/expo-open-ota/actions"><img src="https://img.shields.io/github/actions/workflow/status/mercuretechnologies/expo-open-ota/push.yml?label=CI" alt="CI status" /></a>
+  <a href="./LICENSE.md"><img src="https://img.shields.io/badge/license-MIT%20%2B%20Enterprise-blue" alt="License" /></a>
 </p>
 
----
+<p align="center">
+  <a href="https://mercure-technologies.gitbook.io/expo-open-ota">Documentation</a> · <a href="#quick-start">Quick start</a> · <a href="https://github.com/mercuretechnologies/expo-open-ota/issues">Issues</a> · <a href="mailto:contact@mercuretechnologies.com">Contact</a>
+</p>
 
-## Why Expo Open OTA?
+<p align="center">
+  <sub>Expo Open OTA is an independent open-source project. It is not affiliated with, endorsed or supported by <a href="https://expo.dev/">Expo</a>.</sub>
+</p>
 
-- **Cut costs** — Expo's OTA pricing scales with MAUs. Self-hosting gives you unlimited updates at infrastructure cost only.
-- **Own your infrastructure** — Store updates on your cloud, behind your VPN, with your security policies.
-- **No vendor lock-in** — Works with AWS, GCP, and any S3-compatible provider. Switch anytime.
+<p align="center">
+  <img src=".github/img/dashboard-rollout.jpg" alt="The Expo Open OTA dashboard showing a production branch with a progressive rollout in progress at 25%" />
+</p>
+
+> **Battle-tested in production.** Expo Open OTA has been serving over-the-air updates in production since early 2025, to apps totaling more than a million monthly active users.
+
+## Why self-host your OTA updates?
+
+**Cut costs.** EAS Update pricing scales with your monthly active users. Self-hosting serves unlimited updates to unlimited devices for the price of your infrastructure.
+
+**Own your infrastructure.** Updates live in your bucket, are served by your server and travel through your CDN, behind your security policies.
+
+**No vendor lock-in.** The standard Expo Updates protocol on top of standard storage. Switch clouds anytime.
+
+## Built for production and scale
+
+**Your CDN does the heavy lifting.** Devices download updates from your CDN, straight out of your bucket. The server only answers lightweight update checks, so millions of devices checking in never turn into millions of downloads hitting it.
+
+**It scales horizontally.** The update server is stateless: run as many replicas as your traffic needs, they stay consistent with each other out of the box.
+
+**It plugs into your monitoring.** Metrics, dashboards and health checks come built in, ready for whatever observability stack you already run.
 
 ## Features
 
-| Feature | Description |
-|---------|-------------|
-| **Multi-cloud storage** | AWS S3, Google Cloud Storage, S3-compatible (Cloudflare R2, MinIO, DigitalOcean Spaces), local file system |
-| **Fast asset delivery** | CloudFront CDN, GCS signed URLs, or direct serving — your choice |
-| **One-command publishing** | `npx eoas publish` from your CI/CD pipeline |
-| **Secure key management** | AWS Secrets Manager, environment variables, or local key files |
-| **Dashboard** | Built-in web UI for monitoring updates, branches, and runtime versions |
-| **Prometheus metrics** | Production observability out of the box |
-| **No database required** | Zero external dependencies beyond your storage provider |
-| **Helm chart** | Ready for Kubernetes deployments |
+### Multi-app support
 
-## Quick Start
+One server hosts all your Expo apps. Each app gets its own branches, channels, API tokens and update history, and your whole team manages everything from a single dashboard. No Expo account required.
+
+### One-command publishing
+
+Ship an update from your terminal or CI with the [eoas](https://www.npmjs.com/package/eoas) CLI. Rollbacks and republishing are one command too.
+
+```bash
+npx eoas publish --branch production --rollout-percentage 10
+```
+
+### Release channels & branches
+
+Your app is built once and asks for a channel. You decide which branch of updates that channel serves: remap to roll out, remap back to roll back. No rebuild, no store review.
+
+<p align="center">
+  <img src=".github/img/dashboard-channels.jpg" alt="Channels page mapping release channels to branches, with a progressive branch rollout in progress" />
+</p>
+
+### Progressive rollouts
+
+Ship to 10% of devices, watch your metrics, then increase, finish or revert in one click from the dashboard.
+
+<p align="center">
+  <img src=".github/img/dashboard-manage-rollout.jpg" alt="Manage rollout dialog with traffic split presets and promote or revert actions" />
+</p>
+
+### A/B testing
+
+A channel can serve two branches at once, with devices split deterministically between them. Test two variants in production, promote the winner.
+
+### Stateless mode
+
+Start with nothing but a bucket and a few environment variables, no database. When you want the multi-app dashboard, plug in PostgreSQL and the server migrates itself into control plane mode automatically.
+
+## Integrations
+
+| | |
+|---|---|
+| **Storage** | <img src=".github/img/logos/aws-s3.svg" height="16" alt="" /> AWS S3 &nbsp;·&nbsp; <img src=".github/img/logos/google-cloud.svg" height="14" alt="" /> Google Cloud Storage &nbsp;·&nbsp; <img src=".github/img/logos/cloudflare.svg" height="14" alt="" /> Cloudflare R2 &nbsp;·&nbsp; <img src=".github/img/logos/minio.svg" height="14" alt="" /> MinIO &nbsp;·&nbsp; <img src=".github/img/logos/digital-ocean.svg" height="14" alt="" /> DigitalOcean Spaces &nbsp;·&nbsp; local file system |
+| **CDN** | <img src=".github/img/logos/aws-cloudfront.svg" height="16" alt="" /> CloudFront &nbsp;·&nbsp; <img src=".github/img/logos/google-cloud.svg" height="14" alt="" /> GCS signed URLs &nbsp;·&nbsp; direct serving |
+| **Cache** | <img src=".github/img/logos/redis.svg" height="14" alt="" /> Redis &nbsp;·&nbsp; in-memory |
+| **Key store** | <img src=".github/img/logos/aws-secrets-manager.svg" height="16" alt="" /> AWS Secrets Manager &nbsp;·&nbsp; environment variables &nbsp;·&nbsp; local key files &nbsp;·&nbsp; sealed in the database |
+
+Plus expo-updates code signing, and Hermes source maps for Sentry or PostHog.
+
+## Quick start
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/MGW3k1?referralCode=OEHlEK&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
-And follow the [Quick Start guide](https://axelmarciano.github.io/expo-open-ota/docs/getting-started/quick-start) to get up and running in minutes.
+1. Deploy the server with the Railway button above, Docker or the Helm chart.
+2. Run `npx eoas init` in your Expo project to wire it to your server.
+3. Publish your first update with `npx eoas publish --branch production`.
 
-## Storage Options
+The full walkthrough for both modes is in the documentation: [stateless mode](https://mercure-technologies.gitbook.io/expo-open-ota/stateless-mode/getting-started) and [control plane mode](https://mercure-technologies.gitbook.io/expo-open-ota/controle-plane-mode/getting-started). Coming from v2? Follow the [migration guide](https://mercure-technologies.gitbook.io/expo-open-ota/changelog-and-migrations/migrate-from-v2-to-v3).
 
-| Provider | Mode | Asset Delivery |
-|----------|------|----------------|
-| **Amazon S3** | `STORAGE_MODE=s3` | Direct or CloudFront CDN |
-| **Google Cloud Storage** | `STORAGE_MODE=gcs` | GCS signed URLs |
-| **S3-compatible** (R2, MinIO, etc.) | `STORAGE_MODE=s3` + `AWS_BASE_ENDPOINT` | Direct |
-| **Local file system** | `STORAGE_MODE=local` | Direct (dev only) |
+## Enterprise
+
+For teams that need tighter control, the [Enterprise edition](https://mercure-technologies.gitbook.io/expo-open-ota/open-core-and-licensing) adds:
+
+- **Single sign-on (OIDC)**: let your team sign in through Microsoft Entra ID, Okta, Google Workspace, Keycloak or any OpenID Connect issuer.
+- **Protected branches**: once a branch is protected, only API tokens you explicitly allow can publish, roll back or republish on it. A token handed to a developer for staging can never ship to production.
+- **IP allowlists**: restrict each API token to your CI runners' addresses, per address or CIDR range.
+
+<table>
+  <tr>
+    <td><img src=".github/img/dashboard-token-restrictions.jpg" alt="API token access restrictions with protected branches and an IP allowlist" /></td>
+    <td><img src=".github/img/dashboard-sso.jpg" alt="Single sign-on configuration page supporting any OIDC identity provider" /></td>
+  </tr>
+</table>
+
+The enterprise code lives in public `ee/` directories you can read before you buy, and licenses are verified fully offline against an embedded key: your production servers never phone home. Everything else on this page is MIT. For a license, [contact us](mailto:contact@mercuretechnologies.com).
+
+## Contributing
+
+Contributions are welcome! For anything beyond a small fix, please open an issue before writing code. Expo Open OTA is an open-core project and some advanced features are reserved for the commercial edition; the boundary is documented in [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Disclaimer
 
@@ -72,9 +132,8 @@ Expo Open OTA is **not officially supported or affiliated with [Expo](https://ex
 
 ## License
 
-Core is MIT and will stay MIT; advanced org features may be offered under a commercial license in the future
-see [LICENSE](./LICENSE.md).
+The core is MIT and will stay MIT. Enterprise features live in `ee/` directories and are covered by a commercial license (see [ee/LICENSE](./ee/LICENSE)); everything else is MIT (see [LICENSE](./LICENSE.md)).
 
 ## Contact
 
-[expoopenota@gmail.com](mailto:expoopenota@gmail.com)
+[contact@mercuretechnologies.com](mailto:contact@mercuretechnologies.com)

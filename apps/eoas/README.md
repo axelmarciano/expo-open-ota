@@ -1,15 +1,15 @@
 # EOAS (Expo Open Application Services)
 
-EOAS ((Expo Open Application Services) is a powerful helper package designed to simplify the setup and update publication process for the [expo-open-ota](https://github.com/axelmarciano/expo-open-ota) project.
+EOAS ((Expo Open Application Services) is a powerful helper package designed to simplify the setup and update publication process for the [expo-open-ota](https://github.com/mercuretechnologies/expo-open-ota) project.
 
 ## Quick Start
 
 To get started with EOAS, check out the official documentation:
-[EOAS Official Documentation](https://axelmarciano.github.io/expo-open-ota/)
+[EOAS Official Documentation](https://mercure-technologies.gitbook.io/expo-open-ota/eoas/overview)
 
 ## Learn More
 For detailed information and to explore the core functionalities of expo-open-ota, visit the main repository:
-[expo-open-ota on GitHub](https://github.com/axelmarciano/expo-open-ota)
+[expo-open-ota on GitHub](https://github.com/mercuretechnologies/expo-open-ota)
 
 ---
 

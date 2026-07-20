@@ -1,14 +1,12 @@
-import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/app-sidebar';
 
 export const Layout = ({ children }: { children: React.ReactNode }) => {
   return (
-    <SidebarProvider>
+    <div className="flex min-h-screen w-full">
       <AppSidebar />
-      <main className="w-full">
-        <SidebarTrigger />
-        <div className="flex-1 p-4 max-w-screen-2xl m-auto">{children}</div>
+      <main className="min-w-0 flex-1">
+        <div className="mx-auto max-w-7xl px-8 py-10">{children}</div>
       </main>
-    </SidebarProvider>
+    </div>
   );
 };

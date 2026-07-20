@@ -1,50 +1,71 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
-	"expo-open-ota/internal/auth"
+	"expo-open-ota/internal/services"
+
+	"github.com/gorilla/mux"
 )
 
+// runAuthMiddleware sends a request through NewAuthMiddleware on a
+// non-app-scoped route (no APP_ID path variable), so the CLI-auth branch can
+// only ever reject — cliAuthService is never reached and stays nil-backed.
 func runAuthMiddleware(t *testing.T, configure func(r *http.Request)) *httptest.ResponseRecorder {
 	t.Helper()
-	handler := AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	router := mux.NewRouter()
+	router.Use(NewAuthMiddleware(services.NewDashboardAuthService(nil), services.NewCliAuthService(nil, nil)))
+	router.HandleFunc("/settings", func(w http.ResponseWriter, r *http.Request) {
+		// Surface the principal so tests can assert the middleware propagated
+		// it to the handler, not just that authentication passed.
+		if principal := PrincipalFromContext(r.Context()); principal != nil {
+			w.Header().Set("X-Principal-Email", principal.Email)
+			w.Header().Set("X-Principal-Admin", strconv.FormatBool(principal.IsAdmin))
+		}
 		w.WriteHeader(http.StatusOK)
-	}))
-	r := httptest.NewRequest("POST", "/requestUploadUrl/branch", nil)
+	})
+	r := httptest.NewRequest("GET", "/settings", nil)
 	configure(r)
 	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, r)
+	router.ServeHTTP(w, r)
 	return w
 }
 
 func TestAuthMiddleware(t *testing.T) {
 	t.Setenv("JWT_SECRET", "test-secret")
+	t.Setenv("ADMIN_EMAIL", "admin@example.com")
 	t.Setenv("ADMIN_PASSWORD", "test-password")
 
-	t.Run("expo auth rejected when EXPO_ACCESS_TOKEN is not configured", func(t *testing.T) {
-		t.Setenv("EXPO_ACCESS_TOKEN", "")
+	t.Run("cli auth rejected on a non-app-scoped route", func(t *testing.T) {
 		w := runAuthMiddleware(t, func(r *http.Request) {
-			r.Header.Set("Use-Expo-Auth", "true")
-			r.Header.Set("Authorization", "Bearer some-expo-token")
+			r.Header.Set("Use-Cli-Auth", "true")
+			r.Header.Set("Authorization", "Bearer some-cli-credential")
 		})
 		if w.Code != http.StatusUnauthorized {
-			t.Fatalf("expected 401 when expo auth is not enabled, got %d", w.Code)
+			t.Fatalf("expected 401 for cli auth without app context, got %d", w.Code)
 		}
 	})
 
-	t.Run("valid admin JWT is accepted", func(t *testing.T) {
-		resp, err := auth.NewAuth().LoginWithPassword("test-password")
+	t.Run("valid dashboard session is accepted", func(t *testing.T) {
+		session, err := services.NewDashboardAuthService(nil).LoginWithEmailPassword(context.Background(), "admin@example.com", "test-password")
 		if err != nil {
 			t.Fatalf("login failed: %v", err)
 		}
 		w := runAuthMiddleware(t, func(r *http.Request) {
-			r.Header.Set("Authorization", "Bearer "+resp.Token)
+			r.Header.Set("Authorization", "Bearer "+session.Token)
 		})
 		if w.Code != http.StatusOK {
-			t.Fatalf("expected 200 with valid JWT, got %d", w.Code)
+			t.Fatalf("expected 200 with valid session token, got %d", w.Code)
+		}
+		if got := w.Header().Get("X-Principal-Email"); got != "admin@example.com" {
+			t.Fatalf("expected the principal email to reach the handler, got %q", got)
+		}
+		if got := w.Header().Get("X-Principal-Admin"); got != "true" {
+			t.Fatalf("expected the stateless principal to be admin, got %q", got)
 		}
 	})
 

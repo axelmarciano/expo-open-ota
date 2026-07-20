@@ -6,12 +6,18 @@ import fs from 'fs-extra';
 import mime from 'mime';
 import path from 'path';
 
-import { RequestUploadUrlItem, computeFilesRequests, requestUploadUrls } from '../lib/assets';
-import { getAuthExpoHeaders, retrieveExpoCredentials } from '../lib/auth';
+import {
+  RequestUploadUrlItem,
+  activeRolloutConflictMessage,
+  computeFilesRequests,
+  requestUploadUrls,
+} from '../lib/assets';
+import { getAuthHeaders, retrieveCredentials, validateCredentials } from '../lib/auth';
 import {
   RequestedPlatform,
   getPrivateExpoConfigAsync,
   getPublicExpoConfigAsync,
+  requireExpoAppId,
   resolveServerUrl,
 } from '../lib/expoConfig';
 import { fetchWithRetries } from '../lib/fetch';
@@ -78,6 +84,12 @@ export default class Publish extends Command {
         'Emit Hermes source maps alongside the bundle so the published artifact can be symbolicated by tools like Sentry or PostHog.',
       default: false,
     }),
+    'rollout-percentage': Flags.integer({
+      min: 1,
+      max: 99,
+      description:
+        'Publish this update as a progressive rollout served to N% of devices (1-99). The remaining devices keep receiving the previous update of each branch/runtime version. With --platform all, the rollout applies independently to each platform. Progression (increase, end, revert) is managed from the dashboard.',
+    }),
   };
   private sanitizeFlags(flags: any): {
     platform: RequestedPlatform;
@@ -89,6 +101,7 @@ export default class Publish extends Command {
     providedDeprecatedChannel?: string;
     message?: string;
     dumpSourcemap: boolean;
+    rolloutPercentage?: number;
   } {
     return {
       disableRepositoryCheck: flags.disableRepositoryCheck,
@@ -100,13 +113,16 @@ export default class Publish extends Command {
       providedDeprecatedChannel: flags.channel,
       message: flags.message,
       dumpSourcemap: flags.dumpSourcemap,
+      rolloutPercentage: flags['rollout-percentage'],
     };
   }
   public async run(): Promise<void> {
-    const credentials = retrieveExpoCredentials();
+    const credentials = retrieveCredentials();
 
-    if (!credentials.token && !credentials.sessionSecret) {
-      Log.error('You are not logged to eas, please run `eas login`');
+    if (!validateCredentials(credentials)) {
+      Log.error(
+        'Invalid credentials. Please run `eas login or set EXPO_ACCESS_TOKEN or EOO_TOKEN environment variable`'
+      );
       process.exit(1);
     }
     const { flags } = await this.parse(Publish);
@@ -120,6 +136,7 @@ export default class Publish extends Command {
       disableRepositoryCheck,
       message,
       dumpSourcemap,
+      rolloutPercentage,
     } = this.sanitizeFlags(flags);
     if (!branch) {
       Log.error('Branch name is required');
@@ -146,6 +163,7 @@ export default class Publish extends Command {
       Log.error(e.message);
       process.exit(1);
     });
+    const appId = requireExpoAppId(config);
     if (!nonInteractive) {
       const confirmed = await confirmAsync({
         message: `Is this the correct URL of your self-hosted update server? ${serverUrl}`,
@@ -230,13 +248,25 @@ export default class Publish extends Command {
       const specifiedPlatform = platform === RequestedPlatform.All ? [] : ['--platform', platform];
       const sourcemapArgs = dumpSourcemap ? ['--dump-sourcemap'] : [];
       const [runnerCommand, runnerArgs] = splitPackageRunner(packageRunner);
-      const { stdout } = await spawnAsync(runnerCommand, [...runnerArgs, 'expo', 'export', '--output-dir', outputDir, ...sourcemapArgs, ...specifiedPlatform], {
-        cwd: projectDir,
-        env: {
-          ...process.env,
-          EXPO_NO_DOTENV: '1',
-        },
-      });
+      const { stdout } = await spawnAsync(
+        runnerCommand,
+        [
+          ...runnerArgs,
+          'expo',
+          'export',
+          '--output-dir',
+          outputDir,
+          ...sourcemapArgs,
+          ...specifiedPlatform,
+        ],
+        {
+          cwd: projectDir,
+          env: {
+            ...process.env,
+            EXPO_NO_DOTENV: '1',
+          },
+        }
+      );
       exportSpinner.succeed('🚀 Project exported successfully');
       Log.withInfo(stdout);
     } catch (e) {
@@ -269,6 +299,7 @@ export default class Publish extends Command {
       updateId: string;
       platform: string;
       runtimeVersion: string;
+      rolloutPercentage?: number;
     }[] = [];
     try {
       uploadUrls = await Promise.all(
@@ -281,12 +312,14 @@ export default class Publish extends Command {
               body: {
                 fileNames: files.map(file => file.path),
               },
-              requestUploadUrl: `${serverUrl}/requestUploadUrl/${branch}`,
+              requestUploadUrl: `${serverUrl}/${appId}/requestUploadUrl/${branch}`,
               auth: credentials,
               runtimeVersion,
               platform,
               commitHash,
               message: resolvedMessage,
+              rolloutPercentage,
+              branch,
             })),
             runtimeVersion,
             platform,
@@ -297,7 +330,7 @@ export default class Publish extends Command {
       await Promise.all(
         allItems.map(async itm => {
           const isLocalBucketFileUpload = itm.requestUploadUrl.startsWith(
-            `${serverUrl}/uploadLocalFile`
+            `${serverUrl}/${appId}/uploadLocalFile`
           );
           const formData = new FormData();
           let file: fs.ReadStream;
@@ -312,7 +345,7 @@ export default class Publish extends Command {
               method: 'PUT',
               headers: {
                 ...formData.getHeaders(),
-                ...getAuthExpoHeaders(credentials),
+                ...getAuthHeaders(credentials),
               },
               body: formData,
             });
@@ -357,34 +390,57 @@ export default class Publish extends Command {
 
     const markAsFinishedSpinner = ora('🔗 Marking the updates as finished...').start();
     const results = await Promise.all(
-      uploadUrls.map(async ({ updateId, platform, runtimeVersion }) => {
-        const markAsUploadedUrl = new URL(`${serverUrl}/markUpdateAsUploaded/${branch}`);
-        markAsUploadedUrl.searchParams.set('platform', platform);
-        markAsUploadedUrl.searchParams.set('updateId', updateId);
-        markAsUploadedUrl.searchParams.set('runtimeVersion', runtimeVersion);
+      uploadUrls.map(
+        async ({
+          updateId,
+          platform,
+          runtimeVersion,
+          rolloutPercentage: echoedRolloutPercentage,
+        }) => {
+          const markAsUploadedUrl = new URL(`${serverUrl}/${appId}/markUpdateAsUploaded/${branch}`);
+          markAsUploadedUrl.searchParams.set('platform', platform);
+          markAsUploadedUrl.searchParams.set('updateId', updateId);
+          markAsUploadedUrl.searchParams.set('runtimeVersion', runtimeVersion);
 
-        const response = await fetchWithRetries(markAsUploadedUrl.toString(), {
-          method: 'POST',
-          headers: {
-            ...getAuthExpoHeaders(credentials),
-            'Content-Type': 'application/json',
-          },
-        });
-        // If success and status code = 200
-        if (response.ok) {
-          Log.withInfo(`✅ Update ready for ${platform}`);
-          return 'deployed';
+          const response = await fetchWithRetries(markAsUploadedUrl.toString(), {
+            method: 'POST',
+            headers: {
+              ...getAuthHeaders(credentials),
+              'Content-Type': 'application/json',
+            },
+          });
+          // If success and status code = 200
+          if (response.ok) {
+            Log.withInfo(`✅ Update ready for ${platform}`);
+            // Announce only when the server echoed the percentage back: an old server
+            // silently ignores the param and ships the update to 100% of devices.
+            if (rolloutPercentage !== undefined && echoedRolloutPercentage !== undefined) {
+              Log.withInfo(
+                `Progressive rollout started at ${rolloutPercentage}% for ${platform}. Manage it from the dashboard.`
+              );
+            }
+            return 'deployed';
+          }
+          // If response.status === 406 duplicate update
+          if (response.status === 406) {
+            Log.withInfo(`⚠️ There is no change in the update for ${platform}, ignored...`);
+            if (rolloutPercentage !== undefined) {
+              Log.withInfo(`No changes detected for ${platform}, no rollout was started.`);
+            }
+            return 'identical';
+          }
+          // The partial unique index can activate a rollout on this (branch, rtv) between
+          // requestUploadUrl and markUpdateAsUploaded, closing the publish race with a 409.
+          if (response.status === 409) {
+            Log.error(activeRolloutConflictMessage(branch));
+            return 'error';
+          }
+          Log.error('❌ Failed to mark the update as finished for platform', platform);
+          Log.newLine();
+          Log.error(await response.text());
+          return 'error';
         }
-        // If response.status === 406 duplicate update
-        if (response.status === 406) {
-          Log.withInfo(`⚠️ There is no change in the update for ${platform}, ignored...`);
-          return 'identical';
-        }
-        Log.error('❌ Failed to mark the update as finished for platform', platform);
-        Log.newLine();
-        Log.error(await response.text());
-        return 'error';
-      })
+      )
     );
     const erroredUpdates = results.filter(result => result === 'error');
     const hasSuccess = results.some(result => result === 'deployed');

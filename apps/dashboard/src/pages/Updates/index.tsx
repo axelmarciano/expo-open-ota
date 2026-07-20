@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import { BranchesTable } from '@/pages/Updates/components/BranchesTable';
 import { RuntimeVersionsTable } from '@/pages/Updates/components/RuntimeVersionsTable';
 import { UpdatesTable } from '@/pages/Updates/components/UpdatesTable';
+import { PageHeader } from '@/components/PageHeader';
 
 export const Updates = () => {
   const [searchParams] = useSearchParams();
@@ -20,8 +21,11 @@ export const Updates = () => {
   }, [currentBranch, runtimeVersion]);
 
   return (
-    <div className="w-full h-screen flex-1 p-5">
-      <h1 className="text-2xl font-medium mb-4">Updates</h1>
+    <div className="w-full">
+      <PageHeader
+        title="Branches & updates"
+        description="Browse your release branches, drill into a runtime version, and audit every OTA update you have published."
+      />
       {component}
     </div>
   );

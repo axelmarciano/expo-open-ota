@@ -1,5 +1,5 @@
 # Start with the official Golang base image
-FROM golang:1.24-alpine
+FROM golang:1.25-alpine
 
 # Install necessary packages
 RUN apk add --no-cache git bash curl unzip entr
@@ -22,6 +22,7 @@ RUN go mod download
 # Copy the source from the current directory to the Working Directory inside the container
 COPY cmd ./cmd
 COPY internal ./internal
+COPY ee ./ee
 COPY keys ./keys
 COPY config ./config
 COPY updates ./updates

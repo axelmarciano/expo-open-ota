@@ -2,16 +2,16 @@ package branch
 
 import (
 	"expo-open-ota/internal/helpers"
-	"expo-open-ota/internal/services"
+	"expo-open-ota/internal/providers/expo"
 )
 
-func UpsertBranch(branch string) error {
-	branches, err := services.FetchExpoBranches()
+func UpsertBranch(appId, branch string) error {
+	branches, err := expo.FetchBranches(appId)
 	if err != nil {
 		return err
 	}
 	if !helpers.StringInSlice(branch, branches) {
-		return services.CreateBranch(branch)
+		return expo.CreateBranch(appId, branch)
 	}
 	return nil
 }

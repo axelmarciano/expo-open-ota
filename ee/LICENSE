@@ -1,0 +1,45 @@
+The Mercure Technologies Enterprise Edition (EE) License
+
+Copyright (c) 2026 Axel Marciano (Mercure Technologies)
+
+With regard to the software contained in any directory named "ee" of this
+repository (the "Software"):
+
+This Software and associated documentation files may only be used in
+production if you (and any entity that you represent) have agreed to, and are
+in compliance with, a valid commercial subscription or license agreement with
+the copyright holder governing the use of the Software, and otherwise hold a
+valid Mercure Technologies Enterprise license key.
+Subject to the foregoing sentence, you are free to modify this Software and
+publish patches to the Software. You agree that the copyright holder retains
+all right, title and interest in and to all such modifications and/or patches,
+and all such modifications and/or patches may only be used, copied, modified,
+displayed, distributed, or otherwise exploited with a valid Mercure
+Technologies Enterprise license.
+
+Notwithstanding the foregoing, you may copy and modify the Software for
+development and testing purposes, without requiring a subscription or license
+key.
+
+You are not granted any other rights beyond what is expressly stated herein.
+Subject to the foregoing, it is forbidden to copy, merge, publish, distribute,
+sublicense, and/or sell the Software.
+
+This EE License applies only to the code in directories named "ee". All other
+code in this repository is licensed under the MIT License; see the LICENSE.md
+file at the root of this repository.
+
+The full text of this EE License shall be included in all copies or
+substantial portions of the Software.
+
+Any use of the Software in violation of this license will automatically
+terminate your rights under this license for the current and all other
+versions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

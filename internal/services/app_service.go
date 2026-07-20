@@ -1,0 +1,187 @@
+package services
+
+import (
+	"context"
+	"crypto/sha256"
+	"expo-open-ota/config"
+	"expo-open-ota/internal/crypto"
+	"expo-open-ota/internal/helpers"
+	"expo-open-ota/internal/keyStore"
+	"expo-open-ota/internal/providers/expo"
+	"expo-open-ota/internal/store"
+	"expo-open-ota/internal/validation"
+	"fmt"
+	"math/big"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type AppService struct {
+	appRepo AppRepository
+}
+
+type AppRepository interface {
+	InsertApp(ctx context.Context, app store.InsertAppParameters) (string, error)
+	DeleteAppByID(ctx context.Context, id string) error
+	GetApps(ctx context.Context) ([]config.AppDescriptor, error)
+	UpdateAppNameByID(ctx context.Context, id string, newName string) error
+	GetAppByID(ctx context.Context, id string) (config.AppConfig, error)
+}
+
+func NewAppService(appRepo AppRepository) *AppService {
+	return &AppService{
+		appRepo: appRepo,
+	}
+}
+
+func (s *AppService) CreateApp(ctx context.Context, displayName string, keysConfig config.KeysConfig) (string, error) {
+	if err := validation.DisplayName("name", displayName); err != nil {
+		return "", err
+	}
+	// Apps are only ever created through the control plane — the bucket store
+	// rejects InsertApp — so creation always happens at runtime, from the
+	// dashboard, which offers only database and aws-secrets-manager. Neither
+	// legacy mode can carry usable key material for a new app: local key paths
+	// would have to already exist on every replica and cannot be provisioned
+	// from the UI, and the apps table has no column for an inline b64 key, so an
+	// environment-mode app would persist nothing and fail at its first manifest
+	// signature — unrepairably, since UpdateApp only renames. Reject both up
+	// front rather than let them fall through to a 201 and a broken app.
+	//
+	// This deliberately lives here and not in config.ValidateKeys: the infra->DB
+	// migration loads the legacy flat-env app (which may legitimately use local
+	// key files or env b64 keys) through that validator and must keep working —
+	// it seals such keys into mode=database instead.
+	if keysConfig.Mode == config.KeysModeLocal || keysConfig.Mode == config.KeysModeEnvironment {
+		return "", validation.Errorf("keysConfig.mode",
+			"%q is not supported when creating an app: it cannot be provisioned from the dashboard — use %q or %q",
+			keysConfig.Mode, config.KeysModeDatabase, config.KeysModeAWSSM)
+	}
+	if err := config.ValidateKeys(&keysConfig, "keysConfig"); err != nil {
+		// Surface as a validation error so the handler answers 400, not 500.
+		return "", validation.Errorf("keysConfig", "%v", err)
+	}
+	appId := uuid.New()
+	modeStr := string(keysConfig.Mode)
+	params := store.InsertAppParameters{
+		ID:       appId.String(),
+		Name:     displayName,
+		KeysMode: &modeStr,
+	}
+	switch keysConfig.Mode {
+	case config.KeysModeDatabase:
+		masterKeyStr := keyStore.ReadDBKeysMasterKey()
+		if masterKeyStr == "" {
+			return "", fmt.Errorf("master key is required for database keys mode")
+		}
+		masterKeyBytes := []byte(masterKeyStr)
+		if masterKeyBytes == nil {
+			return "", fmt.Errorf("invalid base64 configuration for master key")
+		}
+		if len(masterKeyBytes) != 32 {
+			return "", fmt.Errorf("decoded master key must be exactly 32 bytes (got %d)", len(masterKeyBytes))
+		}
+		pubPEM, privPEM, err := crypto.GenerateRSAKeyPair()
+		if err != nil {
+			return "", fmt.Errorf("failed to generate application signing keys: %w", err)
+		}
+		// Sealed under the id minted above, which is also the id the row is
+		// inserted with — so the binding is checked at unseal against the row the
+		// blob was actually read from. See keyStore.AppKeyAAD.
+		sealedPublicKey, err := crypto.SealAESGCM([]byte(pubPEM), masterKeyBytes, keyStore.AppKeyAAD(appId.String(), true))
+		if err != nil {
+			return "", fmt.Errorf("failed to seal public key: %w", err)
+		}
+		sealedPrivateKey, err := crypto.SealAESGCM([]byte(privPEM), masterKeyBytes, keyStore.AppKeyAAD(appId.String(), false))
+		if err != nil {
+			return "", fmt.Errorf("failed to seal private key: %w", err)
+		}
+		params.SealedPublicKey = &sealedPublicKey
+		params.SealedPrivateKey = &sealedPrivateKey
+
+	case config.KeysModeAWSSM:
+		params.AwsSecretIDPublic = &keysConfig.PublicSecretId
+		params.AwsSecretIDPrivate = &keysConfig.PrivateSecretId
+
+	default:
+		return "", fmt.Errorf("invalid keys mode %q", keysConfig.Mode)
+	}
+
+	insertedAppId, err := s.appRepo.InsertApp(ctx, params)
+	if err != nil {
+		return "", fmt.Errorf("failed to save app record to database: %w", err)
+	}
+	return insertedAppId, nil
+}
+
+func (s *AppService) DeleteApp(ctx context.Context, appId string) error {
+	err := s.appRepo.DeleteAppByID(ctx, appId)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *AppService) GetApps(ctx context.Context) ([]config.AppDescriptor, error) {
+	return s.appRepo.GetApps(ctx)
+}
+
+func (s *AppService) GetAppByID(ctx context.Context, appId string) (config.AppConfig, error) {
+	app, err := s.appRepo.GetAppByID(ctx, appId)
+	if err != nil {
+		return config.AppConfig{}, err
+	}
+	app.AccessToken = ""
+	app.Keys.SealedPrivateKey = ""
+	app.Keys.SealedPublicKey = ""
+	app.Keys.PrivateB64 = ""
+	app.Keys.PublicB64 = ""
+	if app.Keys.Mode == config.KeysModeLocal {
+		app.Keys.PrivatePath = helpers.MaskKeyPath(app.Keys.PrivatePath)
+		app.Keys.PublicPath = helpers.MaskKeyPath(app.Keys.PublicPath)
+	}
+	if app.Name == "" {
+		// The stateless flat env carries no display name — resolve it from
+		// Expo for the dashboard. Best-effort and cached; "" keeps the
+		// id-as-label fallback. Lives here rather than in the store so the
+		// device-facing OTA path never pays the Expo round-trip.
+		app.Name = expo.FetchAppName(ctx, app.Id)
+	}
+	return app, nil
+}
+
+func (s *AppService) UpdateApp(ctx context.Context, appId string, newName string) error {
+	if err := validation.DisplayName("name", newName); err != nil {
+		return err
+	}
+	err := s.appRepo.UpdateAppNameByID(ctx, appId, newName)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *AppService) RetrieveAppCertificate(ctx context.Context, appId string) (string, error) {
+	app, err := s.appRepo.GetAppByID(ctx, appId)
+	if err != nil {
+		return "", err
+	}
+	if app.Keys.Mode != config.KeysModeDatabase {
+		return "", fmt.Errorf("app with id %s does not use database keys mode", appId)
+	}
+	publicKey := keyStore.GetPublicExpoKey(app)
+	privateKey := keyStore.GetPrivateExpoKey(app)
+	// Deterministic serial number by hashing the public key so it never changes
+	hash := sha256.Sum256([]byte(publicKey))
+	serialNumber := new(big.Int).SetBytes(hash[:8])
+
+	// 2. Deterministic Validity: Use the database app creation timestamp
+	// Convert your 13-digit millisecond timestamp safely
+	notBefore := time.UnixMilli(int64(app.CreatedAt)).UTC().Add(-1 * time.Hour)
+	pemCertificateString, err := crypto.GenerateSelfSignedCodeSigningCertificateFromPEM(publicKey, privateKey, app.Name, serialNumber, notBefore)
+	if err != nil {
+		return "", fmt.Errorf("failed to wrap public key in self-signed certificate: %w", err)
+	}
+	return pemCertificateString, nil
+}

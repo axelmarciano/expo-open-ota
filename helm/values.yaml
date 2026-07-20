@@ -5,7 +5,7 @@
 replicaCount: 1 # Do not use more than 1 replica if storageMode is set to local
 
 image:
-  repository: ghcr.io/axelmarciano/expo-open-ota
+  repository: ghcr.io/mercuretechnologies/expo-open-ota
   tag: latest
   pullPolicy: IfNotPresent
 
@@ -32,12 +32,43 @@ useGenericCDN: "false"
 cacheMode: "redis"
 useDashboard: "false"
 useRedisTLS: "false"
+# Set to "true" when the server sits behind a trusted proxy or ingress so the
+# client IP used for API-token IP allowlists is read from X-Forwarded-For
+# instead of the proxy's connection address. Behind an ingress (the usual Helm
+# setup) leave this on; only enable it when the server is reachable exclusively
+# through that proxy, since a direct client could otherwise forge the header.
+trustProxyHeaders: "false"
+# Number of trusted proxies in front of the server, used only when
+# trustProxyHeaders is "true". The client IP is read that many entries from the
+# right of X-Forwarded-For, so a single ingress uses 1, a CDN in front of a load
+# balancer uses 2, and so on. Set it to the exact number of proxies you control:
+# too low reads an intermediate proxy IP, too high would trust a client-supplied
+# entry.
+trustProxyDepth: "1"
+# Set to "true" to run the server as a Control Plane (DB mode): apps live in
+# Postgres and are created/managed from the dashboard instead of the single
+# flat-env app. Requires DB_URL and exactly one control-plane master key (see
+# the env vars below). When "false" the server is single-app (stateless) and
+# the flat EXPO_APP_ID / EXPO_ACCESS_TOKEN / key vars are used.
+# See https://github.com/mercuretechnologies/expo-open-ota/blob/main/apps/docs/docs/advanced/multi-app.mdx
+controlPlane: "false"
+# Where the DB keys master key comes from when controlPlane="true": "environment"
+# renders DB_KEYS_MASTER_KEY_B64, "aws-secrets-manager" renders
+# AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID. Independent of keysStorageType, which only
+# describes the stateless app's own signing keys and is not rendered at all in
+# control-plane mode. Ignored when controlPlane="false".
+dbKeysMasterKeySource: "environment"
 
 environment:
   - name: "USE_DASHBOARD"
     key: "useDashboard"
     required: true
     computed: true
+  - name: "ADMIN_EMAIL"
+    value: ""
+    required:
+      - key: "useDashboard"
+        is: "true"
   - name: "ADMIN_PASSWORD"
     value: ""
     required:
@@ -134,19 +165,30 @@ environment:
     required:
       - key: "storageMode"
         is: "s3"
+  # `required: false` alone never renders an env var (the template treats a
+  # non-required, non-enabled entry as disabled), so every optional var below
+  # also carries `enabled: true`.
   - name: "AWS_BASE_ENDPOINT"
     value: ""
+    enabled: true
     required: false
   - name: "AWS_S3_FORCE_PATH_STYLE"
     value: ""
+    enabled: true
     required: false
   - name: "S3_BUCKET_NAME"
     value: ""
     required:
       - key: "storageMode"
         is: "s3"
+  - name: "BUCKET_KEY_PREFIX"
+    value: ""
+    enabled: true
+    required: false
+  # TODO: remove S3_KEY_PREFIX once users have migrated to BUCKET_KEY_PREFIX
   - name: "S3_KEY_PREFIX"
     value: ""
+    enabled: true
     required: false
   - name: "S3_CDN_PREFIX"
     value: ""
@@ -182,40 +224,83 @@ environment:
         is: "true"
       - key: "keysStorageType"
         is: "aws-secrets-manager"
+  # Per-app identity and signing keys for the single-app stateless mode. They
+  # are REQUIRED when controlPlane="false", but still rendered (as optional)
+  # in control-plane mode: a v2 deploy upgrading into the control plane must
+  # keep them set so the one-shot legacy import can find the flat-env app,
+  # re-path its bucket data under the app id and seal its signing keys into
+  # the database, and so that v1 clients sending no expo-app-id header keep
+  # resolving to that app. Only a control plane created from scratch leaves
+  # them unset.
   - name: "KEYS_STORAGE_TYPE"
     key: "keysStorageType"
-    required: true
     computed: true
+    enabled: true
+    required:
+      - key: "controlPlane"
+        is: "false"
   - name: "AWSSM_EXPO_PUBLIC_KEY_SECRET_ID"
     value: ""
+    enabled:
+      - key: "keysStorageType"
+        is: "aws-secrets-manager"
     required:
+      - key: "controlPlane"
+        is: "false"
       - key: "keysStorageType"
         is: "aws-secrets-manager"
   - name: "AWSSM_EXPO_PRIVATE_KEY_SECRET_ID"
     value: ""
+    enabled:
+      - key: "keysStorageType"
+        is: "aws-secrets-manager"
     required:
+      - key: "controlPlane"
+        is: "false"
       - key: "keysStorageType"
         is: "aws-secrets-manager"
   - name: "PUBLIC_LOCAL_EXPO_KEY_PATH"
     value: ""
+    enabled:
+      - key: "keysStorageType"
+        is: "local"
     required:
+      - key: "controlPlane"
+        is: "false"
       - key: "keysStorageType"
         is: "local"
   - name: "PRIVATE_LOCAL_EXPO_KEY_PATH"
     value: ""
+    enabled:
+      - key: "keysStorageType"
+        is: "local"
     required:
+      - key: "controlPlane"
+        is: "false"
       - key: "keysStorageType"
         is: "local"
   - name: "PUBLIC_EXPO_KEY_B64"
     value: ""
+    enabled:
+      - key: "keysStorageType"
+        is: "environment"
     required:
+      - key: "controlPlane"
+        is: "false"
       - key: "keysStorageType"
         is: "environment"
   - name: "PRIVATE_EXPO_KEY_B64"
     value: ""
-    required:
+    enabled:
       - key: "keysStorageType"
         is: "environment"
+    required:
+      - key: "controlPlane"
+        is: "false"
+      - key: "keysStorageType"
+        is: "environment"
+  # CloudFront key is a server-wide signing key — it is NOT per app — so it
+  # stays required whenever CloudFront is enabled.
   - name: "PRIVATE_CLOUDFRONT_KEY_B64"
     value: ""
     required:
@@ -224,12 +309,75 @@ environment:
   - name: "BASE_URL"
     value: ""
     required: true
+  - name: "TRUST_PROXY_HEADERS"
+    key: "trustProxyHeaders"
+    required: true
+    computed: true
+  - name: "TRUST_PROXY_DEPTH"
+    key: "trustProxyDepth"
+    computed: true
+    enabled:
+      - key: "trustProxyHeaders"
+        is: "true"
+  # EXPO_ACCESS_TOKEN and EXPO_APP_ID follow the same rule as the key vars
+  # above: required in stateless mode, still rendered (optional) in
+  # control-plane mode. EXPO_APP_ID in particular is what backward
+  # compatibility hangs on when upgrading a v2 deploy: it drives the bucket
+  # re-path, the legacy import into the database, and the fallback that keeps
+  # serving v1 clients whose requests carry no expo-app-id header.
   - name: "EXPO_ACCESS_TOKEN"
     value: ""
-    required: true
+    enabled: true
+    required:
+      - key: "controlPlane"
+        is: "false"
   - name: "EXPO_APP_ID"
     value: ""
-    required: true
+    enabled: true
+    required:
+      - key: "controlPlane"
+        is: "false"
+  # Once every client in the field ships the expo-app-id header (v2+ builds
+  # only), set to "true" to stop routing header-less requests to the legacy
+  # EXPO_APP_ID app.
+  - name: "SKIP_LEGACY_APP_ID_FALLBACK"
+    value: ""
+    enabled: true
+    required: false
+  # Control Plane (DB mode). Rendered only when controlPlane="true". Set DB_URL
+  # and the master key, whose source is picked by dbKeysMasterKeySource. The
+  # master key seals per-app signing keys at rest — generate it with
+  # `openssl rand -base64 32`.
+  - name: "DB_URL"
+    value: ""
+    required:
+      - key: "controlPlane"
+        is: "true"
+  - name: "DB_KEYS_MASTER_KEY_B64"
+    value: ""
+    required:
+      - key: "controlPlane"
+        is: "true"
+      - key: "dbKeysMasterKeySource"
+        is: "environment"
+  - name: "AWSSM_DB_KEYS_MASTER_KEY_SECRET_ID"
+    value: ""
+    required:
+      - key: "controlPlane"
+        is: "true"
+      - key: "dbKeysMasterKeySource"
+        is: "aws-secrets-manager"
+  # Optional Postgres pool tuning (sensible defaults apply when unset).
+  - name: "DB_MAX_CONNS"
+    value: ""
+    required:
+      - key: "controlPlane"
+        is: "true"
+  - name: "DB_MIN_CONNS"
+    value: ""
+    required:
+      - key: "controlPlane"
+        is: "true"
   - name: "JWT_SECRET"
     value: ""
     required: true

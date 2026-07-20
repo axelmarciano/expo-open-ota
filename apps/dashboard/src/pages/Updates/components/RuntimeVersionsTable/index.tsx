@@ -2,40 +2,25 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api.ts';
 import { ApiError } from '@/components/APIError';
 import { DataTable } from '@/components/DataTable';
-import { GitBranch, Milestone } from 'lucide-react';
+import { Milestone } from 'lucide-react';
 import { useSearchParams } from 'react-router';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge.tsx';
+import { useSelectedApp } from '@/lib/SelectedAppContext';
+import { TimestampCell } from '@/components/ui/timestamp-cell';
+import { UpdatesBreadcrumb } from '@/pages/Updates/components/UpdatesBreadcrumb';
 
 export const RuntimeVersionsTable = ({ branch }: { branch: string }) => {
   const [, setSearchParams] = useSearchParams();
+  const { selectedAppId } = useSelectedApp();
   const { data, isLoading, error } = useQuery({
-    queryKey: ['runtimeVersions'],
+    queryKey: ['runtimeVersions', selectedAppId, branch],
     queryFn: () => api.getRuntimeVersions(branch),
+    enabled: !!selectedAppId,
   });
 
   return (
     <div className="w-full flex-1">
-      <Breadcrumb className="mb-2">
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/dashboard" className="flex items-center gap-2">
-              <GitBranch className="w-4" />
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{branch}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+      <UpdatesBreadcrumb branch={branch} />
       {!!error && <ApiError error={error} />}
       <DataTable
         loading={isLoading}
@@ -43,62 +28,36 @@ export const RuntimeVersionsTable = ({ branch }: { branch: string }) => {
           {
             header: 'Runtime version',
             accessorKey: 'runtimeVersion',
-            cell: value => {
-              return (
-                <button
-                  className="flex flex-row gap-2 items-center cursor-pointer w-full underline"
-                  onClick={() => {
-                    setSearchParams({
-                      branch,
-                      runtimeVersion: value.row.original.runtimeVersion,
-                    });
-                  }}>
-                  <Milestone className="w-4" />
-                  {value.row.original.runtimeVersion}
-                </button>
-              );
-            },
+            cell: ({ row }) => (
+              <span className="flex items-center gap-2.5">
+                <span className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                  <Milestone className="h-3.5 w-3.5" />
+                </span>
+                <span className="font-medium">{row.original.runtimeVersion}</span>
+                {row.original.activeRollout && (
+                  <Badge className="border-transparent bg-emerald-100 text-emerald-700">
+                    Rollout
+                  </Badge>
+                )}
+              </span>
+            ),
           },
           {
-            header: 'Created at',
+            header: 'Created',
             accessorKey: 'createdAt',
-            cell: ({ row }) => {
-              const date = new Date(row.original.createdAt);
-              return (
-                <Badge variant="outline">
-                  {date.toLocaleDateString('en-GB', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                    hour: 'numeric',
-                    minute: 'numeric',
-                    second: 'numeric',
-                  })}
-                </Badge>
-              );
-            },
+            cell: ({ row }) => (
+              <TimestampCell dateString={row.original.createdAt} showSeconds />
+            ),
           },
           {
             header: 'Last update',
             accessorKey: 'lastUpdatedAt',
-            cell: ({ row }) => {
-              const date = new Date(row.original.lastUpdatedAt);
-              return (
-                <Badge variant="outline">
-                  {date.toLocaleDateString('en-GB', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                    hour: 'numeric',
-                    minute: 'numeric',
-                    second: 'numeric',
-                  })}
-                </Badge>
-              );
-            },
+            cell: ({ row }) => (
+              <TimestampCell dateString={row.original.lastUpdatedAt} showSeconds />
+            ),
           },
           {
-            header: '# Updates',
+            header: 'Updates',
             accessorKey: 'numberOfUpdates',
             cell: ({ row }) => {
               return <Badge variant="secondary">{row.original.numberOfUpdates}</Badge>;
@@ -107,6 +66,8 @@ export const RuntimeVersionsTable = ({ branch }: { branch: string }) => {
         ]}
         data={data ?? []}
         defaultSorting={[{ id: 'createdAt', desc: true }]}
+        emptyMessage="No runtime versions on this branch yet."
+        onRowClick={row => setSearchParams({ branch, runtimeVersion: row.runtimeVersion })}
       />
     </div>
   );

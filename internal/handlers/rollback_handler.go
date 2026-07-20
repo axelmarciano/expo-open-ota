@@ -2,19 +2,32 @@ package handlers
 
 import (
 	"encoding/json"
-	"expo-open-ota/internal/branch"
+	"errors"
 	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/services"
-	"expo-open-ota/internal/update"
-	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 	"log"
 	"net/http"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 )
 
-func RollbackHandler(w http.ResponseWriter, r *http.Request) {
+type RollbackHandler struct {
+	cliAuthService    *services.CliAuthService
+	deploymentService *services.DeploymentService
+}
+
+func NewRollbackHandler(cliAuthService *services.CliAuthService, deploymentService *services.DeploymentService) *RollbackHandler {
+	return &RollbackHandler{
+		cliAuthService:    cliAuthService,
+		deploymentService: deploymentService,
+	}
+}
+
+func (h *RollbackHandler) HandleRollback(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	vars := mux.Vars(r)
+	appId := vars["APP_ID"]
 	branchName := vars["BRANCH"]
 	platform := r.URL.Query().Get("platform")
 	if platform == "" || (platform != "ios" && platform != "android") {
@@ -27,16 +40,11 @@ func RollbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No branch provided", http.StatusBadRequest)
 		return
 	}
-	expoAuth := helpers.GetExpoAuth(r)
-	expoAccount, err := services.FetchExpoUserAccountInformations(expoAuth)
+	auth := helpers.GetAuth(r)
+	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth, branchName, helpers.ClientIP(r))
 	if err != nil {
-		log.Printf("[RequestID: %s] Error fetching expo account informations: %v", requestID, err)
-		http.Error(w, "Error fetching expo account informations", http.StatusUnauthorized)
-		return
-	}
-	if expoAccount == nil {
-		log.Printf("[RequestID: %s] No expo account found", requestID)
-		http.Error(w, "No expo account found", http.StatusUnauthorized)
+		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
+		RenderCliAuthError(w, err)
 		return
 	}
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")
@@ -45,15 +53,14 @@ func RollbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No runtime version provided", http.StatusBadRequest)
 		return
 	}
-	errUpsert := branch.UpsertBranch(branchName)
-	if errUpsert != nil {
-		log.Printf("[RequestID: %s] Error upserting branch: %v", requestID, errUpsert)
-		http.Error(w, "Error upserting branch", http.StatusInternalServerError)
-		return
-	}
 	commitHash := r.URL.Query().Get("commitHash")
-	rollback, err := update.CreateRollback(platform, commitHash, runtimeVersion, branchName)
+	rollback, err := h.deploymentService.CreateRollback(r.Context(), appId, platform, commitHash, runtimeVersion, branchName)
 	if err != nil {
+		if errors.Is(err, services.ErrActiveRolloutBlocksPublish) {
+			log.Printf("[RequestID: %s] Rollback blocked by active rollout: %v", requestID, err)
+			http.Error(w, activeRolloutConflictMessage, http.StatusConflict)
+			return
+		}
 		log.Printf("[RequestID: %s] Error creating rollback: %v", requestID, err)
 		http.Error(w, "Error creating rollback", http.StatusInternalServerError)
 		return

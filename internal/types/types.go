@@ -34,6 +34,19 @@ type UpdateMetadata struct {
 	Fingerprint  string         `json:"fingerprint"`
 }
 
+type UpdateItem struct {
+	UpdateUUID string `json:"updateUUID"`
+	UpdateId   string `json:"updateId"`
+	CreatedAt  string `json:"createdAt"`
+	CommitHash string `json:"commitHash"`
+	Platform   string `json:"platform"`
+	Message    string `json:"message,omitempty"`
+	// Progressive rollout state (control-plane mode only). Both stay nil in stateless
+	// mode and for non-rollout updates, so listings there serialize byte-identically.
+	RolloutPercentage *int    `json:"rolloutPercentage,omitempty"`
+	ControlUpdateId   *string `json:"controlUpdateId,omitempty"`
+}
+
 type UpdateStoredMetadata struct {
 	Platform   string `json:"platform"`
 	CommitHash string `json:"commitHash"`
@@ -47,6 +60,29 @@ const (
 	NormalUpdate UpdateType = iota
 	Rollback
 )
+
+type UpdateDetails struct {
+	UpdateUUID string     `json:"updateUUID"`
+	UpdateId   string     `json:"updateId"`
+	CreatedAt  string     `json:"createdAt"`
+	CommitHash string     `json:"commitHash"`
+	Platform   string     `json:"platform"`
+	Message    string     `json:"message,omitempty"`
+	Type       UpdateType `json:"type"`
+	ExpoConfig string     `json:"expoConfig"`
+	// Progressive rollout state (control-plane mode only); nil in stateless mode and
+	// for non-rollout updates.
+	RolloutPercentage *int    `json:"rolloutPercentage,omitempty"`
+	ControlUpdateId   *string `json:"controlUpdateId,omitempty"`
+}
+
+type ApiKeyMetadata struct {
+	ID         string  `json:"id"`
+	Name       string  `json:"name"`
+	Hint       string  `json:"hint"`
+	CreatedAt  string  `json:"createdAt"`
+	LastUsedAt *string `json:"lastUsedAt,omitempty"`
+}
 
 type ManifestAsset struct {
 	Hash          string `json:"hash"`
@@ -85,10 +121,69 @@ type NoUpdateAvailableDirective struct {
 }
 
 type Update struct {
+	AppId          string        `json:"appId"`
 	Branch         string        `json:"branch"`
 	RuntimeVersion string        `json:"runtimeVersion"`
 	UpdateId       string        `json:"updateId"`
 	CreatedAt      time.Duration `json:"createdAt"`
+}
+
+// UpdateWithRollout is the flat lastUpdate envelope: an update plus its per-update
+// rollout state. RolloutPercentage and Control are nil for a plain (non-rollout) update.
+// The control is embedded so out-of-bucket resolution needs no second read.
+type UpdateWithRollout struct {
+	Update
+	RolloutPercentage *int    `json:"rolloutPercentage,omitempty"`
+	Control           *Update `json:"control,omitempty"`
+}
+
+// ChannelRollout is the full channel-rollout summary returned by the dashboard rollout
+// routes. DefaultBranchName is the channel's currently mapped branch (served to the
+// out-of-rollout cohort); RolloutBranchName is served to Percentage% of devices.
+type ChannelRollout struct {
+	ID                string `json:"id"`
+	ChannelName       string `json:"channelName"`
+	DefaultBranchName string `json:"defaultBranchName"`
+	RolloutBranchName string `json:"rolloutBranchName"`
+	Percentage        int    `json:"percentage"`
+	CreatedAt         string `json:"createdAt"`
+	UpdatedAt         string `json:"updatedAt"`
+}
+
+// RolloutUpdate is one active per-update rollout row (one per platform) as returned by
+// the per-update rollout route.
+type RolloutUpdate struct {
+	UpdateId        string  `json:"updateId"`
+	Platform        string  `json:"platform"`
+	Percentage      int     `json:"percentage"`
+	ControlUpdateId *string `json:"controlUpdateId,omitempty"`
+	CreatedAt       string  `json:"createdAt"`
+}
+
+type ChannelMapping struct {
+	ReleaseChannelName string  `json:"releaseChannelName"`
+	ReleaseChannelId   string  `json:"releaseChannelId"`
+	BranchName         *string `json:"branchName"`
+	BranchId           *string `json:"branchId"`
+	CreatedAt          *string `json:"createdAt"`
+	// Active channel rollout, if any (control-plane mode only); nil otherwise.
+	Rollout *ChannelRollout `json:"rollout,omitempty"`
+}
+
+type BranchMapping struct {
+	BranchName     string  `json:"branchName"`
+	BranchId       *string `json:"branchId"`
+	ReleaseChannel *string `json:"releaseChannel"`
+	CreatedAt      *string `json:"createdAt"`
+	// Enterprise branch protection; always false in stateless mode.
+	Protected bool `json:"protected"`
+}
+
+type RuntimeVersionWithStats struct {
+	RuntimeVersion  string `json:"runtimeVersion"`
+	LastUpdatedAt   string `json:"lastUpdatedAt"`
+	CreatedAt       string `json:"createdAt"`
+	NumberOfUpdates int    `json:"numberOfUpdates"`
 }
 
 type BucketFile struct {
@@ -96,7 +191,7 @@ type BucketFile struct {
 	CreatedAt time.Time
 }
 
-type ExpoAuth struct {
+type Auth struct {
 	Token         *string
 	SessionSecret *string
 }

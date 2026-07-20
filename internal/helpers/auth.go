@@ -3,23 +3,24 @@ package helpers
 import (
 	"expo-open-ota/internal/types"
 	"net/http"
+	"path/filepath"
 	"strings"
 )
 
-func GetExpoAuth(r *http.Request) types.ExpoAuth {
+func GetAuth(r *http.Request) types.Auth {
 	bearerToken, _ := GetBearerToken(r)
 	if bearerToken != "" {
-		return types.ExpoAuth{
+		return types.Auth{
 			Token: &bearerToken,
 		}
 	}
 	sessionSecret := r.Header.Get("expo-session")
 	if sessionSecret != "" {
-		return types.ExpoAuth{
+		return types.Auth{
 			SessionSecret: &sessionSecret,
 		}
 	}
-	return types.ExpoAuth{}
+	return types.Auth{}
 }
 
 func GetBearerToken(r *http.Request) (string, error) {
@@ -32,4 +33,23 @@ func GetBearerToken(r *http.Request) (string, error) {
 		return "", nil
 	}
 	return tokens[1], nil
+}
+
+func MaskSecret(value string) string {
+	if len(value) < 5 {
+		return "***"
+	}
+	return "***" + value[:5]
+}
+
+func MaskKeyPath(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+	fileName := filepath.Base(trimmed)
+	if fileName == "." || fileName == string(filepath.Separator) {
+		return ".../[Configured File]"
+	}
+	return ".../" + fileName
 }

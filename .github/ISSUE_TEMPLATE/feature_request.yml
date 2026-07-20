@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest a new feature or improvement
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! Two things before you start:
+
+        - Significant features should be discussed here **before** any code is written — please wait for a maintainer's go-ahead before opening a PR.
+        - Check the [open core policy](https://github.com/mercuretechnologies/expo-open-ota/blob/main/CONTRIBUTING.md#open-core-policy): some advanced capabilities (analytics, advanced targeting, SSO, audit logs, IP whitelisting…) are reserved for the commercial edition and won't be merged into the MIT core.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem would this feature solve for you?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How do you imagine it working?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you use today, or other approaches you thought about.
+    validations:
+      required: false

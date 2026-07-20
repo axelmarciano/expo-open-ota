@@ -1,0 +1,151 @@
+package services
+
+import (
+	"context"
+	"errors"
+	"expo-open-ota/internal/bucket"
+	"expo-open-ota/internal/database/postgres/pgdb"
+	"expo-open-ota/internal/store"
+	"expo-open-ota/internal/types"
+	"expo-open-ota/internal/validation"
+	"fmt"
+	"strconv"
+)
+
+type BranchService struct {
+	branchRepo  BranchRepository
+	channelRepo ChannelRepository
+	updateRepo  UpdateRepository
+	// Nil in stateless mode, where rollouts do not exist and the guards below are inert.
+	rolloutRepo RolloutRepository
+	bucket      bucket.Bucket
+}
+
+type BranchRepository interface {
+	InsertBranch(ctx context.Context, branch pgdb.InsertBranchParams) (int64, error)
+	UpsertBranchAndRuntimeVersion(ctx context.Context, appId string, branchName string, runtimeVersion string) error
+	GetUpdatedMetadataByBranchName(ctx context.Context, appId string, branchName string) ([]pgdb.GetUpdatesMetadataByBranchNameRow, error)
+	DeleteBranchByName(ctx context.Context, appId string, branchName string) error
+	GetBranches(ctx context.Context, appId string) ([]types.BranchMapping, error)
+	GetRuntimeVersionsWithUpdateStats(ctx context.Context, appId string, branchName string) ([]types.RuntimeVersionWithStats, error)
+	UpdateChannelBranchMapping(ctx context.Context, appId string, channelId string, branchId string) error
+	CreateRuntimeVersion(ctx context.Context, appId string, version string) (int64, error)
+	GetBranchByName(ctx context.Context, appId string, branchName string) (int64, error)
+}
+
+func NewBranchService(branchRepo BranchRepository, channelRepo ChannelRepository, updateRepo UpdateRepository, rolloutRepo RolloutRepository, bucket bucket.Bucket) *BranchService {
+	return &BranchService{
+		branchRepo:  branchRepo,
+		channelRepo: channelRepo,
+		updateRepo:  updateRepo,
+		rolloutRepo: rolloutRepo,
+		bucket:      bucket,
+	}
+}
+
+func (s *BranchService) CreateBranch(ctx context.Context, appId string, branchName string) (int64, error) {
+	if err := validation.Name("branchName", branchName); err != nil {
+		return 0, err
+	}
+	pgAppID := store.ToPgUUID(appId)
+	branchId, err := s.branchRepo.InsertBranch(ctx, pgdb.InsertBranchParams{
+		AppID: pgAppID,
+		Name:  branchName,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return branchId, nil
+}
+
+func (s *BranchService) DeleteBranch(ctx context.Context, branchName string, appId string) error {
+	if err := validation.Name("branchName", branchName); err != nil {
+		return err
+	}
+	channels, err := s.channelRepo.GetChannelNameByBranchName(ctx, appId, branchName)
+	if err != nil {
+		return fmt.Errorf("failed to validate branch dependencies: %w", err)
+	}
+	if len(channels) > 0 {
+		return &store.ErrBranchHasActiveChannels{
+			BranchName:   branchName,
+			ChannelNames: channels,
+		}
+	}
+	// Friendly sibling of the FK RESTRICT on channel_rollouts.rollout_branch_id: a
+	// branch serving an active rollout cannot be deleted, and the error names the
+	// channels to unblock instead of surfacing a raw constraint violation.
+	if s.rolloutRepo != nil {
+		rolloutChannels, err := s.rolloutRepo.GetChannelRolloutsByBranch(ctx, appId, branchName)
+		if err != nil {
+			return fmt.Errorf("failed to validate branch rollout dependencies: %w", err)
+		}
+		if len(rolloutChannels) > 0 {
+			return &store.ErrBranchInActiveRollout{
+				BranchName:   branchName,
+				ChannelNames: rolloutChannels,
+			}
+		}
+	}
+	rows, err := s.branchRepo.GetUpdatedMetadataByBranchName(ctx, appId, branchName)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve updates linked to the branch from database: %w", err)
+	}
+	err = s.branchRepo.DeleteBranchByName(ctx, appId, branchName)
+	if err != nil {
+		return err
+	}
+	go func(bucketRows []pgdb.GetUpdatesMetadataByBranchNameRow) {
+		for _, row := range bucketRows {
+			err := s.bucket.DeleteUpdateFolder(appId, branchName, row.RuntimeVersion, strconv.FormatInt(row.ID, 10))
+			if err != nil {
+				fmt.Printf("failed to delete update files for update %d: %v\n", row.ID, err)
+			}
+		}
+	}(rows)
+	return nil
+}
+
+func (s *BranchService) GetBranches(ctx context.Context, appId string) ([]types.BranchMapping, error) {
+	return s.branchRepo.GetBranches(ctx, appId)
+}
+
+func (s *BranchService) GetRuntimeVersionsWithUpdateStats(ctx context.Context, appId string, branchName string) ([]types.RuntimeVersionWithStats, error) {
+	if err := validation.Name("branchName", branchName); err != nil {
+		return nil, err
+	}
+	return s.branchRepo.GetRuntimeVersionsWithUpdateStats(ctx, appId, branchName)
+}
+
+func (s *BranchService) UpdateChannelBranchMapping(ctx context.Context, appId string, channelId string, channelName string, branchId string) error {
+	// channelId is the release channel's id, not its name. Both ids are
+	// backend-dependent (numeric on the DB control plane, provider id strings on
+	// the bucket backend), so validate them as safe segments rather than forcing
+	// numeric. channelName only exists to disambiguate the rollout-locked case,
+	// whose repository is keyed by name.
+	if err := validation.Name("releaseChannelId", channelId); err != nil {
+		return err
+	}
+	if err := validation.Name("branchId", branchId); err != nil {
+		return err
+	}
+	err := s.branchRepo.UpdateChannelBranchMapping(ctx, appId, channelId, branchId)
+	if err != nil {
+		// The guarded UPDATE reports 0 rows for both an unknown channel and a channel
+		// locked by an active rollout; tell them apart so the caller gets a 409 with
+		// the real reason instead of a misleading 404.
+		var notFoundErr *store.ErrResourceNotFound
+		if errors.As(err, &notFoundErr) && notFoundErr.Resource == "channel" && s.rolloutRepo != nil && channelName != "" {
+			activeRollout, rolloutErr := s.rolloutRepo.GetChannelRollout(ctx, appId, channelName)
+			if rolloutErr == nil && activeRollout != nil {
+				return &store.ErrChannelHasActiveRollout{ChannelName: channelName}
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *BranchService) UpsertBranchAndRuntimeVersion(ctx context.Context, appId string, branchName string, runtimeVersion string) error {
+	return s.branchRepo.UpsertBranchAndRuntimeVersion(ctx, appId, branchName, runtimeVersion)
+}
