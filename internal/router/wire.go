@@ -4,6 +4,7 @@ import (
 	"context"
 	"expo-open-ota/config"
 	"expo-open-ota/ee/apikeyrestrictions"
+	"expo-open-ota/ee/audit"
 	"expo-open-ota/ee/licensing"
 	"expo-open-ota/ee/rbac"
 	"expo-open-ota/ee/sso"
@@ -82,6 +83,9 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// User roles and per-app grants (ee/rbac) live in the database too; nil
 	// keeps the whole feature on the community fallback.
 	var rbacRepo rbac.RBACRepository
+	// The audit trail (ee/audit) as well: nil keeps its recorder a no-op, so
+	// stateless deployments never collect an event.
+	var auditRepo audit.AuditRepository
 
 	cleanup := func() {}
 	dbUrl := config.GetDBURL()
@@ -113,6 +117,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		ssoRepo = sso.NewPostgresSSOStore(dbEngine)
 		apiKeyRestrictionRepo = apikeyrestrictions.NewPostgresApiKeyRestrictionStore(dbEngine)
 		rbacRepo = rbac.NewPostgresRBACStore(dbEngine)
+		auditRepo = audit.NewPostgresAuditStore(dbEngine)
 		branchRepo = store.NewPostgresBranchStore(dbEngine)
 		channelRepo = store.NewPostgresChannelStore(dbEngine)
 		updateRepo = store.NewPostgresUpdateStore(dbEngine)
@@ -142,7 +147,12 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	licenseService.StartSync(ctx, 30*time.Second)
 
 	apiKeyRestrictionService := apikeyrestrictions.NewApiKeyRestrictionService(apiKeyRestrictionRepo)
+	// The audit recorder is handed to every emitting surface below; it
+	// no-ops without a control plane and a currently valid license, so the
+	// call sites stay unconditional.
+	auditService := audit.NewAuditService(auditRepo, licensing.IsEnterprise)
 	rbacService := rbac.NewRBACService(rbacRepo, userRepo)
+	rbacService.SetOnAuditEvent(auditService.Record)
 	// The community list handlers (apps, settings) receive this method as
 	// their AppVisibilityFilter: they filter what a member sees without their
 	// package ever importing ee/rbac.
@@ -158,6 +168,9 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// provisioning instead of manual creation.
 	dashboardAuthService.SetSSOEnforced(ssoService.Enabled)
 	userService.SetSSOEnforced(ssoService.Enabled)
+	dashboardAuthService.SetOnAuditEvent(auditService.Record)
+	ssoService.SetOnAuditEvent(auditService.Record)
+	userService.SetOnAuditEvent(auditService.Record)
 	appService := services.NewAppService(appRepo)
 	branchService := services.NewBranchService(branchRepo, channelRepo, updateRepo, rolloutRepo, resolvedBucket)
 	channelService := services.NewChannelService(branchRepo, channelRepo)

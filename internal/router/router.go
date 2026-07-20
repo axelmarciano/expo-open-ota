@@ -37,6 +37,9 @@ func getDashboardPath() string {
 func NewRouter(container *AppContainer) *mux.Router {
 	r := mux.NewRouter()
 	r.Use(middleware.LoggingMiddleware)
+	// Every request carries its network context (client IP, user agent) so
+	// audit events can be emitted from any layer below without the request.
+	r.Use(middleware.RequestMetaMiddleware)
 
 	if config.GetEnv("PROMETHEUS_ENABLED") == "true" {
 		r.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {

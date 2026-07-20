@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"expo-open-ota/internal/auditlog"
 	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/store"
 	"net/mail"
@@ -60,6 +61,15 @@ type UserService struct {
 	// enforced. While enforced, accounts arrive through SSO provisioning and
 	// manual creation is refused.
 	ssoEnforced func(context.Context) bool
+	// onAuditEvent is the audit emission seam; nil (community) means account
+	// changes leave no events.
+	onAuditEvent auditlog.RecordFunc
+}
+
+// SetOnAuditEvent plugs the audit emission seam (see SetSSOEnforced for the
+// pattern). Nil-safe.
+func (s *UserService) SetOnAuditEvent(record auditlog.RecordFunc) {
+	s.onAuditEvent = record
 }
 
 // NewUserService accepts a nil repository (stateless mode); every method then
@@ -205,5 +215,20 @@ func (s *UserService) ChangePassword(ctx context.Context, userId string, current
 	if err != nil {
 		return err
 	}
-	return s.userRepo.UpdateUserPassword(ctx, userId, passwordHash)
+	if err := s.userRepo.UpdateUserPassword(ctx, userId, passwordHash); err != nil {
+		return err
+	}
+	if s.onAuditEvent != nil {
+		s.onAuditEvent(ctx, auditlog.Event{
+			ActorType:     auditlog.ActorUser,
+			ActorID:       user.Id,
+			ActorDisplay:  user.Email,
+			Action:        auditlog.ActionUserPasswordChanged,
+			TargetType:    "user",
+			TargetID:      user.Id,
+			TargetDisplay: user.Email,
+			Outcome:       auditlog.OutcomeSuccess,
+		})
+	}
+	return nil
 }

@@ -46,14 +46,16 @@ SELECT COUNT(*) FROM audit_log_events
 WHERE ($1::TEXT IS NULL OR actor_id = $1)
   AND ($2::TEXT IS NULL OR action = $2)
   AND ($3::TEXT IS NULL OR app_id = $3)
-  AND ($4::TIMESTAMPTZ IS NULL OR occurred_at >= $4)
-  AND ($5::TIMESTAMPTZ IS NULL OR occurred_at <= $5)
+  AND ($4::TEXT IS NULL OR outcome = $4)
+  AND ($5::TIMESTAMPTZ IS NULL OR occurred_at >= $5)
+  AND ($6::TIMESTAMPTZ IS NULL OR occurred_at <= $6)
 `
 
 type CountAuditLogEventsParams struct {
 	ActorID      *string            `json:"actor_id"`
 	Action       *string            `json:"action"`
 	AppID        *string            `json:"app_id"`
+	Outcome      *string            `json:"outcome"`
 	OccurredFrom pgtype.Timestamptz `json:"occurred_from"`
 	OccurredTo   pgtype.Timestamptz `json:"occurred_to"`
 }
@@ -65,6 +67,7 @@ func (q *Queries) CountAuditLogEvents(ctx context.Context, arg CountAuditLogEven
 		arg.ActorID,
 		arg.Action,
 		arg.AppID,
+		arg.Outcome,
 		arg.OccurredFrom,
 		arg.OccurredTo,
 	)
@@ -2040,17 +2043,19 @@ SELECT id, occurred_at, actor_type, actor_id, actor_display, action, target_type
 WHERE ($1::TEXT IS NULL OR actor_id = $1)
   AND ($2::TEXT IS NULL OR action = $2)
   AND ($3::TEXT IS NULL OR app_id = $3)
-  AND ($4::TIMESTAMPTZ IS NULL OR occurred_at >= $4)
-  AND ($5::TIMESTAMPTZ IS NULL OR occurred_at <= $5)
-  AND ($6::BIGINT IS NULL OR id < $6)
+  AND ($4::TEXT IS NULL OR outcome = $4)
+  AND ($5::TIMESTAMPTZ IS NULL OR occurred_at >= $5)
+  AND ($6::TIMESTAMPTZ IS NULL OR occurred_at <= $6)
+  AND ($7::BIGINT IS NULL OR id < $7)
 ORDER BY id DESC
-LIMIT $7
+LIMIT $8
 `
 
 type ListAuditLogEventsParams struct {
 	ActorID      *string            `json:"actor_id"`
 	Action       *string            `json:"action"`
 	AppID        *string            `json:"app_id"`
+	Outcome      *string            `json:"outcome"`
 	OccurredFrom pgtype.Timestamptz `json:"occurred_from"`
 	OccurredTo   pgtype.Timestamptz `json:"occurred_to"`
 	BeforeID     *int64             `json:"before_id"`
@@ -2065,6 +2070,7 @@ func (q *Queries) ListAuditLogEvents(ctx context.Context, arg ListAuditLogEvents
 		arg.ActorID,
 		arg.Action,
 		arg.AppID,
+		arg.Outcome,
 		arg.OccurredFrom,
 		arg.OccurredTo,
 		arg.BeforeID,

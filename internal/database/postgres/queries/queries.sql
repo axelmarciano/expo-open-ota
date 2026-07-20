@@ -908,6 +908,7 @@ SELECT * FROM audit_log_events
 WHERE (sqlc.narg('actor_id')::TEXT IS NULL OR actor_id = sqlc.narg('actor_id'))
   AND (sqlc.narg('action')::TEXT IS NULL OR action = sqlc.narg('action'))
   AND (sqlc.narg('app_id')::TEXT IS NULL OR app_id = sqlc.narg('app_id'))
+  AND (sqlc.narg('outcome')::TEXT IS NULL OR outcome = sqlc.narg('outcome'))
   AND (sqlc.narg('occurred_from')::TIMESTAMPTZ IS NULL OR occurred_at >= sqlc.narg('occurred_from'))
   AND (sqlc.narg('occurred_to')::TIMESTAMPTZ IS NULL OR occurred_at <= sqlc.narg('occurred_to'))
   AND (sqlc.narg('before_id')::BIGINT IS NULL OR id < sqlc.narg('before_id'))
@@ -921,5 +922,6 @@ SELECT COUNT(*) FROM audit_log_events
 WHERE (sqlc.narg('actor_id')::TEXT IS NULL OR actor_id = sqlc.narg('actor_id'))
   AND (sqlc.narg('action')::TEXT IS NULL OR action = sqlc.narg('action'))
   AND (sqlc.narg('app_id')::TEXT IS NULL OR app_id = sqlc.narg('app_id'))
+  AND (sqlc.narg('outcome')::TEXT IS NULL OR outcome = sqlc.narg('outcome'))
   AND (sqlc.narg('occurred_from')::TIMESTAMPTZ IS NULL OR occurred_at >= sqlc.narg('occurred_from'))
   AND (sqlc.narg('occurred_to')::TIMESTAMPTZ IS NULL OR occurred_at <= sqlc.narg('occurred_to'));

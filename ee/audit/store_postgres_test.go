@@ -16,6 +16,7 @@ package audit
 
 import (
 	"context"
+	"expo-open-ota/internal/auditlog"
 	"os"
 	"testing"
 	"time"
@@ -65,15 +66,15 @@ func TestAuditEventRoundtrip(t *testing.T) {
 	appID := uuid.NewString()
 
 	inserted := insertTestEvent(t, auditStore, Event{
-		ActorType:     ActorUser,
+		ActorType:     auditlog.ActorUser,
 		ActorID:       actorID,
 		ActorDisplay:  "axel@example.com",
-		Action:        ActionAppRenamed,
+		Action:        auditlog.ActionAppRenamed,
 		TargetType:    "app",
 		TargetID:      appID,
 		TargetDisplay: "My App",
 		AppID:         appID,
-		Outcome:       OutcomeSuccess,
+		Outcome:       auditlog.OutcomeSuccess,
 		IP:            "203.0.113.7",
 		UserAgent:     "Mozilla/5.0",
 		Metadata: map[string]any{
@@ -96,9 +97,9 @@ func TestAuditEventRoundtrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, events, 1)
 	require.Equal(t, inserted.ID, events[0].ID)
-	require.Equal(t, ActorUser, events[0].ActorType)
+	require.Equal(t, auditlog.ActorUser, events[0].ActorType)
 	require.Equal(t, "axel@example.com", events[0].ActorDisplay)
-	require.Equal(t, ActionAppRenamed, events[0].Action)
+	require.Equal(t, auditlog.ActionAppRenamed, events[0].Action)
 	require.Equal(t, "My App", events[0].TargetDisplay)
 	require.Equal(t, appID, events[0].AppID)
 	require.Equal(t, "203.0.113.7", events[0].IP)
@@ -116,10 +117,10 @@ func TestAuditEventAccountLevelAndEmptyMetadata(t *testing.T) {
 	actorID := uuid.NewString()
 
 	insertTestEvent(t, auditStore, Event{
-		ActorType:    ActorUser,
+		ActorType:    auditlog.ActorUser,
 		ActorID:      actorID,
 		ActorDisplay: "admin@example.com",
-		Action:       ActionLicenseActivated,
+		Action:       auditlog.ActionLicenseActivated,
 		TargetType:   "license",
 		TargetID:     "license",
 	})
@@ -142,29 +143,29 @@ func TestAuditEventFilters(t *testing.T) {
 	appID := uuid.NewString()
 
 	insertTestEvent(t, auditStore, Event{
-		ActorType: ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
-		Action: ActionChannelCreated, TargetType: "channel", TargetID: "staging", AppID: appID,
+		ActorType: auditlog.ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
+		Action: auditlog.ActionChannelCreated, TargetType: "channel", TargetID: "staging", AppID: appID,
 	})
 	insertTestEvent(t, auditStore, Event{
-		ActorType: ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
-		Action: ActionChannelDeleted, TargetType: "channel", TargetID: "staging", AppID: appID,
+		ActorType: auditlog.ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
+		Action: auditlog.ActionChannelDeleted, TargetType: "channel", TargetID: "staging", AppID: appID,
 	})
 	insertTestEvent(t, auditStore, Event{
-		ActorType: ActorAPIKey, ActorID: otherActorID, ActorDisplay: "ci-key",
-		Action: ActionUpdatePublished, TargetType: "update", TargetID: "1", AppID: appID,
+		ActorType: auditlog.ActorAPIKey, ActorID: otherActorID, ActorDisplay: "ci-key",
+		Action: auditlog.ActionUpdatePublished, TargetType: "update", TargetID: "1", AppID: appID,
 	})
 
 	ctx := context.Background()
 
 	// By action, within the actor's rows.
-	deleted := string(ActionChannelDeleted)
+	deleted := string(auditlog.ActionChannelDeleted)
 	events, err := auditStore.List(ctx, ListParams{
 		ListFilters: ListFilters{ActorID: &actorID, Action: &deleted},
 		Limit:       10,
 	})
 	require.NoError(t, err)
 	require.Len(t, events, 1)
-	require.Equal(t, ActionChannelDeleted, events[0].Action)
+	require.Equal(t, auditlog.ActionChannelDeleted, events[0].Action)
 
 	// By app: both actors' rows on this app.
 	count, err := auditStore.Count(ctx, ListFilters{AppID: &appID})
@@ -184,6 +185,32 @@ func TestAuditEventFilters(t *testing.T) {
 	require.EqualValues(t, 2, count)
 }
 
+func TestAuditEventOutcomeFilter(t *testing.T) {
+	auditStore := setupAuditStore(t)
+	actorID := uuid.NewString()
+
+	insertTestEvent(t, auditStore, Event{
+		ActorType: auditlog.ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
+		Action: auditlog.ActionUserLogin, TargetType: "user", TargetID: actorID,
+		Outcome: auditlog.OutcomeSuccess,
+	})
+	insertTestEvent(t, auditStore, Event{
+		ActorType: auditlog.ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
+		Action: auditlog.ActionUserLogin, TargetType: "user", TargetID: actorID,
+		Outcome: auditlog.OutcomeFailure,
+	})
+
+	// The security lens: only what failed, whatever the action.
+	failure := string(auditlog.OutcomeFailure)
+	events, err := auditStore.List(context.Background(), ListParams{
+		ListFilters: ListFilters{ActorID: &actorID, Outcome: &failure},
+		Limit:       10,
+	})
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, auditlog.OutcomeFailure, events[0].Outcome)
+}
+
 func TestAuditEventKeysetPagination(t *testing.T) {
 	auditStore := setupAuditStore(t)
 	actorID := uuid.NewString()
@@ -191,8 +218,8 @@ func TestAuditEventKeysetPagination(t *testing.T) {
 	var insertedIDs []int64
 	for range 5 {
 		inserted := insertTestEvent(t, auditStore, Event{
-			ActorType: ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
-			Action: ActionUserLogin, TargetType: "user", TargetID: actorID,
+			ActorType: auditlog.ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
+			Action: auditlog.ActionUserLogin, TargetType: "user", TargetID: actorID,
 		})
 		insertedIDs = append(insertedIDs, inserted.ID)
 	}

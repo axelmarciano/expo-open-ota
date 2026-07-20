@@ -106,6 +106,7 @@ func (s *PostgresAuditStore) List(ctx context.Context, params ListParams) ([]Eve
 		ActorID:      params.ActorID,
 		Action:       params.Action,
 		AppID:        params.AppID,
+		Outcome:      params.Outcome,
 		OccurredFrom: toPgTimestamptz(params.From),
 		OccurredTo:   toPgTimestamptz(params.To),
 		BeforeID:     params.BeforeID,
@@ -126,6 +127,7 @@ func (s *PostgresAuditStore) Count(ctx context.Context, filters ListFilters) (in
 		ActorID:      filters.ActorID,
 		Action:       filters.Action,
 		AppID:        filters.AppID,
+		Outcome:      filters.Outcome,
 		OccurredFrom: toPgTimestamptz(filters.From),
 		OccurredTo:   toPgTimestamptz(filters.To),
 	})

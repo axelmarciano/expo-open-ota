@@ -7,6 +7,7 @@ package rbac
 import (
 	"context"
 	"errors"
+	"expo-open-ota/internal/auditlog"
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/middleware"
 	"expo-open-ota/internal/store"
@@ -70,12 +71,51 @@ func RequirePermission(service *RBACService, perm Permission) mux.MiddlewareFunc
 				return
 			}
 			if err := service.Authorize(r.Context(), subject, appId, perm); err != nil {
+				service.recordDenied(r, subject, appId, err, map[string]any{"permission": string(perm)})
 				renderAuthorizeError(w, err)
 				return
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// recordDenied reports a refusal to the audit trail: permission.denied is the
+// single event for authorization refusals (see the audit catalog). Only real
+// denials are events — the community fallback's admin-only refusals happen
+// precisely when no license is active, so the recorder would drop them anyway.
+func (s *RBACService) recordDenied(r *http.Request, subject Subject, appID string, cause error, metadata map[string]any) {
+	if s.onAuditEvent == nil {
+		return
+	}
+	deniedErr := (*ErrPermissionDenied)(nil)
+	switch {
+	case errors.As(cause, &deniedErr):
+	case errors.Is(cause, ErrNoAppAccess):
+		metadata["reason"] = "no_app_grant"
+	default:
+		return
+	}
+	// The method and path disambiguate what was attempted when one permission
+	// covers several endpoints (apikeys:manage gates create, revoke and
+	// restrictions).
+	metadata["method"] = r.Method
+	metadata["path"] = r.URL.Path
+	actorDisplay := subject.UserID
+	if principal := middleware.PrincipalFromContext(r.Context()); principal != nil && principal.Email != "" {
+		actorDisplay = principal.Email
+	}
+	s.onAuditEvent(r.Context(), auditlog.Event{
+		ActorType:    auditlog.ActorUser,
+		ActorID:      subject.UserID,
+		ActorDisplay: actorDisplay,
+		Action:       auditlog.ActionPermissionDenied,
+		TargetType:   "app",
+		TargetID:     appID,
+		AppID:        appID,
+		Outcome:      auditlog.OutcomeDenied,
+		Metadata:     metadata,
+	})
 }
 
 func renderAuthorizeError(w http.ResponseWriter, err error) {
@@ -123,6 +163,7 @@ func RequireAppVisible(service *RBACService) mux.MiddlewareFunc {
 				return
 			}
 			if !visible {
+				service.recordDenied(r, subject, mux.Vars(r)["APP_ID"], ErrNoAppAccess, map[string]any{})
 				handlers.RenderError(w, http.StatusNotFound, "app not found")
 				return
 			}

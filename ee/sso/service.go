@@ -12,6 +12,7 @@ import (
 	"errors"
 	"expo-open-ota/config"
 	"expo-open-ota/ee/licensing"
+	"expo-open-ota/internal/auditlog"
 	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
@@ -188,6 +189,9 @@ type SSOService struct {
 	repo     SSORepository
 	userRepo services.UserRepository
 	sessions *services.DashboardAuthService
+	// onAuditEvent is the audit emission seam; nil means SSO sign-ins leave
+	// no events.
+	onAuditEvent auditlog.RecordFunc
 	// licenseValid is the live licensing state; a field so same-package tests
 	// can pin it without minting signed keys.
 	licenseValid func() bool
@@ -457,7 +461,29 @@ func (s *SSOService) CompleteLogin(ctx context.Context, flowToken string, state 
 	if !user.Enabled {
 		return nil, fmt.Errorf("%w: %q is not approved yet", ErrSSOAccountPendingApproval, email)
 	}
-	return s.sessions.IssueSession(ctx, user)
+	session, err := s.sessions.IssueSession(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	if s.onAuditEvent != nil {
+		s.onAuditEvent(ctx, auditlog.Event{
+			ActorType:     auditlog.ActorUser,
+			ActorID:       user.Id,
+			ActorDisplay:  user.Email,
+			Action:        auditlog.ActionUserSSOLogin,
+			TargetType:    "user",
+			TargetID:      user.Id,
+			TargetDisplay: user.Email,
+			Outcome:       auditlog.OutcomeSuccess,
+		})
+	}
+	return session, nil
+}
+
+// SetOnAuditEvent plugs the audit emission seam. Nil-safe: without it, SSO
+// sign-ins simply leave no audit events.
+func (s *SSOService) SetOnAuditEvent(record auditlog.RecordFunc) {
+	s.onAuditEvent = record
 }
 
 type flowState struct {

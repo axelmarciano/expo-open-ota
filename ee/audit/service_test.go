@@ -7,6 +7,7 @@ package audit
 import (
 	"context"
 	"errors"
+	"expo-open-ota/internal/auditlog"
 	"testing"
 	"time"
 
@@ -49,28 +50,24 @@ func (f *fakeAuditRepo) Count(ctx context.Context, filters ListFilters) (int64, 
 }
 
 func enabledService(repo AuditRepository) *AuditService {
-	service := NewAuditService(repo)
-	service.licenseValid = func() bool { return true }
-	return service
+	return NewAuditService(repo, func() bool { return true })
 }
 
 func TestRecordCollectsNothingWithoutLicense(t *testing.T) {
 	repo := &fakeAuditRepo{}
-	service := NewAuditService(repo)
-	service.licenseValid = func() bool { return false }
+	service := NewAuditService(repo, func() bool { return false })
 
-	service.Record(context.Background(), Event{Action: ActionUserLogin})
+	service.Record(context.Background(), Event{Action: auditlog.ActionUserLogin})
 
 	require.Empty(t, repo.inserted, "an unlicensed deployment must not collect a single event")
 	require.False(t, service.Enabled())
 }
 
 func TestRecordCollectsNothingInStatelessMode(t *testing.T) {
-	service := NewAuditService(nil)
-	service.licenseValid = func() bool { return true }
+	service := NewAuditService(nil, func() bool { return true })
 
 	// Must be a silent no-op, not a nil dereference.
-	service.Record(context.Background(), Event{Action: ActionUserLogin})
+	service.Record(context.Background(), Event{Action: auditlog.ActionUserLogin})
 	require.False(t, service.Enabled())
 }
 
@@ -79,7 +76,7 @@ func TestRecordDoesNotFabricateMissingFields(t *testing.T) {
 	service := enabledService(repo)
 
 	service.Record(context.Background(), Event{
-		Action:     ActionUserSSOProvisioned,
+		Action:     auditlog.ActionUserSSOProvisioned,
 		TargetType: "user",
 		TargetID:   "u-1",
 	})
@@ -97,7 +94,7 @@ func TestRecordSurvivesRequestCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	service.Record(ctx, Event{Action: ActionUserLogin})
+	service.Record(ctx, Event{Action: auditlog.ActionUserLogin})
 
 	require.Len(t, repo.inserted, 1)
 	require.NoError(t, repo.ctxErrAtInsert, "the insert must not inherit the request's cancellation")
@@ -109,12 +106,12 @@ func TestRecordSwallowsInsertErrors(t *testing.T) {
 	service := enabledService(repo)
 
 	// Best-effort contract: the mutation that emitted the event must not fail.
-	service.Record(context.Background(), Event{Action: ActionUserLogin})
+	service.Record(context.Background(), Event{Action: auditlog.ActionUserLogin})
 	require.Empty(t, repo.inserted)
 }
 
 func TestListRequiresControlPlane(t *testing.T) {
-	service := NewAuditService(nil)
+	service := NewAuditService(nil, func() bool { return true })
 
 	_, _, err := service.List(context.Background(), ListParams{})
 	require.ErrorIs(t, err, ErrRequiresControlPlane)
@@ -140,7 +137,7 @@ func TestListClampsPageSize(t *testing.T) {
 func TestListPagination(t *testing.T) {
 	events := make([]Event, 0, 3)
 	for i := 3; i >= 1; i-- {
-		events = append(events, Event{ID: int64(i), Action: ActionUserLogin})
+		events = append(events, Event{ID: int64(i), Action: auditlog.ActionUserLogin})
 	}
 	repo := &fakeAuditRepo{listResult: events}
 	service := enabledService(repo)
@@ -161,9 +158,8 @@ func TestListPagination(t *testing.T) {
 }
 
 func TestListReadsStayOpenWithoutLicense(t *testing.T) {
-	repo := &fakeAuditRepo{listResult: []Event{{ID: 1, Action: ActionUserLogin, OccurredAt: time.Now()}}}
-	service := NewAuditService(repo)
-	service.licenseValid = func() bool { return false }
+	repo := &fakeAuditRepo{listResult: []Event{{ID: 1, Action: auditlog.ActionUserLogin, OccurredAt: time.Now()}}}
+	service := NewAuditService(repo, func() bool { return false })
 
 	// A lapsed license stops collection, never read access to what was
 	// collected while licensed.

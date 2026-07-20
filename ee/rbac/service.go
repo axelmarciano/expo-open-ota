@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"expo-open-ota/ee/licensing"
+	"expo-open-ota/internal/auditlog"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
 	"fmt"
@@ -146,6 +147,14 @@ type RBACService struct {
 	// licenseValid is the live licensing state; a field so same-package tests
 	// can pin it without minting signed keys.
 	licenseValid func() bool
+	// onAuditEvent is the audit emission seam the middlewares report refusals
+	// to; nil means denials leave no events.
+	onAuditEvent auditlog.RecordFunc
+}
+
+// SetOnAuditEvent plugs the audit emission seam. Nil-safe.
+func (s *RBACService) SetOnAuditEvent(record auditlog.RecordFunc) {
+	s.onAuditEvent = record
 }
 
 // NewRBACService accepts a nil repository (stateless mode); every method then
