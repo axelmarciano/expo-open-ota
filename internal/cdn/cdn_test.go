@@ -1,6 +1,7 @@
 package cdn
 
 import (
+	"strings"
 	testing2 "testing"
 )
 
@@ -19,6 +20,64 @@ func clearCDNEnv(t *testing2.T) {
 	t.Setenv("PRIVATE_CLOUDFRONT_KEY_PATH", "")
 	t.Setenv("PRIVATE_CLOUDFRONT_KEY_B64", "")
 	t.Setenv("AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID", "")
+	t.Setenv("AZURE_BLOB_CONTAINER_NAME", "")
+	t.Setenv("AZURE_STORAGE_ACCOUNT_NAME", "")
+	t.Setenv("AZURE_STORAGE_ACCOUNT_KEY", "")
+	t.Setenv("AZURE_BLOB_ENDPOINT", "")
+}
+
+func setAzureCDNEnv(t *testing2.T) {
+	t.Setenv("STORAGE_MODE", "azure")
+	t.Setenv("AZURE_BLOB_CONTAINER_NAME", "updates")
+	t.Setenv("AZURE_STORAGE_ACCOUNT_NAME", "devstoreaccount1")
+	t.Setenv("AZURE_STORAGE_ACCOUNT_KEY", "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==")
+}
+
+func TestGetCDNReturnsAzureDirectWhenAzureConfigured(t *testing2.T) {
+	clearCDNEnv(t)
+	setAzureCDNEnv(t)
+	ResetCDNInstance()
+	c := GetCDN()
+	if c == nil {
+		t.Fatalf("expected CDN instance, got nil")
+	}
+	if _, ok := c.(*AzureBlobDirectCDN); !ok {
+		t.Fatalf("expected *AzureBlobDirectCDN, got %T", c)
+	}
+}
+
+func TestGetCDNReturnsGenericWithCDNBaseURLOnAzure(t *testing2.T) {
+	clearCDNEnv(t)
+	setAzureCDNEnv(t)
+	// azure-direct is always available in azure mode, so the explicitly
+	// configured base URL (a Front Door or any CDN in front of a public
+	// container) must win or it would never be reachable.
+	t.Setenv("CDN_BASE_URL", "https://cdn.example.com")
+	ResetCDNInstance()
+	c := GetCDN()
+	if _, ok := c.(*GenericCDN); !ok {
+		t.Fatalf("expected *GenericCDN, got %T", c)
+	}
+}
+
+func TestAzureDirectComputeRedirectionURL(t *testing2.T) {
+	clearCDNEnv(t)
+	setAzureCDNEnv(t)
+	t.Setenv("BUCKET_KEY_PREFIX", "prefix")
+	c := &AzureBlobDirectCDN{}
+	got, err := c.ComputeRedirectionURLForAsset("app-1", "production", "1", "1674170951", "bundles/android.js")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	wantPrefix := "https://devstoreaccount1.blob.core.windows.net/updates/prefix/app-1/production/1/1674170951/bundles/android.js?"
+	if !strings.HasPrefix(got, wantPrefix) {
+		t.Fatalf("expected URL to start with %q, got %q", wantPrefix, got)
+	}
+	for _, param := range []string{"sig=", "se=", "sp=r"} {
+		if !strings.Contains(got, param) {
+			t.Fatalf("expected URL to contain %q, got %q", param, got)
+		}
+	}
 }
 
 func TestGetCDNReturnsGCSDirectWhenGCSConfigured(t *testing2.T) {

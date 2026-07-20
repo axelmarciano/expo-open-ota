@@ -70,7 +70,9 @@ export const Settings = () => {
       ? 'Amazon S3'
       : settings.STORAGE_MODE === 'gcs'
         ? 'Google Cloud Storage'
-        : 'Local disk';
+        : settings.STORAGE_MODE === 'azure'
+          ? 'Azure Blob Storage'
+          : 'Local disk';
 
   const cacheLabel =
     settings.CACHE_MODE === 'redis'
@@ -158,11 +160,23 @@ export const Settings = () => {
               <Mono>{settings.GCS_BUCKET_NAME || 'Not set'}</Mono>
             </Row>
           )}
-          {settings.STORAGE_MODE !== 's3' && settings.STORAGE_MODE !== 'gcs' && (
-            <Row label="Path" hint="Bundles live on the server's own disk.">
-              <Mono>{settings.LOCAL_BUCKET_BASE_PATH || './updates'}</Mono>
-            </Row>
+          {settings.STORAGE_MODE === 'azure' && (
+            <>
+              <Row label="Container">
+                <Mono>{settings.AZURE_BLOB_CONTAINER_NAME || 'Not set'}</Mono>
+              </Row>
+              <Row label="Account">
+                <Mono>{settings.AZURE_STORAGE_ACCOUNT_NAME || 'Not set'}</Mono>
+              </Row>
+            </>
           )}
+          {settings.STORAGE_MODE !== 's3' &&
+            settings.STORAGE_MODE !== 'gcs' &&
+            settings.STORAGE_MODE !== 'azure' && (
+              <Row label="Path" hint="Bundles live on the server's own disk.">
+                <Mono>{settings.LOCAL_BUCKET_BASE_PATH || './updates'}</Mono>
+              </Row>
+            )}
         </Section>
 
         <Section icon={Zap} title="Cache">
@@ -218,6 +232,16 @@ export const Settings = () => {
               </Row>
               <Row label="Bucket">
                 <Mono>{settings.GCS_BUCKET_NAME}</Mono>
+              </Row>
+            </>
+          )}
+          {settings.CDN_TYPE === 'azure-direct' && (
+            <>
+              <Row label="Provider" hint="Assets are served through signed Azure Blob Storage URLs.">
+                <span className="font-medium">Azure Blob Storage</span>
+              </Row>
+              <Row label="Container">
+                <Mono>{settings.AZURE_BLOB_CONTAINER_NAME}</Mono>
               </Row>
             </>
           )}

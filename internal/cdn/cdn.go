@@ -35,6 +35,11 @@ func GetCDN() CDN {
 		gcsCDN := GCSDirectCDN{}
 		if (&gcsCDN).isCDNAvailable() {
 			cdnInstance = &gcsCDN
+			return
+		}
+		azureCDN := AzureBlobDirectCDN{}
+		if (&azureCDN).isCDNAvailable() {
+			cdnInstance = &azureCDN
 		}
 	})
 	return cdnInstance

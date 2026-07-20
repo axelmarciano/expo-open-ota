@@ -41,6 +41,8 @@ type SettingsEnv struct {
 	// configured through CDN_BASE_URL or the deprecated S3_CDN_PREFIX.
 	CDN_BASE_URL                           string `json:"CDN_BASE_URL"`
 	GCS_BUCKET_NAME                        string `json:"GCS_BUCKET_NAME"`
+	AZURE_BLOB_CONTAINER_NAME              string `json:"AZURE_BLOB_CONTAINER_NAME"`
+	AZURE_STORAGE_ACCOUNT_NAME             string `json:"AZURE_STORAGE_ACCOUNT_NAME"`
 	LOCAL_BUCKET_BASE_PATH                 string `json:"LOCAL_BUCKET_BASE_PATH"`
 	AWS_REGION                             string `json:"AWS_REGION"`
 	AWS_BASE_ENDPOINT                      string `json:"AWS_BASE_ENDPOINT"`
@@ -53,9 +55,9 @@ type SettingsEnv struct {
 	PRIVATE_CLOUDFRONT_KEY_PATH            string `json:"PRIVATE_CLOUDFRONT_KEY_PATH"`
 	PROMETHEUS_ENABLED                     string `json:"PROMETHEUS_ENABLED"`
 	// CDN_TYPE is the CDN the server actually resolved at boot ("cloudfront",
-	// "gcs-direct", "generic" or "" when assets are served directly),
-	// so the dashboard can display the effective setup instead of making the
-	// user re-derive it from raw variables.
+	// "gcs-direct", "azure-direct", "generic" or "" when assets are served
+	// directly), so the dashboard can display the effective setup instead of
+	// making the user re-derive it from raw variables.
 	CDN_TYPE string `json:"CDN_TYPE"`
 	// EXPO_ACCOUNT_USERNAME is the Expo account behind the configured access
 	// token. Only resolved in stateless mode (single app, single token) and
@@ -78,6 +80,8 @@ func resolvedCDNType() string {
 		return "cloudfront"
 	case *cdn.GCSDirectCDN:
 		return "gcs-direct"
+	case *cdn.AzureBlobDirectCDN:
+		return "azure-direct"
 	case *cdn.GenericCDN:
 		return "generic"
 	default:
@@ -107,6 +111,8 @@ func (h *SettingsHandler) GetSettingsHandler(w http.ResponseWriter, r *http.Requ
 		S3_BUCKET_NAME:                         config.GetEnv("S3_BUCKET_NAME"),
 		CDN_BASE_URL:                           cdn.ResolveCDNBaseURL(),
 		GCS_BUCKET_NAME:                        config.GetEnv("GCS_BUCKET_NAME"),
+		AZURE_BLOB_CONTAINER_NAME:              config.GetEnv("AZURE_BLOB_CONTAINER_NAME"),
+		AZURE_STORAGE_ACCOUNT_NAME:             config.GetEnv("AZURE_STORAGE_ACCOUNT_NAME"),
 		LOCAL_BUCKET_BASE_PATH:                 config.GetEnv("LOCAL_BUCKET_BASE_PATH"),
 		AWS_REGION:                             config.GetEnv("AWS_REGION"),
 		AWS_BASE_ENDPOINT:                      config.GetEnv("AWS_BASE_ENDPOINT"),
