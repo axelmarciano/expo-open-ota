@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"expo-open-ota/internal/assets"
 	"expo-open-ota/internal/cdn"
+	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/update"
 	"github.com/andybalholm/brotli"
 	"github.com/gorilla/mux"
@@ -376,6 +377,34 @@ func TestAutomaticUrlRedirectionIfCDNIsSet(t *testing.T) {
 	testContainer().ExpoProtocolHandler.HandleAssets(w, r)
 
 	assert.Equal(t, 302, w.Code, "Expected status code 302")
+}
+
+// End-to-end shape of a generic CDN redirect for a real fixture asset: the
+// resolved update and the asset name must land in the URL exactly as the
+// bucket layout stores them, or every client download 404s on the CDN.
+func TestGenericCDNRedirectURLForRealAsset(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("CDN_BASE_URL", "https://cdn.example.com")
+	defer os.Unsetenv("CDN_BASE_URL")
+	request := assets.AssetsRequest{
+		AppId:          "test-app-id",
+		Branch:         "branch-1",
+		AssetName:      "bundles/android-82adadb1fb6e489d04ad95fd79670deb.js",
+		RuntimeVersion: "1",
+		Platform:       "android",
+		RequestID:      "test",
+		Update: &types.Update{
+			AppId:          "test-app-id",
+			Branch:         "branch-1",
+			RuntimeVersion: "1",
+			UpdateId:       "1674170951",
+		},
+	}
+	response, err := assets.HandleAssetsWithURL(request, &cdn.GenericCDN{})
+	assert.Nil(t, err)
+	assert.Equal(t, 200, response.StatusCode)
+	assert.Equal(t, "https://cdn.example.com/test-app-id/branch-1/1/1674170951/bundles/android-82adadb1fb6e489d04ad95fd79670deb.js", response.URL)
 }
 
 func TestPathTraversalRejectedForCDNAsset(t *testing.T) {

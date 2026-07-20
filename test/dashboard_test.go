@@ -3,6 +3,7 @@ package test
 import (
 	"encoding/json"
 	"expo-open-ota/config"
+	"expo-open-ota/internal/cdn"
 	infrastructure "expo-open-ota/internal/router"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/types"
@@ -178,6 +179,35 @@ func TestSettings(t *testing.T) {
 	expectedSnapshot := `{"BASE_URL":"http://localhost:3000","CONTROL_PLANE_ENABLED":false,"CACHE_MODE":"","REDIS_HOST":"","REDIS_PORT":"","REDIS_SENTINEL_ADDRS":"","REDIS_SENTINEL_MASTER_NAME":"","STORAGE_MODE":"local","S3_BUCKET_NAME":"","CDN_BASE_URL":"","GCS_BUCKET_NAME":"","LOCAL_BUCKET_BASE_PATH":"{PROJECT_ROOT}/test/test-updates","AWS_REGION":"eu-west-3","AWS_BASE_ENDPOINT":"","AWS_S3_FORCE_PATH_STYLE":"","AWS_ACCESS_KEY_ID":"***","CLOUDFRONT_DOMAIN":"","CLOUDFRONT_KEY_PAIR_ID":"***","PRIVATE_CLOUDFRONT_KEY_B64":"***","AWSSM_CLOUDFRONT_PRIVATE_KEY_SECRET_ID":"","PRIVATE_CLOUDFRONT_KEY_PATH":"","PROMETHEUS_ENABLED":"","CDN_TYPE":"","EXPO_ACCOUNT_USERNAME":"","SSO_ENABLED":false,"APPS":[{"id":"test-app-id"}]}`
 
 	assert.Equal(t, expectedSnapshot, responseBody)
+}
+
+// Operators migrating from S3_CDN_PREFIX must see the resolved generic CDN in
+// the dashboard: CDN_TYPE reports "generic" and CDN_BASE_URL carries the value
+// even when it comes from the deprecated variable.
+func TestSettingsReportsGenericCDNFromLegacyVariable(t *testing.T) {
+	teardown := setup(t)
+	defer teardown()
+	os.Setenv("STORAGE_MODE", "s3")
+	os.Setenv("S3_BUCKET_NAME", "test-bucket")
+	os.Setenv("S3_CDN_PREFIX", "https://cdn.example.com")
+	defer func() {
+		os.Unsetenv("STORAGE_MODE")
+		os.Unsetenv("S3_BUCKET_NAME")
+		os.Unsetenv("S3_CDN_PREFIX")
+	}()
+	cdn.ResetCDNInstance()
+
+	router := infrastructure.NewRouter(testContainer())
+	respRec := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/settings", nil)
+	req.Header.Set("Authorization", "Bearer "+login().Token)
+	router.ServeHTTP(respRec, req)
+
+	assert.Equal(t, http.StatusOK, respRec.Code)
+	var payload map[string]any
+	assert.Nil(t, json.Unmarshal(respRec.Body.Bytes(), &payload))
+	assert.Equal(t, "generic", payload["CDN_TYPE"])
+	assert.Equal(t, "https://cdn.example.com", payload["CDN_BASE_URL"])
 }
 
 // In stateless mode the flat env carries no display name, so the dashboard
