@@ -9,6 +9,9 @@ import (
 	"errors"
 	"testing"
 
+	"expo-open-ota/internal/services"
+	"expo-open-ota/internal/store"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -96,14 +99,19 @@ func (f *fakeRepo) ListAccessibleAppIDs(_ context.Context, userID string) ([]str
 }
 
 func licensedService(repo RBACRepository) *RBACService {
-	service := NewRBACService(repo)
+	service := NewRBACService(repo, nil)
 	service.licenseValid = func() bool { return true }
 	return service
 }
 
 func unlicensedService(repo RBACRepository) *RBACService {
-	service := NewRBACService(repo)
+	service := NewRBACService(repo, nil)
 	service.licenseValid = func() bool { return false }
+	return service
+}
+
+func withLookup(service *RBACService, lookup UserLookup) *RBACService {
+	service.userLookup = lookup
 	return service
 }
 
@@ -272,6 +280,43 @@ func TestMemberVisibility(t *testing.T) {
 	visible, err = service.CanSeeApp(ctx, member, "app-3")
 	require.NoError(t, err)
 	require.False(t, visible)
+}
+
+func TestVisibleAppsForPrincipal(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeRepo()
+	repo.grants["member-1"] = []AppGrant{{AppID: "app-1"}}
+	lookup := &fakeUserLookup{users: map[string]store.User{
+		"member-1": {Id: "member-1"},
+		"admin-1":  {Id: "admin-1", IsAdmin: true},
+	}}
+	service := withLookup(licensedService(repo), lookup)
+
+	// No principal (CLI) and community fallback: unrestricted.
+	restricted, _, err := service.VisibleAppsForPrincipal(ctx, nil)
+	require.NoError(t, err)
+	require.False(t, restricted)
+	restricted, _, err = withLookup(unlicensedService(repo), lookup).VisibleAppsForPrincipal(ctx, &services.DashboardPrincipal{UserId: "member-1"})
+	require.NoError(t, err)
+	require.False(t, restricted)
+
+	// A member sees their granted set; the admin flag is read fresh, so a
+	// stale admin claim does not widen anything.
+	restricted, visible, err := service.VisibleAppsForPrincipal(ctx, &services.DashboardPrincipal{UserId: "member-1", IsAdmin: true})
+	require.NoError(t, err)
+	require.True(t, restricted)
+	require.Equal(t, map[string]bool{"app-1": true}, visible)
+
+	// A real admin is unrestricted.
+	restricted, _, err = service.VisibleAppsForPrincipal(ctx, &services.DashboardPrincipal{UserId: "admin-1"})
+	require.NoError(t, err)
+	require.False(t, restricted)
+
+	// A deleted account's leftover session sees an empty world, not an error.
+	restricted, visible, err = service.VisibleAppsForPrincipal(ctx, &services.DashboardPrincipal{UserId: "ghost"})
+	require.NoError(t, err)
+	require.True(t, restricted)
+	require.Empty(t, visible)
 }
 
 func TestEffectivePermissionsDeduplicateInCatalogOrder(t *testing.T) {

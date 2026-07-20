@@ -68,7 +68,7 @@ func performCliAppRequest(t *testing.T, mw mux.MiddlewareFunc) *httptest.Respons
 }
 
 func TestRequirePermissionRequiresDashboardSession(t *testing.T) {
-	mw := RequirePermission(licensedService(newFakeRepo()), nil, PermBranchCreate)
+	mw := RequirePermission(licensedService(newFakeRepo()), PermBranchCreate)
 	recorder := performAppRequest(t, mw, nil)
 	require.Equal(t, http.StatusForbidden, recorder.Code)
 	require.Contains(t, recorder.Body.String(), "dashboard session")
@@ -81,8 +81,8 @@ func TestRequirePermissionStatelessTrustsClaim(t *testing.T) {
 	admin := &services.DashboardPrincipal{UserId: "admin-1", IsAdmin: true}
 	member := &services.DashboardPrincipal{UserId: "member-1", IsAdmin: false}
 
-	require.Equal(t, http.StatusOK, performAppRequest(t, RequirePermission(service, nil, PermBranchCreate), admin).Code)
-	recorder := performAppRequest(t, RequirePermission(service, nil, PermBranchCreate), member)
+	require.Equal(t, http.StatusOK, performAppRequest(t, RequirePermission(service, PermBranchCreate), admin).Code)
+	recorder := performAppRequest(t, RequirePermission(service, PermBranchCreate), member)
 	require.Equal(t, http.StatusForbidden, recorder.Code)
 	require.Contains(t, recorder.Body.String(), "requires an admin account")
 }
@@ -93,7 +93,7 @@ func TestRequirePermissionCommunityFallbackWithoutLicense(t *testing.T) {
 	repo := newFakeRepo()
 	repo.grants["member-1"] = []AppGrant{{AppID: "app-1", ExtraPermissions: []Permission{PermBranchCreate}}}
 	lookup := &fakeUserLookup{users: map[string]store.User{"member-1": {Id: "member-1"}}}
-	mw := RequirePermission(unlicensedService(repo), lookup, PermBranchCreate)
+	mw := RequirePermission(withLookup(unlicensedService(repo), lookup), PermBranchCreate)
 
 	recorder := performAppRequest(t, mw, &services.DashboardPrincipal{UserId: "member-1"})
 	require.Equal(t, http.StatusForbidden, recorder.Code)
@@ -103,44 +103,43 @@ func TestRequirePermissionCommunityFallbackWithoutLicense(t *testing.T) {
 func TestRequirePermissionEnforcedMember(t *testing.T) {
 	repo := newFakeRepo()
 	repo.grants["member-1"] = []AppGrant{{AppID: "app-1", ExtraPermissions: []Permission{PermBranchCreate}}}
-	service := licensedService(repo)
 	lookup := &fakeUserLookup{users: map[string]store.User{"member-1": {Id: "member-1"}}}
+	service := withLookup(licensedService(repo), lookup)
 	member := &services.DashboardPrincipal{UserId: "member-1"}
 
 	// Granted permission passes.
 	require.Equal(t, http.StatusOK,
-		performAppRequest(t, RequirePermission(service, lookup, PermBranchCreate), member).Code)
+		performAppRequest(t, RequirePermission(service, PermBranchCreate), member).Code)
 
 	// Granted app, missing permission: 403 naming it.
-	recorder := performAppRequest(t, RequirePermission(service, lookup, PermBranchDelete), member)
+	recorder := performAppRequest(t, RequirePermission(service, PermBranchDelete), member)
 	require.Equal(t, http.StatusForbidden, recorder.Code)
 	require.Contains(t, recorder.Body.String(), string(PermBranchDelete))
 
 	// No grant on the app at all: it does not exist for this member.
 	repo.grants["member-1"] = nil
-	recorder = performAppRequest(t, RequirePermission(service, lookup, PermBranchCreate), member)
+	recorder = performAppRequest(t, RequirePermission(service, PermBranchCreate), member)
 	require.Equal(t, http.StatusNotFound, recorder.Code)
 	require.Contains(t, recorder.Body.String(), "app not found")
 }
 
 func TestRequirePermissionReadsAdminFlagFresh(t *testing.T) {
-	service := licensedService(newFakeRepo())
-
 	// The JWT claims admin but the row says member (revoked since the token
 	// was minted): the fresh read wins, and with no grant the app 404s.
 	lookup := &fakeUserLookup{users: map[string]store.User{"user-1": {Id: "user-1", IsAdmin: false}}}
+	service := withLookup(licensedService(newFakeRepo()), lookup)
 	staleAdmin := &services.DashboardPrincipal{UserId: "user-1", IsAdmin: true}
 	require.Equal(t, http.StatusNotFound,
-		performAppRequest(t, RequirePermission(service, lookup, PermBranchCreate), staleAdmin).Code)
+		performAppRequest(t, RequirePermission(service, PermBranchCreate), staleAdmin).Code)
 
 	// The reverse promotion applies immediately too.
 	lookup.users["user-1"] = store.User{Id: "user-1", IsAdmin: true}
 	freshAdmin := &services.DashboardPrincipal{UserId: "user-1", IsAdmin: false}
 	require.Equal(t, http.StatusOK,
-		performAppRequest(t, RequirePermission(service, lookup, PermBranchCreate), freshAdmin).Code)
+		performAppRequest(t, RequirePermission(service, PermBranchCreate), freshAdmin).Code)
 
 	// A deleted account is a dead session, not a 403.
-	recorder := performAppRequest(t, RequirePermission(service, lookup, PermBranchCreate),
+	recorder := performAppRequest(t, RequirePermission(service, PermBranchCreate),
 		&services.DashboardPrincipal{UserId: "ghost"})
 	require.Equal(t, http.StatusUnauthorized, recorder.Code)
 }
@@ -153,7 +152,7 @@ func TestRequireAppVisible(t *testing.T) {
 		"admin-1":  {Id: "admin-1", IsAdmin: true},
 	}}
 
-	enforced := RequireAppVisible(licensedService(repo), lookup)
+	enforced := RequireAppVisible(withLookup(licensedService(repo), lookup))
 
 	// A validated CLI credential passes on the auth middleware's explicit
 	// marker; a request with neither principal nor marker fails closed.
@@ -174,5 +173,5 @@ func TestRequireAppVisible(t *testing.T) {
 
 	// Community fallback: everything stays visible.
 	require.Equal(t, http.StatusOK,
-		performAppRequest(t, RequireAppVisible(unlicensedService(repo), lookup), member).Code)
+		performAppRequest(t, RequireAppVisible(withLookup(unlicensedService(repo), lookup)), member).Code)
 }

@@ -28,17 +28,17 @@ type UserLookup interface {
 // community admin gate: a session token lives 2 hours, and a revoked admin
 // (or deleted user) must lose access immediately, not at the next refresh.
 // On failure it writes the response and returns ok=false.
-func resolveSubject(w http.ResponseWriter, r *http.Request, userLookup UserLookup) (Subject, bool) {
+func (s *RBACService) resolveSubject(w http.ResponseWriter, r *http.Request) (Subject, bool) {
 	principal := middleware.PrincipalFromContext(r.Context())
 	if principal == nil {
 		handlers.RenderError(w, http.StatusForbidden, "This action requires a dashboard session")
 		return Subject{}, false
 	}
-	if userLookup == nil {
+	if s.userLookup == nil {
 		// Stateless mode: the single ADMIN_EMAIL account is always an admin
 		return Subject{UserID: principal.UserId, IsAdmin: principal.IsAdmin}, true
 	}
-	user, err := userLookup.GetUserByID(r.Context(), principal.UserId)
+	user, err := s.userLookup.GetUserByID(r.Context(), principal.UserId)
 	if err != nil {
 		// Only a missing row means the account is gone; an infrastructure
 		// failure must not read as a dead session.
@@ -57,10 +57,10 @@ func resolveSubject(w http.ResponseWriter, r *http.Request, userLookup UserLooku
 // community adminOnly gate on these routes, and degrades to exactly its
 // behavior when roles are not enforced (no control plane, no valid license):
 // members get the same 403 an admin-only route gives them today.
-func RequirePermission(service *RBACService, userLookup UserLookup, perm Permission) mux.MiddlewareFunc {
+func RequirePermission(service *RBACService, perm Permission) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			subject, ok := resolveSubject(w, r, userLookup)
+			subject, ok := service.resolveSubject(w, r)
 			if !ok {
 				return
 			}
@@ -102,7 +102,7 @@ func renderAuthorizeError(w http.ResponseWriter, err error) {
 // everything. CLI credentials pass through on the explicit marker the auth
 // middleware stamped after validating their app scope — asserted, not
 // inferred from a missing principal, so a wiring mistake fails closed.
-func RequireAppVisible(service *RBACService, userLookup UserLookup) mux.MiddlewareFunc {
+func RequireAppVisible(service *RBACService) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if middleware.PrincipalFromContext(r.Context()) == nil {
@@ -113,7 +113,7 @@ func RequireAppVisible(service *RBACService, userLookup UserLookup) mux.Middlewa
 				handlers.RenderError(w, http.StatusForbidden, "This action requires a dashboard session")
 				return
 			}
-			subject, ok := resolveSubject(w, r, userLookup)
+			subject, ok := service.resolveSubject(w, r)
 			if !ok {
 				return
 			}

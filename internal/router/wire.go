@@ -142,7 +142,11 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	licenseService.StartSync(ctx, 30*time.Second)
 
 	apiKeyRestrictionService := apikeyrestrictions.NewApiKeyRestrictionService(apiKeyRestrictionRepo)
-	rbacService := rbac.NewRBACService(rbacRepo)
+	rbacService := rbac.NewRBACService(rbacRepo, userRepo)
+	// The community list handlers (apps, settings) receive this method as
+	// their AppVisibilityFilter: they filter what a member sees without their
+	// package ever importing ee/rbac.
+	visibleApps := rbacService.VisibleAppsForPrincipal
 	dashboardAuthService := services.NewDashboardAuthService(userRepo)
 	// The restriction service doubles as the CLI access policy: every CLI
 	// request runs through its enforcement after authenticating.
@@ -168,18 +172,18 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		CliAuthService:           cliAuthService,
 		ApiKeyHandler:            dashhandlers.NewApiKeyHandler(cliAuthService),
 		ApiKeyRestrictionHandler: apikeyrestrictions.NewApiKeyRestrictionHandler(apiKeyRestrictionService),
-		AppHandler:               dashhandlers.NewAppHandler(appService),
+		AppHandler:               dashhandlers.NewAppHandler(appService, visibleApps),
 		AppRepo:                  appRepo,
 		BranchHandler:            dashhandlers.NewBranchHandler(branchService),
 		ChannelHandler:           dashhandlers.NewChannelHandler(channelService),
 		ExpoProtocolHandler:      handlers.NewExpoProtocolHandler(expoProtocolService),
 		LicenseHandler:           licensing.NewLicenseHandler(licenseService),
-		RBACHandler:              rbac.NewRBACHandler(rbacService, userRepo),
+		RBACHandler:              rbac.NewRBACHandler(rbacService),
 		RBACService:              rbacService,
 		RepublishHandler:         handlers.NewRepublishHandler(cliAuthService, deploymentService),
 		RollbackHandler:          handlers.NewRollbackHandler(cliAuthService, deploymentService),
 		RolloutHandler:           dashhandlers.NewRolloutHandler(rolloutService, updateService),
-		SettingsHandler:          dashhandlers.NewSettingsHandler(appService, ssoService.Enabled),
+		SettingsHandler:          dashhandlers.NewSettingsHandler(appService, ssoService.Enabled, visibleApps),
 		SSOHandler:               sso.NewSSOHandler(ssoService),
 		UpdateHandler:            dashhandlers.NewUpdateHandler(updateService),
 		UploadHandler:            handlers.NewUploadHandler(cliAuthService, deploymentService),

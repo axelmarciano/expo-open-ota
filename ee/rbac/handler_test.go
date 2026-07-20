@@ -45,7 +45,7 @@ func newHandlerRig(handler *RBACHandler) func(t *testing.T, method, path, body s
 
 func TestRoleHandlersContract(t *testing.T) {
 	repo := newFakeRepo()
-	run := newHandlerRig(NewRBACHandler(licensedService(repo), &fakeUserLookup{}))
+	run := newHandlerRig(NewRBACHandler(withLookup(licensedService(repo), &fakeUserLookup{})))
 
 	// Create: 201 with the canonical shape.
 	recorder := run(t, http.MethodPost, "/roles", `{"name":"Release manager","permissions":["channel-rollout:manage"]}`, nil)
@@ -87,7 +87,7 @@ func TestGrantHandlersContract(t *testing.T) {
 		ExtraPermissions: []Permission{PermCertificateRead},
 	}}
 	lookup := &fakeUserLookup{users: map[string]store.User{"member-1": {Id: "member-1"}}}
-	run := newHandlerRig(NewRBACHandler(licensedService(repo), lookup))
+	run := newHandlerRig(NewRBACHandler(withLookup(licensedService(repo), lookup)))
 
 	// The read resolves the role and precomputes the effective union.
 	recorder := run(t, http.MethodGet, "/users/member-1/grants", "", nil)
@@ -133,7 +133,7 @@ func TestMyPermissionsHandler(t *testing.T) {
 	}
 
 	// Enforced member: the per-app map, straight from the grants.
-	run := newHandlerRig(NewRBACHandler(licensedService(repo), lookup))
+	run := newHandlerRig(NewRBACHandler(withLookup(licensedService(repo), lookup)))
 	recorder := run(t, http.MethodGet, "/me/permissions", "", &services.DashboardPrincipal{UserId: "member-1"})
 	require.Equal(t, http.StatusOK, recorder.Code)
 	response := decode(recorder)
@@ -148,7 +148,7 @@ func TestMyPermissionsHandler(t *testing.T) {
 	require.Nil(t, response.Apps)
 
 	// No license: enabled=false tells the UI to fall back to community rules.
-	run = newHandlerRig(NewRBACHandler(unlicensedService(repo), lookup))
+	run = newHandlerRig(NewRBACHandler(withLookup(unlicensedService(repo), lookup)))
 	recorder = run(t, http.MethodGet, "/me/permissions", "", &services.DashboardPrincipal{UserId: "member-1"})
 	response = decode(recorder)
 	require.False(t, response.Enabled)

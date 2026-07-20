@@ -7,6 +7,7 @@ import (
 	"expo-open-ota/internal/cdn"
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/helpers"
+	"expo-open-ota/internal/middleware"
 	"expo-open-ota/internal/providers/expo"
 	"expo-open-ota/internal/services"
 	"net/http"
@@ -18,12 +19,16 @@ type SettingsHandler struct {
 	// from the wiring so this community handler needs no ee import. Nil-safe
 	// for tests that build the handler directly.
 	ssoEnabled func(context.Context) bool
+	// visibleApps filters the embedded app list the same way the app listing
+	// endpoint does; same injection story, same nil-safety.
+	visibleApps AppVisibilityFilter
 }
 
-func NewSettingsHandler(appService *services.AppService, ssoEnabled func(context.Context) bool) *SettingsHandler {
+func NewSettingsHandler(appService *services.AppService, ssoEnabled func(context.Context) bool, visibleApps AppVisibilityFilter) *SettingsHandler {
 	return &SettingsHandler{
-		appService: appService,
-		ssoEnabled: ssoEnabled,
+		appService:  appService,
+		ssoEnabled:  ssoEnabled,
+		visibleApps: visibleApps,
 	}
 }
 
@@ -98,6 +103,24 @@ func (h *SettingsHandler) GetSettingsHandler(w http.ResponseWriter, r *http.Requ
 	expoAccountUsername := ""
 	if !config.IsDBMode() && len(apps) > 0 {
 		expoAccountUsername = expo.FetchSelfUsername(apps[0].Id)
+	}
+	// Filter after the stateless expo lookup above: that one needs any app id
+	// and only runs without a control plane, where nothing is ever filtered.
+	if h.visibleApps != nil {
+		restricted, visible, err := h.visibleApps(r.Context(), middleware.PrincipalFromContext(r.Context()))
+		if err != nil {
+			handlers.RenderError(w, http.StatusInternalServerError, "An internal error occurred while fetching app settings")
+			return
+		}
+		if restricted {
+			filtered := make([]config.AppDescriptor, 0, len(apps))
+			for _, app := range apps {
+				if visible[app.Id] {
+					filtered = append(filtered, app)
+				}
+			}
+			apps = filtered
+		}
 	}
 	marshaledResponse, _ := json.Marshal(SettingsEnv{
 		BASE_URL:                               config.GetEnv("BASE_URL"),

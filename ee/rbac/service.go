@@ -8,6 +8,8 @@ import (
 	"context"
 	"errors"
 	"expo-open-ota/ee/licensing"
+	"expo-open-ota/internal/services"
+	"expo-open-ota/internal/store"
 	"fmt"
 	"slices"
 	"strings"
@@ -136,6 +138,10 @@ func (e *ValidationError) Error() string {
 // rules apply unchanged (members are read-only, every app visible).
 type RBACService struct {
 	repo RBACRepository
+	// userLookup resolves the fresh admin flag behind every authorization
+	// decision and the target of the grants endpoints. Nil in stateless mode,
+	// where the session claim is authoritative.
+	userLookup UserLookup
 	// licenseValid is the live licensing state; a field so same-package tests
 	// can pin it without minting signed keys.
 	licenseValid func() bool
@@ -143,8 +149,8 @@ type RBACService struct {
 
 // NewRBACService accepts a nil repository (stateless mode); every method then
 // answers ErrRequiresControlPlane and Enabled() stays false.
-func NewRBACService(repo RBACRepository) *RBACService {
-	return &RBACService{repo: repo, licenseValid: licensing.IsEnterprise}
+func NewRBACService(repo RBACRepository, userLookup UserLookup) *RBACService {
+	return &RBACService{repo: repo, userLookup: userLookup, licenseValid: licensing.IsEnterprise}
 }
 
 // Enabled reports whether fine-grained roles are being enforced right now.
@@ -309,6 +315,39 @@ func (s *RBACService) VisibleApps(ctx context.Context, subject Subject) (restric
 		return true, nil, err
 	}
 	return true, ids, nil
+}
+
+// VisibleAppsForPrincipal adapts VisibleApps for the community read handlers
+// (app list, settings), which know the request principal but not the rbac
+// Subject. It resolves the fresh admin flag itself and answers
+// restricted=false whenever nothing must be filtered (admin, CLI, community
+// fallback). A principal whose account no longer exists gets an empty scope
+// rather than an error: a dead session should see nothing, not break the
+// endpoint.
+func (s *RBACService) VisibleAppsForPrincipal(ctx context.Context, principal *services.DashboardPrincipal) (restricted bool, visible map[string]bool, err error) {
+	if principal == nil || !s.Enabled() {
+		return false, nil, nil
+	}
+	subject := Subject{UserID: principal.UserId, IsAdmin: principal.IsAdmin}
+	if s.userLookup != nil {
+		user, err := s.userLookup.GetUserByID(ctx, principal.UserId)
+		if err != nil {
+			if notFoundErr := (*store.ErrResourceNotFound)(nil); errors.As(err, &notFoundErr) {
+				return true, map[string]bool{}, nil
+			}
+			return false, nil, err
+		}
+		subject.IsAdmin = user.IsAdmin
+	}
+	restricted, ids, err := s.VisibleApps(ctx, subject)
+	if err != nil || !restricted {
+		return restricted, nil, err
+	}
+	visible = make(map[string]bool, len(ids))
+	for _, id := range ids {
+		visible[id] = true
+	}
+	return true, visible, nil
 }
 
 // EffectivePermissionsByApp is the dashboard's permission map: for each

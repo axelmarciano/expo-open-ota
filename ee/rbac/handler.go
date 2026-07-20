@@ -20,13 +20,10 @@ import (
 // dashboard gates its UI with.
 type RBACHandler struct {
 	service *RBACService
-	// userLookup resolves the target user of the grants endpoints (404 on an
-	// unknown id) and the caller of /me/permissions. Nil in stateless mode.
-	userLookup UserLookup
 }
 
-func NewRBACHandler(service *RBACService, userLookup UserLookup) *RBACHandler {
-	return &RBACHandler{service: service, userLookup: userLookup}
+func NewRBACHandler(service *RBACService) *RBACHandler {
+	return &RBACHandler{service: service}
 }
 
 type RoleResponse struct {
@@ -159,11 +156,11 @@ func (h *RBACHandler) DeleteRoleHandler(w http.ResponseWriter, r *http.Request) 
 // permissionless user.
 func (h *RBACHandler) resolveTargetUser(w http.ResponseWriter, r *http.Request) (string, bool) {
 	userId := mux.Vars(r)["USER_ID"]
-	if h.userLookup == nil {
+	if h.service.userLookup == nil {
 		handlers.RenderError(w, http.StatusBadRequest, ErrRequiresControlPlane.Error())
 		return "", false
 	}
-	if _, err := h.userLookup.GetUserByID(r.Context(), userId); err != nil {
+	if _, err := h.service.userLookup.GetUserByID(r.Context(), userId); err != nil {
 		if notFoundErr := (*store.ErrResourceNotFound)(nil); errors.As(err, &notFoundErr) {
 			handlers.RenderError(w, http.StatusNotFound, notFoundErr.Error())
 		} else {
@@ -232,7 +229,7 @@ type MyPermissionsResponse struct {
 // GetMyPermissionsHandler is display support only: the server re-checks every
 // mutation through the middlewares regardless of what the UI shows.
 func (h *RBACHandler) GetMyPermissionsHandler(w http.ResponseWriter, r *http.Request) {
-	subject, ok := resolveSubject(w, r, h.userLookup)
+	subject, ok := h.service.resolveSubject(w, r)
 	if !ok {
 		return
 	}

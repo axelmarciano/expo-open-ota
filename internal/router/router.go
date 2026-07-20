@@ -131,7 +131,7 @@ func NewRouter(container *AppContainer) *mux.Router {
 	// non-admin routes share path prefixes.
 	adminOnly := middleware.NewAdminMiddleware(container.UserRepo)
 	requirePermission := func(perm rbac.Permission) mux.MiddlewareFunc {
-		return rbac.RequirePermission(container.RBACService, container.UserRepo, perm)
+		return rbac.RequirePermission(container.RBACService, perm)
 	}
 
 	// Current account
@@ -190,6 +190,11 @@ func NewRouter(container *AppContainer) *mux.Router {
 	appAuthSubrouter := authSubrouter.PathPrefix("/apps/{APP_ID}").Subrouter()
 	appAuthSubrouter.StrictSlash(true)
 	appAuthSubrouter.Use(middleware.AppResolverMiddleware(container.AppRepo))
+	// After the resolver: enterprise visibility. While roles are enforced, a
+	// member without a grant on this app gets the same 404 as an unknown id,
+	// on reads and mutations alike. Validated CLI credentials pass through on
+	// their context marker.
+	appAuthSubrouter.Use(rbac.RequireAppVisible(container.RBACService))
 	appAuthSubrouter.HandleFunc("/", container.AppHandler.GetAppHandler).Methods(http.MethodGet)
 	appAuthSubrouter.Handle("/branches", requirePermission(rbac.PermBranchCreate)(http.HandlerFunc(container.BranchHandler.CreateBranchHandler))).Methods(http.MethodPost)
 	appAuthSubrouter.Handle("/branches/{BRANCH}", requirePermission(rbac.PermBranchDelete)(http.HandlerFunc(container.BranchHandler.DeleteBranchHandler))).Methods(http.MethodDelete)
