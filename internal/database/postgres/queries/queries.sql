@@ -814,3 +814,66 @@ SELECT ch.name AS channel_name
 FROM channel_rollouts cr
 JOIN channels ch ON cr.channel_id = ch.id
 WHERE cr.rollout_branch_id = (SELECT branches.id FROM branches WHERE branches.app_id = $1 AND branches.name = $2);
+
+-- Enterprise user roles & per-app grants (ee/rbac)
+
+-- name: InsertRole :one
+INSERT INTO roles (id, name, permissions)
+VALUES ($1, $2, $3)
+RETURNING *;
+
+-- name: GetRoleByID :one
+SELECT * FROM roles
+WHERE id = $1 LIMIT 1;
+
+-- name: ListRoles :many
+SELECT * FROM roles
+ORDER BY name ASC;
+
+-- name: UpdateRole :execresult
+UPDATE roles
+SET name = $2, permissions = $3, updated_at = CURRENT_TIMESTAMP
+WHERE id = $1;
+
+-- name: DeleteRole :execresult
+-- The FK from user_app_grants is ON DELETE RESTRICT: deleting a role that is
+-- still assigned fails with a foreign-key violation the store maps to a
+-- friendly "role in use" error.
+DELETE FROM roles
+WHERE id = $1;
+
+-- name: CountGrantsByRole :one
+SELECT COUNT(*) FROM user_app_grants
+WHERE role_id = $1;
+
+-- name: ListUserAppGrants :many
+-- The member's grants with their role resolved, one row per granted app.
+SELECT g.user_id, g.app_id, g.role_id, g.extra_permissions,
+       r.name AS role_name, r.permissions AS role_permissions
+FROM user_app_grants g
+LEFT JOIN roles r ON r.id = g.role_id
+WHERE g.user_id = $1
+ORDER BY g.app_id ASC;
+
+-- name: GetUserAppGrant :one
+-- The enforcement read behind every member mutation: the grant row for one
+-- (user, app) pair with the role's permissions resolved.
+SELECT g.user_id, g.app_id, g.role_id, g.extra_permissions,
+       r.permissions AS role_permissions
+FROM user_app_grants g
+LEFT JOIN roles r ON r.id = g.role_id
+WHERE g.user_id = $1 AND g.app_id = $2
+LIMIT 1;
+
+-- name: ListAccessibleAppIDs :many
+SELECT app_id FROM user_app_grants
+WHERE user_id = $1;
+
+-- name: DeleteUserAppGrantsByUser :exec
+-- Grants are replaced wholesale (delete + insert in one transaction).
+DELETE FROM user_app_grants
+WHERE user_id = $1;
+
+-- name: InsertUserAppGrant :exec
+INSERT INTO user_app_grants (user_id, app_id, role_id, extra_permissions)
+VALUES ($1, $2, $3, $4);

@@ -69,6 +69,14 @@ type EnterpriseLicense struct {
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
 
+type Role struct {
+	ID          pgtype.UUID        `json:"id"`
+	Name        string             `json:"name"`
+	Permissions []string           `json:"permissions"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type RuntimeVersion struct {
 	ID        int64              `json:"id"`
 	AppID     pgtype.UUID        `json:"app_id"`
@@ -127,4 +135,13 @@ type User struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 	LastConnectedAt pgtype.Timestamptz `json:"last_connected_at"`
 	Enabled         bool               `json:"enabled"`
+}
+
+type UserAppGrant struct {
+	UserID           pgtype.UUID        `json:"user_id"`
+	AppID            pgtype.UUID        `json:"app_id"`
+	RoleID           pgtype.UUID        `json:"role_id"`
+	ExtraPermissions []string           `json:"extra_permissions"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
