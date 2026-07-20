@@ -94,6 +94,10 @@ func (h *BranchHandler) DeleteBranchHandler(w http.ResponseWriter, r *http.Reque
 			handlers.RenderError(w, http.StatusConflict, rolloutErr.Error())
 			return
 		}
+		if protectedErr := (*store.ErrBranchProtected)(nil); errors.As(err, &protectedErr) {
+			handlers.RenderError(w, http.StatusConflict, protectedErr.Error())
+			return
+		}
 		handlers.RenderError(w, http.StatusInternalServerError, "An internal error occurred while deleting the branch.")
 		return
 	}

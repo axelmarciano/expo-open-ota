@@ -41,6 +41,14 @@ func (e *ErrBranchInActiveRollout) Error() string {
 	return fmt.Sprintf("cannot delete branch %q because it is serving an active rollout on the following channels: [%s]. Promote or revert these rollouts first.", e.BranchName, channelsList)
 }
 
+type ErrBranchProtected struct {
+	BranchName string
+}
+
+func (e *ErrBranchProtected) Error() string {
+	return fmt.Sprintf("cannot delete branch %q because it is protected. Remove its protection first.", e.BranchName)
+}
+
 type ErrChannelHasActiveRollout struct {
 	ChannelName string
 }

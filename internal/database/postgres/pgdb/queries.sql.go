@@ -64,7 +64,7 @@ func (q *Queries) DeleteAppByID(ctx context.Context, id pgtype.UUID) (pgconn.Com
 
 const deleteBranchByName = `-- name: DeleteBranchByName :execresult
 DELETE FROM branches
-WHERE name = $1 AND app_id = $2
+WHERE name = $1 AND app_id = $2 AND NOT protected
 `
 
 type DeleteBranchByNameParams struct {
@@ -72,6 +72,10 @@ type DeleteBranchByNameParams struct {
 	AppID pgtype.UUID `json:"app_id"`
 }
 
+// NOT protected: a protected branch cannot be deleted by anyone, admins
+// included — protection must be lifted first. The guard runs inside the
+// DELETE itself so a concurrent protect cannot race it; the store
+// disambiguates the 0-rows result into protected vs not-found.
 func (q *Queries) DeleteBranchByName(ctx context.Context, arg DeleteBranchByNameParams) (pgconn.CommandTag, error) {
 	return q.db.Exec(ctx, deleteBranchByName, arg.Name, arg.AppID)
 }

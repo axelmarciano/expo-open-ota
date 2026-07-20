@@ -75,8 +75,12 @@ WHERE name = $1 AND app_id = $2
 LIMIT 1;
 
 -- name: DeleteBranchByName :execresult
+-- NOT protected: a protected branch cannot be deleted by anyone, admins
+-- included — protection must be lifted first. The guard runs inside the
+-- DELETE itself so a concurrent protect cannot race it; the store
+-- disambiguates the 0-rows result into protected vs not-found.
 DELETE FROM branches
-WHERE name = $1 AND app_id = $2;
+WHERE name = $1 AND app_id = $2 AND NOT protected;
 
 -- name: GetBranchesByAppID :many
 SELECT DISTINCT ON (branches.id) 
