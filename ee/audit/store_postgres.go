@@ -10,6 +10,7 @@ import (
 	"expo-open-ota/internal/database"
 	"expo-open-ota/internal/database/postgres/pgdb"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -23,13 +24,19 @@ func NewPostgresAuditStore(engine *database.Engine) *PostgresAuditStore {
 	return &PostgresAuditStore{engine: engine}
 }
 
-// marshalMetadata keeps a nil map from becoming SQL NULL: the column is
-// NOT NULL, no metadata means '{}'.
-func marshalMetadata(metadata map[string]any) ([]byte, error) {
+// marshalMetadata keeps a nil map from becoming SQL NULL (the column is NOT
+// NULL, no metadata means '{}') and a non-serializable value from costing the
+// whole entry: the annotation is dropped and logged, the event still lands.
+func marshalMetadata(action Action, metadata map[string]any) []byte {
 	if len(metadata) == 0 {
-		return []byte("{}"), nil
+		return []byte("{}")
 	}
-	return json.Marshal(metadata)
+	payload, err := json.Marshal(metadata)
+	if err != nil {
+		log.Printf("audit: dropping unserializable metadata on %q: %v", action, err)
+		return []byte("{}")
+	}
+	return payload
 }
 
 func eventFromRow(row pgdb.AuditLogEvent) Event {
@@ -69,11 +76,7 @@ func toPgTimestamptz(t *time.Time) pgtype.Timestamptz {
 }
 
 func (s *PostgresAuditStore) Insert(ctx context.Context, event Event) (Event, error) {
-	metadata, err := marshalMetadata(event.Metadata)
-	if err != nil {
-		return Event{}, fmt.Errorf("failed to marshal audit event metadata: %w", err)
-	}
-	// The zero *string is SQL NULL — an account-level event without an app.
+	// The zero *string is SQL NULL, an account-level event without an app.
 	var appID *string
 	if event.AppID != "" {
 		appID = &event.AppID
@@ -90,7 +93,7 @@ func (s *PostgresAuditStore) Insert(ctx context.Context, event Event) (Event, er
 		Outcome:       string(event.Outcome),
 		Ip:            event.IP,
 		UserAgent:     event.UserAgent,
-		Metadata:      metadata,
+		Metadata:      marshalMetadata(event.Action, event.Metadata),
 	})
 	if err != nil {
 		return Event{}, fmt.Errorf("failed to insert audit event in database: %w", err)

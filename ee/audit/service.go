@@ -34,7 +34,8 @@ const (
 	OutcomeFailure Outcome = "failure"
 )
 
-// Action names follow target.action, past tense. This catalog is the
+// Action names follow target.action, past tense (update.rollback is the one
+// deliberate exception: Expo vocabulary, a noun). This catalog is the
 // documented contract of the audit log (mirrored in the dashboard's filter
 // dropdown and in the public docs): call sites must use these constants, and
 // adding one here means documenting it.
@@ -66,14 +67,14 @@ const (
 	ActionSSOConfigDeleted Action = "sso_config.deleted"
 
 	// App management.
-	ActionAppCreated           Action = "app.created"
-	ActionAppRenamed           Action = "app.renamed"
-	ActionAppDeleted           Action = "app.deleted"
-	ActionChannelCreated       Action = "channel.created"
-	ActionChannelDeleted       Action = "channel.deleted"
-	ActionChannelBranchMapped  Action = "channel_branch.mapped"
-	ActionBranchCreated        Action = "branch.created"
-	ActionBranchDeleted        Action = "branch.deleted"
+	ActionAppCreated          Action = "app.created"
+	ActionAppRenamed          Action = "app.renamed"
+	ActionAppDeleted          Action = "app.deleted"
+	ActionChannelCreated      Action = "channel.created"
+	ActionChannelDeleted      Action = "channel.deleted"
+	ActionChannelBranchMapped Action = "channel_branch.mapped"
+	ActionBranchCreated       Action = "branch.created"
+	ActionBranchDeleted       Action = "branch.deleted"
 
 	// Delivery.
 	ActionUpdatePublished       Action = "update.published"
@@ -85,14 +86,18 @@ const (
 	ActionUpdateRolloutSet      Action = "update_rollout.set"
 	ActionUpdateRolloutReverted Action = "update_rollout.reverted"
 
-	// Credentials and key material.
-	ActionAPIKeyCreated             Action = "apikey.created"
-	ActionAPIKeyRevoked             Action = "apikey.revoked"
-	ActionAPIKeyRestrictionsUpdated Action = "apikey.restrictions_updated"
+	// Credentials and key material. The api_key prefix matches ActorAPIKey's
+	// value so grouping by resource and by actor type line up.
+	ActionAPIKeyCreated             Action = "api_key.created"
+	ActionAPIKeyRevoked             Action = "api_key.revoked"
+	ActionAPIKeyRestrictionsUpdated Action = "api_key.restrictions_updated"
 	ActionBranchProtectionUpdated   Action = "branch_protection.updated"
 	ActionCertificateDownloaded     Action = "certificate.downloaded"
 
-	// Access control and the log itself.
+	// Access control and the log itself. permission.denied is the single
+	// event for authorization refusals (the RBAC middleware emits it, with
+	// OutcomeDenied); domain actions are only ever recorded once they
+	// actually executed, so one refusal is never representable two ways.
 	ActionPermissionDenied Action = "permission.denied"
 	ActionAuditExported    Action = "audit.exported"
 )
@@ -176,22 +181,26 @@ func (s *AuditService) Enabled() bool {
 	return s.repo != nil && s.licenseValid()
 }
 
+// recordTimeout bounds the best-effort insert: a hung database must degrade
+// to lost audit entries (logged), never to handler goroutines piling up.
+const recordTimeout = 5 * time.Second
+
 // Record writes one event, best-effort: a failed insert logs and is dropped
 // rather than failing the user-facing request that emitted it. Call sites
-// stay unconditional; the enterprise gate lives here.
+// stay unconditional; the enterprise gate lives here. An empty ActorType or
+// Outcome is stored as-is, never defaulted: on a security log an incomplete
+// entry must name its call-site bug, a fabricated "system"/"success" would
+// hide it.
 func (s *AuditService) Record(ctx context.Context, event Event) {
 	if !s.Enabled() {
 		return
 	}
-	if event.ActorType == "" {
-		event.ActorType = ActorSystem
-	}
-	if event.Outcome == "" {
-		event.Outcome = OutcomeSuccess
-	}
 	// The entry must land even when the client disconnects right after the
-	// mutation: the insert outlives the request context's cancellation.
-	if _, err := s.repo.Insert(context.WithoutCancel(ctx), event); err != nil {
+	// mutation: the insert outlives the request context's cancellation, but
+	// never recordTimeout.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
+	defer cancel()
+	if _, err := s.repo.Insert(ctx, event); err != nil {
 		log.Printf("audit: failed to record %q: %v", event.Action, err)
 	}
 }

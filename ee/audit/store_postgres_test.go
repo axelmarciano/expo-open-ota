@@ -76,7 +76,12 @@ func TestAuditEventRoundtrip(t *testing.T) {
 		Outcome:       OutcomeSuccess,
 		IP:            "203.0.113.7",
 		UserAgent:     "Mozilla/5.0",
-		Metadata:      map[string]any{"previous_name": "Old App"},
+		Metadata: map[string]any{
+			"previous_name": "Old App",
+			"attempt":       2,
+			"forced":        true,
+			"context":       map[string]any{"channel": "production"},
+		},
 	})
 
 	require.Positive(t, inserted.ID)
@@ -97,7 +102,13 @@ func TestAuditEventRoundtrip(t *testing.T) {
 	require.Equal(t, "My App", events[0].TargetDisplay)
 	require.Equal(t, appID, events[0].AppID)
 	require.Equal(t, "203.0.113.7", events[0].IP)
-	require.Equal(t, map[string]any{"previous_name": "Old App"}, events[0].Metadata)
+	// JSON numbers come back as float64: call sites must not expect int.
+	require.Equal(t, map[string]any{
+		"previous_name": "Old App",
+		"attempt":       float64(2),
+		"forced":        true,
+		"context":       map[string]any{"channel": "production"},
+	}, events[0].Metadata)
 }
 
 func TestAuditEventAccountLevelAndEmptyMetadata(t *testing.T) {

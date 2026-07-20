@@ -15,9 +15,11 @@ import (
 
 type fakeAuditRepo struct {
 	inserted []Event
-	// ctxErrAtInsert captures the state of the context Record hands to the
-	// repository, to prove the insert survives request cancellation.
+	// ctxErrAtInsert and hadDeadline capture the state of the context Record
+	// hands to the repository, to prove the insert survives request
+	// cancellation while staying time-bounded.
 	ctxErrAtInsert error
+	hadDeadline    bool
 	insertErr      error
 	listResult     []Event
 	listParams     ListParams
@@ -25,6 +27,7 @@ type fakeAuditRepo struct {
 
 func (f *fakeAuditRepo) Insert(ctx context.Context, event Event) (Event, error) {
 	f.ctxErrAtInsert = ctx.Err()
+	_, f.hadDeadline = ctx.Deadline()
 	if f.insertErr != nil {
 		return Event{}, f.insertErr
 	}
@@ -71,7 +74,7 @@ func TestRecordCollectsNothingInStatelessMode(t *testing.T) {
 	require.False(t, service.Enabled())
 }
 
-func TestRecordFillsDefaults(t *testing.T) {
+func TestRecordDoesNotFabricateMissingFields(t *testing.T) {
 	repo := &fakeAuditRepo{}
 	service := enabledService(repo)
 
@@ -82,8 +85,10 @@ func TestRecordFillsDefaults(t *testing.T) {
 	})
 
 	require.Len(t, repo.inserted, 1)
-	require.Equal(t, ActorSystem, repo.inserted[0].ActorType)
-	require.Equal(t, OutcomeSuccess, repo.inserted[0].Outcome)
+	// An incomplete call site must show as '' (unknown) in the log, not be
+	// papered over with "system"/"success".
+	require.Empty(t, repo.inserted[0].ActorType)
+	require.Empty(t, repo.inserted[0].Outcome)
 }
 
 func TestRecordSurvivesRequestCancellation(t *testing.T) {
@@ -96,6 +101,7 @@ func TestRecordSurvivesRequestCancellation(t *testing.T) {
 
 	require.Len(t, repo.inserted, 1)
 	require.NoError(t, repo.ctxErrAtInsert, "the insert must not inherit the request's cancellation")
+	require.True(t, repo.hadDeadline, "the insert must stay time-bounded so a hung database cannot pile up handlers")
 }
 
 func TestRecordSwallowsInsertErrors(t *testing.T) {

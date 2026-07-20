@@ -21,16 +21,18 @@ CREATE TABLE audit_log_events (
     target_id TEXT NOT NULL,
     target_display TEXT NOT NULL DEFAULT '',
     app_id TEXT,
-    outcome TEXT NOT NULL DEFAULT 'success',
+    -- No default on purpose: a call site that forgets the outcome must store
+    -- a visible '' (unknown), not a fabricated success.
+    outcome TEXT NOT NULL,
     ip TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT '',
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
--- The viewer lists by id DESC (insert order, covered by the primary key) with
--- optional equality filters; each filter index ends with id DESC so a filtered
--- page is one index scan. occurred_at is indexed alone for date-range filters
--- and the retention purge.
+-- The viewer lists by id DESC (insert order, covered by the primary key);
+-- the per-column indexes serve the equality filters, each ending with id DESC
+-- to match the sort. occurred_at is indexed alone for date-range filters and
+-- the retention purge.
 CREATE INDEX idx_audit_log_events_actor ON audit_log_events (actor_id, id DESC);
 CREATE INDEX idx_audit_log_events_action ON audit_log_events (action, id DESC);
 CREATE INDEX idx_audit_log_events_app ON audit_log_events (app_id, id DESC);
