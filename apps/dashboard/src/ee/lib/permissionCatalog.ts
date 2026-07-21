@@ -102,5 +102,5 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
         description: 'Create and revoke publishing tokens and edit their restrictions.',
       },
     ],
-  },
+  }
 ];

@@ -22,7 +22,7 @@ export type Permission =
   | 'channel:edit-branch'
   | 'channel-rollout:manage'
   | 'update-rollout:manage'
-  | 'apikeys:manage';
+  | 'apikeys:manage'
 
 type PermissionsContextValue = {
   // enabled reports whether fine-grained roles are enforced right now

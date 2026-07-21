@@ -42,6 +42,7 @@ type AppContainer struct {
 	UploadHandler            *handlers.UploadHandler
 	RepublishHandler         *handlers.RepublishHandler
 	UsersHandler             *dashhandlers.UsersHandler
+	AuditHandler             *audit.AuditHandler
 	UserRepo                 services.UserRepository
 }
 
@@ -201,6 +202,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		ChannelHandler:           dashhandlers.NewChannelHandler(channelService),
 		ExpoProtocolHandler:      handlers.NewExpoProtocolHandler(expoProtocolService),
 		LicenseHandler:           licensing.NewLicenseHandler(licenseService),
+		AuditHandler:             audit.NewAuditHandler(auditService),
 		RBACHandler:              rbac.NewRBACHandler(rbacService),
 		RBACService:              rbacService,
 		RepublishHandler:         handlers.NewRepublishHandler(cliAuthService, deploymentService),
