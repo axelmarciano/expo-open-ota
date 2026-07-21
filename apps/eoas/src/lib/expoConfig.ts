@@ -57,7 +57,13 @@ async function getExpoConfigInternalAsync(
       try {
         const { stdout } = await spawnAsync(
           runnerCommand,
-          [...runnerArgs, 'expo', 'config', '--json', ...(opts.isPublicConfig ? ['--type', 'public'] : [])],
+          [
+            ...runnerArgs,
+            'expo',
+            'config',
+            '--json',
+            ...(opts.isPublicConfig ? ['--type', 'public'] : []),
+          ],
 
           {
             cwd: projectDir,
@@ -174,9 +180,13 @@ export function requireExpoAppId(config: ExpoConfig): string {
   return appId;
 }
 
+// exp is a config fragment. String values starting with 'process.env.' are
+// emitted as raw JavaScript expressions rather than string literals, so callers
+// can write env-dependent values like
+// "process.env.DISABLE_CODE_SIGNING ? undefined : './certs/certificate.pem'".
 export async function createOrModifyExpoConfigAsync(
   projectDir: string,
-  exp: Partial<ExpoConfig>
+  exp: Record<string, any>
 ): Promise<void> {
   try {
     ensureExpoConfigExists(projectDir);
@@ -197,31 +207,18 @@ export async function createOrModifyExpoConfigAsync(
                               });`;
       // eslint-disable-next-line node/no-sync
       fs.writeFileSync(configPathJS, newConfigContent);
-    } else if (hasJsConfig) {
+    } else {
+      const configPath = hasJsConfig ? configPathJS : configPathTS;
       // eslint-disable-next-line node/no-sync
-      const existingCode = fs.readFileSync(configPathJS, 'utf8');
-      const j = jscodeshift;
+      const existingCode = fs.readFileSync(configPath, 'utf8');
+      const j = configPath.endsWith('.ts') ? jscodeshift.withParser('ts') : jscodeshift;
       const ast: Collection = j(existingCode);
 
-      ast.find(j.ArrowFunctionExpression).forEach(path => {
-        if (
-          path.value.body &&
-          j.BlockStatement.check(path.value.body) &&
-          path.value.body.body.length > 0
-        ) {
-          const returnStatement = path.value.body.body.find(node => j.ReturnStatement.check(node));
-          if (
-            returnStatement &&
-            j.ReturnStatement.check(returnStatement) &&
-            returnStatement.argument
-          ) {
-            const configObject = returnStatement.argument;
-            if (j.ObjectExpression.check(configObject)) {
-              updateObjectExpression(j, configObject, exp);
-            }
-          }
-        }
-      });
+      if (!updateExportedConfigObject(j, ast, exp)) {
+        throw new Error(
+          `Could not find the exported config object in ${path.basename(configPath)}.`
+        );
+      }
       const updatedCode = ast.toSource({
         quote: 'auto',
         trailingComma: true,
@@ -229,10 +226,7 @@ export async function createOrModifyExpoConfigAsync(
       });
 
       // eslint-disable-next-line node/no-sync
-      fs.writeFileSync(configPathJS, updatedCode);
-    } else if (configPathTS) {
-      Log.warn('TypeScript support is not yet implemented.');
-      throw new Error('TypeScript support is not yet implemented.');
+      fs.writeFileSync(configPath, updatedCode);
     }
   } catch (e) {
     Log.withInfo('An error occurred while updating the Expo config. Please update it manually.');
@@ -245,17 +239,83 @@ export async function createOrModifyExpoConfigAsync(
   }
 }
 
+// Finds the object literal the dynamic config exports (export default or
+// module.exports; a function returning it, with expression or block body;
+// optional 'as' casts) and merges exp into it. Returns false when no
+// recognizable shape is found, so the caller can fail loudly instead of
+// writing the file back unchanged.
+function updateExportedConfigObject(
+  j: typeof jscodeshift,
+  ast: Collection,
+  exp: Record<string, any>
+): boolean {
+  const exportedNodes: any[] = [];
+  ast.find(j.ExportDefaultDeclaration).forEach(p => exportedNodes.push(p.value.declaration));
+  ast
+    .find(j.AssignmentExpression, {
+      left: { object: { name: 'module' }, property: { name: 'exports' } },
+    })
+    .forEach(p => exportedNodes.push(p.value.right));
+
+  for (const exportedNode of exportedNodes) {
+    const configObject = resolveConfigObject(j, exportedNode);
+    if (configObject) {
+      updateObjectExpression(j, configObject, exp);
+      return true;
+    }
+  }
+  return false;
+}
+
+function resolveConfigObject(j: typeof jscodeshift, exportedNode: any): any {
+  let node = unwrapExpression(exportedNode);
+  if (
+    j.ArrowFunctionExpression.check(node) ||
+    j.FunctionExpression.check(node) ||
+    j.FunctionDeclaration.check(node)
+  ) {
+    if (j.BlockStatement.check(node.body)) {
+      const returnStatement: any = node.body.body.find((statement: any) =>
+        j.ReturnStatement.check(statement)
+      );
+      node = returnStatement?.argument ?? null;
+    } else {
+      node = node.body;
+    }
+    node = node && unwrapExpression(node);
+  }
+  return node && j.ObjectExpression.check(node) ? node : null;
+}
+
+// Strips TS casts and parentheses: `({ ... } as ExpoConfig)` -> the object.
+function unwrapExpression(node: any): any {
+  let current = node;
+  while (
+    current &&
+    (current.type === 'TSAsExpression' ||
+      current.type === 'TSSatisfiesExpression' ||
+      current.type === 'ParenthesizedExpression')
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
 function updateObjectExpression(
   j: typeof jscodeshift,
   configObject: ReturnType<typeof j.objectExpression>,
   updates: Record<string, any>
 ): void {
   Object.entries(updates).forEach(([key, value]) => {
-    const existingProperty = configObject.properties.find(prop => {
+    // The default parser produces 'Property' nodes, the ts parser 'ObjectProperty'.
+    const existingProperty = configObject.properties.find((prop: any) => {
+      if (prop.type !== 'Property' && prop.type !== 'ObjectProperty') {
+        return false;
+      }
       return (
-        prop.type === 'Property' &&
-        ((prop.key.type === 'Identifier' && prop.key.name === key) ||
-          (prop.key.type === 'StringLiteral' && prop.key.value === key))
+        (prop.key.type === 'Identifier' && prop.key.name === key) ||
+        ((prop.key.type === 'StringLiteral' || prop.key.type === 'Literal') &&
+          prop.key.value === key)
       );
     });
 
@@ -271,10 +331,13 @@ function updateObjectExpression(
 
 function createValueNode(j: typeof jscodeshift, value: any): any {
   if (typeof value === 'string' && value.startsWith('process.env.')) {
-    return j.memberExpression(
-      j.memberExpression(j.identifier('process'), j.identifier('env')),
-      j.identifier(value.split('.')[2])
-    );
+    if (/^process\.env\.\w+$/.test(value)) {
+      return j.memberExpression(
+        j.memberExpression(j.identifier('process'), j.identifier('env')),
+        j.identifier(value.split('.')[2])
+      );
+    }
+    return parseExpressionNode(j, value);
   }
 
   if (typeof value === 'object' && value !== null) {
@@ -288,8 +351,25 @@ function createValueNode(j: typeof jscodeshift, value: any): any {
   return j.literal(value);
 }
 
+function parseExpressionNode(j: typeof jscodeshift, code: string): any {
+  const statement = j(`(${code});`).find(j.ExpressionStatement).nodes()[0];
+  return statement.expression;
+}
+
+// Raw expressions are swapped for placeholders before JSON.stringify and
+// spliced back verbatim afterwards, so JSON escaping never mangles their
+// contents (backslashes in Windows paths, quotes, ...).
 function stringifyWithEnv(obj: Record<string, any>): string {
-  return JSON.stringify(obj, null, 2).replace(/"process\.env\.(\w+)"/g, 'process.env.$1');
+  const rawExpressions: string[] = [];
+  const json = JSON.stringify(
+    obj,
+    (_key, value) =>
+      typeof value === 'string' && value.startsWith('process.env.')
+        ? `__RAW_EXPR_${rawExpressions.push(value) - 1}__`
+        : value,
+    2
+  );
+  return json.replace(/"__RAW_EXPR_(\d+)__"/g, (_match, index) => rawExpressions[Number(index)]);
 }
 
 export async function resolveServerUrl(config: ExpoConfig): Promise<string> {

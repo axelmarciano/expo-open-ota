@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { TriangleAlert } from 'lucide-react';
+import { Sparkles, TriangleAlert } from 'lucide-react';
 import { api, UserRecord, describeApiError } from '@/lib/api';
 import { ApiError } from '@/components/APIError';
 import { useToast } from '@/hooks/use-toast';
@@ -18,12 +18,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { EnterpriseFeatureGate } from '@/ee/components/EnterpriseFeatureGate';
+import { EnterpriseExplainerDialog } from '@/ee/components/EnterpriseExplainerDialog';
 import { DraftGrant, GrantsEditor } from '@/ee/components/GrantsEditor';
 
 // The single "Roles" panel of a user row: the admin flag, and for members the
-// per-app roles. The admin switch is a community feature and stays outside
-// the license gate; the per-app editor is enterprise and sits behind it.
+// per-app roles. The admin switch is a community feature and works without a
+// license; the per-app editor is enterprise. Without a license it is replaced
+// by a compact note (not the frosted overlay, which would read as the whole
+// sheet being locked while the admin switch above stays usable).
 // Everything applies on Save, in one place.
 export const UserRolesSheet = ({
   user,
@@ -38,11 +40,22 @@ export const UserRolesSheet = ({
   const [isAdminDraft, setIsAdminDraft] = useState(false);
   const [draft, setDraft] = useState<DraftGrant[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [isExplainerOpen, setIsExplainerOpen] = useState(false);
+
+  // Shares the ['license'] query with EnterpriseFeatureGate and the License
+  // page, so activating a key swaps the note for the editor immediately.
+  const licenseQuery = useQuery({
+    queryKey: ['license'],
+    queryFn: () => api.getLicense(),
+  });
+  const hasEnterpriseLicense = !!licenseQuery.data?.valid;
 
   const grantsQuery = useQuery({
     queryKey: ['userGrants', user?.id],
     queryFn: () => api.getUserGrants(user!.id),
-    enabled: !!user,
+    // Without a license the editor is not shown and grants are never written,
+    // so there is nothing to fetch.
+    enabled: !!user && hasEnterpriseLicense,
   });
 
   useEffect(() => {
@@ -76,16 +89,20 @@ export const UserRolesSheet = ({
       }
       // Grants only matter for members; an admin's dormant grants are left
       // untouched so demoting them later restores their previous scope.
-      if (!isAdminDraft) {
+      // Without a license the server refuses grant writes, and community
+      // rules apply anyway, so only the admin flag is saved.
+      if (!isAdminDraft && hasEnterpriseLicense) {
         await api.setUserGrants(user.id, draft);
       }
       toast({
         title: 'Roles saved',
         description: isAdminDraft
           ? `"${user.email}" is an admin with full access.`
-          : draft.length === 0
-            ? `"${user.email}" has no app access.`
-            : `"${user.email}" has access to ${draft.length} app${draft.length > 1 ? 's' : ''}.`,
+          : !hasEnterpriseLicense
+            ? `"${user.email}" is a member.`
+            : draft.length === 0
+              ? `"${user.email}" has no app access.`
+              : `"${user.email}" has access to ${draft.length} app${draft.length > 1 ? 's' : ''}.`,
       });
       queryClient.invalidateQueries({ queryKey: ['users'] });
       queryClient.invalidateQueries({ queryKey: ['userGrants', user.id] });
@@ -126,37 +143,44 @@ export const UserRolesSheet = ({
             <p className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               Admins bypass roles entirely, so there is nothing else to configure.
             </p>
+          ) : !hasEnterpriseLicense ? (
+            <div className="space-y-3 rounded-lg border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+              <p>
+                Members can view every app, read-only. Per-app roles and permissions are an
+                Enterprise feature.
+              </p>
+              <Button variant="outline" size="sm" onClick={() => setIsExplainerOpen(true)}>
+                <Sparkles className="h-3.5 w-3.5" />
+                Discover Enterprise
+              </Button>
+            </div>
+          ) : grantsQuery.isLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-4 w-1/2" />
+            </div>
+          ) : grantsQuery.isError ? (
+            // A failed fetch must never render as "no grants": with an
+            // empty draft, Save would wipe the member's real grants.
+            <div className="space-y-3">
+              <ApiError error={grantsQuery.error} />
+              <Button variant="outline" size="sm" onClick={() => grantsQuery.refetch()}>
+                Try again
+              </Button>
+            </div>
           ) : (
-            <EnterpriseFeatureGate>
-              {grantsQuery.isLoading ? (
-                <div className="space-y-3">
-                  <Skeleton className="h-12 w-full" />
-                  <Skeleton className="h-4 w-1/2" />
-                </div>
-              ) : grantsQuery.isError ? (
-                // A failed fetch must never render as "no grants": with an
-                // empty draft, Save would wipe the member's real grants.
-                <div className="space-y-3">
-                  <ApiError error={grantsQuery.error} />
-                  <Button variant="outline" size="sm" onClick={() => grantsQuery.refetch()}>
-                    Try again
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {draft.length === 0 && (
-                    <div className="flex items-start gap-2.5 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-                      <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                      <span>
-                        This member has no app access: they will see an empty dashboard. Grant them
-                        an app below, with a role.
-                      </span>
-                    </div>
-                  )}
-                  <GrantsEditor draft={draft} onChange={setDraft} disabled={isSaving} />
+            <div className="space-y-4">
+              {draft.length === 0 && (
+                <div className="flex items-start gap-2.5 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                  <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    This member has no app access: they will see an empty dashboard. Grant them an
+                    app below, with a role.
+                  </span>
                 </div>
               )}
-            </EnterpriseFeatureGate>
+              <GrantsEditor draft={draft} onChange={setDraft} disabled={isSaving} />
+            </div>
           )}
 
           <div className="flex justify-end gap-2 border-t pt-4">
@@ -166,12 +190,18 @@ export const UserRolesSheet = ({
             <Button
               onClick={handleSave}
               // isSuccess, not !isLoading: saving grants over a failed fetch
-              // would replace the member's set with the empty draft.
-              disabled={isSaving || (!isAdminDraft && !grantsQuery.isSuccess)}>
+              // would replace the member's set with the empty draft. Without
+              // a license grants are never fetched nor written, so only the
+              // save in flight blocks the button.
+              disabled={
+                isSaving || (!isAdminDraft && hasEnterpriseLicense && !grantsQuery.isSuccess)
+              }>
               {isSaving ? 'Saving…' : 'Save'}
             </Button>
           </div>
         </div>
+
+        <EnterpriseExplainerDialog open={isExplainerOpen} onOpenChange={setIsExplainerOpen} />
       </SheetContent>
     </Sheet>
   );

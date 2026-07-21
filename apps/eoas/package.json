@@ -5,7 +5,8 @@
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "watch": "tsc --project tsconfig.json --watch",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "vitest run"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -82,7 +83,8 @@
     "eslint-plugin-async-protect": "^3.1.0",
     "eslint-plugin-node": "^11.1.0",
     "ts-node": "10.9.2",
-    "typescript": "5.3.3"
+    "typescript": "5.3.3",
+    "vitest": "^2.1.9"
   },
   "bin": {
     "eoas": "bin/run.js"

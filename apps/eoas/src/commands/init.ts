@@ -11,7 +11,7 @@ import Log from '../lib/log';
 import { ora } from '../lib/ora';
 import { isExpoInstalled } from '../lib/package';
 import { confirmAsync, promptAsync } from '../lib/prompts';
-import { isValidUpdateUrl } from '../lib/utils';
+import { ensurePrivateKeyIgnored, isValidUpdateUrl } from '../lib/utils';
 
 export default class Init extends Command {
   static override args = {};
@@ -47,7 +47,7 @@ export default class Init extends Command {
       message: 'Enter the URL of your update server (ex: https://customota.com)',
       name: 'updateUrl',
       type: 'text',
-      initial: getExpoConfigUpdateUrl(config),
+      initial: (getExpoConfigUpdateUrl(config) || '').replace(/\/manifest$/, ''),
       validate: v => {
         return !!v && isValidUpdateUrl(v);
       },
@@ -100,13 +100,16 @@ export default class Init extends Command {
         }
       },
     });
+    // The code signing fields are guarded so the dev server can run without the
+    // private key: DISABLE_CODE_SIGNING=true expo start --dev-client. The strings
+    // are emitted as raw expressions by createOrModifyExpoConfigAsync.
     const newUpdateConfig = {
       url: manifestEndpoint,
-      codeSigningMetadata: {
-        keyid: 'main',
-        alg: 'rsa-v1_5-sha256' as const,
-      },
-      codeSigningCertificate: codeSigningCertificatePath,
+      codeSigningMetadata:
+        "process.env.DISABLE_CODE_SIGNING ? undefined : { keyid: 'main', alg: 'rsa-v1_5-sha256' }",
+      codeSigningCertificate: `process.env.DISABLE_CODE_SIGNING ? undefined : '${codeSigningCertificatePath
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")}'`,
       enabled: true,
       requestHeaders: {
         'expo-channel-name': 'process.env.RELEASE_CHANNEL',
@@ -125,5 +128,6 @@ export default class Init extends Command {
       updateConfigSpinner.fail('Failed to update Expo config');
       Log.error(e);
     }
+    ensurePrivateKeyIgnored(projectDir);
   }
 }
