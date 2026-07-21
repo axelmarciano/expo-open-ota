@@ -6,7 +6,6 @@ import (
 	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/services"
 	types2 "expo-open-ota/internal/types"
-	"fmt"
 	"log"
 	"net/http"
 
@@ -77,14 +76,12 @@ func (h *RepublishHandler) HandleRepublish(w http.ResponseWriter, r *http.Reques
 		}
 		var rErr *services.RepublishError
 		if errors.As(err, &rErr) {
-			fmt.Printf("[RequestID: %s] Republish error: %v", requestID, rErr)
+			log.Printf("[RequestID: %s] Republish error: %v", requestID, rErr)
 			http.Error(w, rErr.Message, rErr.Status)
 			return
-		} else {
-			fmt.Printf("[RequestID: %s] Unexpected error during republish: %v", requestID, err)
-			http.Error(w, "An unexpected error occurred during republish", http.StatusInternalServerError)
-			return
 		}
+		log.Printf("[RequestID: %s] Unexpected error during republish: %v", requestID, err)
+		http.Error(w, "An unexpected error occurred during republish", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
