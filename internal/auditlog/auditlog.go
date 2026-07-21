@@ -95,12 +95,11 @@ const (
 	ActionBranchProtectionUpdated   Action = "branch_protection.updated"
 	ActionCertificateDownloaded     Action = "certificate.downloaded"
 
-	// Access control and the log itself. permission.denied is the single
-	// event for authorization refusals (the RBAC middleware emits it, with
-	// OutcomeDenied); domain actions are only ever recorded once they
-	// actually executed, so one refusal is never representable two ways.
+	// Access control. permission.denied is the single event for authorization
+	// refusals (the RBAC middleware emits it, with OutcomeDenied); domain
+	// actions are only ever recorded once they actually executed, so one
+	// refusal is never representable two ways.
 	ActionPermissionDenied Action = "permission.denied"
-	ActionAuditExported    Action = "audit.exported"
 )
 
 // Event is one audit log entry. Actor and target carry denormalized display

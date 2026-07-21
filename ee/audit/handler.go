@@ -104,8 +104,10 @@ type AuditEventResponse struct {
 
 func auditEventResponseFrom(event Event) AuditEventResponse {
 	return AuditEventResponse{
-		Id:            event.ID,
-		OccurredAt:    event.OccurredAt.Format(time.RFC3339),
+		Id: event.ID,
+		// Normalized to UTC: the wire format must not depend on the server
+		// process's timezone; the browser converts for display.
+		OccurredAt:    event.OccurredAt.UTC().Format(time.RFC3339),
 		ActorType:     string(event.ActorType),
 		ActorId:       event.ActorID,
 		ActorDisplay:  event.ActorDisplay,
