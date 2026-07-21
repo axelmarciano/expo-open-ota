@@ -26,18 +26,41 @@ func WithPrincipal(ctx context.Context, principal *DashboardPrincipal) context.C
 
 type cliAuthContextKey struct{}
 
+// CliCredential identifies the validated app-scoped CLI credential of a
+// request: which app it may act on and which API key it was. KeyID/KeyName
+// are empty in stateless mode, where the credential is the app's Expo token,
+// not a named key.
+type CliCredential struct {
+	AppID   string
+	KeyID   string
+	KeyName string
+}
+
 // WithCliAuth marks the request as authenticated by an app-scoped CLI
 // credential. The marker exists so downstream gates can assert "validated CLI
 // request" as a fact instead of inferring it from the absence of a dashboard
 // principal, which would silently fail open on a route someone mounts without
-// the auth middleware.
-func WithCliAuth(ctx context.Context, appId string) context.Context {
-	return context.WithValue(ctx, cliAuthContextKey{}, appId)
+// the auth middleware. It doubles as the audit actor of the CLI paths, which
+// is why it names the key and not just the app.
+func WithCliAuth(ctx context.Context, credential CliCredential) context.Context {
+	return context.WithValue(ctx, cliAuthContextKey{}, credential)
+}
+
+// CliAuthFromContext returns the validated CLI credential, or nil when the
+// request did not authenticate through the CLI path.
+func CliAuthFromContext(ctx context.Context) *CliCredential {
+	credential, ok := ctx.Value(cliAuthContextKey{}).(CliCredential)
+	if !ok {
+		return nil
+	}
+	return &credential
 }
 
 // CliAuthAppFromContext returns the app the CLI credential was validated for,
 // or "" when the request did not authenticate through the CLI path.
 func CliAuthAppFromContext(ctx context.Context) string {
-	appId, _ := ctx.Value(cliAuthContextKey{}).(string)
-	return appId
+	if credential := CliAuthFromContext(ctx); credential != nil {
+		return credential.AppID
+	}
+	return ""
 }

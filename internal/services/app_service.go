@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"expo-open-ota/config"
+	"expo-open-ota/internal/auditlog"
 	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/helpers"
 	"expo-open-ota/internal/keyStore"
@@ -19,6 +20,9 @@ import (
 
 type AppService struct {
 	appRepo AppRepository
+	// onAuditEvent is the audit emission seam; nil (community) means app
+	// changes leave no events.
+	onAuditEvent auditlog.RecordFunc
 }
 
 type AppRepository interface {
@@ -33,6 +37,12 @@ func NewAppService(appRepo AppRepository) *AppService {
 	return &AppService{
 		appRepo: appRepo,
 	}
+}
+
+// SetOnAuditEvent plugs the audit emission seam (see SetSSOEnforced for the
+// pattern). Nil-safe.
+func (s *AppService) SetOnAuditEvent(record auditlog.RecordFunc) {
+	s.onAuditEvent = record
 }
 
 func (s *AppService) CreateApp(ctx context.Context, displayName string, keysConfig config.KeysConfig) (string, error) {
@@ -112,14 +122,35 @@ func (s *AppService) CreateApp(ctx context.Context, displayName string, keysConf
 	if err != nil {
 		return "", fmt.Errorf("failed to save app record to database: %w", err)
 	}
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+		Action:        auditlog.ActionAppCreated,
+		TargetType:    "app",
+		TargetID:      insertedAppId,
+		TargetDisplay: displayName,
+		AppID:         insertedAppId,
+		Metadata:      map[string]any{"keys_mode": modeStr},
+	})
 	return insertedAppId, nil
 }
 
 func (s *AppService) DeleteApp(ctx context.Context, appId string) error {
+	// Read before the delete: afterwards there is no row left to name in the
+	// audit entry. Best-effort, like the entry itself.
+	displayName := appId
+	if app, err := s.appRepo.GetAppByID(ctx, appId); err == nil && app.Name != "" {
+		displayName = app.Name
+	}
 	err := s.appRepo.DeleteAppByID(ctx, appId)
 	if err != nil {
 		return err
 	}
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+		Action:        auditlog.ActionAppDeleted,
+		TargetType:    "app",
+		TargetID:      appId,
+		TargetDisplay: displayName,
+		AppID:         appId,
+	})
 	return nil
 }
 
@@ -155,10 +186,28 @@ func (s *AppService) UpdateApp(ctx context.Context, appId string, newName string
 	if err := validation.DisplayName("name", newName); err != nil {
 		return err
 	}
+	previous, previousErr := s.appRepo.GetAppByID(ctx, appId)
 	err := s.appRepo.UpdateAppNameByID(ctx, appId, newName)
 	if err != nil {
 		return err
 	}
+	// An idempotent rename is not a change: no event. Unknown previous state
+	// records anyway, without the previous_name annotation.
+	if previousErr == nil && previous.Name == newName {
+		return nil
+	}
+	metadata := map[string]any{"name": newName}
+	if previousErr == nil {
+		metadata["previous_name"] = previous.Name
+	}
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+		Action:        auditlog.ActionAppRenamed,
+		TargetType:    "app",
+		TargetID:      appId,
+		TargetDisplay: newName,
+		AppID:         appId,
+		Metadata:      metadata,
+	})
 	return nil
 }
 

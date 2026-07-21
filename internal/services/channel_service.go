@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"expo-open-ota/internal/auditlog"
 	"expo-open-ota/internal/providers/expo"
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/validation"
@@ -11,6 +12,9 @@ import (
 type ChannelService struct {
 	branchRepo  BranchRepository
 	channelRepo ChannelRepository
+	// onAuditEvent is the audit emission seam; nil (community) means channel
+	// changes leave no events.
+	onAuditEvent auditlog.RecordFunc
 }
 
 type ChannelRepository interface {
@@ -19,6 +23,12 @@ type ChannelRepository interface {
 	GetChannelNameByBranchName(ctx context.Context, appId string, branchName string) ([]string, error)
 	GetChannels(ctx context.Context, appId string) ([]types.ChannelMapping, error)
 	GetChannelBranchMapping(ctx context.Context, appId string, channelName string) (*expo.ChannelMapping, error)
+}
+
+// SetOnAuditEvent plugs the audit emission seam (see SetSSOEnforced for the
+// pattern). Nil-safe.
+func (s *ChannelService) SetOnAuditEvent(record auditlog.RecordFunc) {
+	s.onAuditEvent = record
 }
 
 func NewChannelService(branchRepo BranchRepository, channelRepo ChannelRepository) *ChannelService {
@@ -47,6 +57,20 @@ func (s *ChannelService) CreateChannel(ctx context.Context, appId string, branch
 	if err != nil {
 		return 0, err
 	}
+	// Channels are addressed by name everywhere (routes, expo-channel-name):
+	// the name is the target id, the numeric id an annotation.
+	metadata := map[string]any{"channel_id": channelId}
+	if branchName != nil {
+		metadata["branch"] = *branchName
+	}
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+		Action:        auditlog.ActionChannelCreated,
+		TargetType:    "channel",
+		TargetID:      channelName,
+		TargetDisplay: channelName,
+		AppID:         appId,
+		Metadata:      metadata,
+	})
 	return channelId, nil
 }
 
@@ -58,6 +82,13 @@ func (s *ChannelService) DeleteChannel(ctx context.Context, channelName string, 
 	if err != nil {
 		return err
 	}
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+		Action:        auditlog.ActionChannelDeleted,
+		TargetType:    "channel",
+		TargetID:      channelName,
+		TargetDisplay: channelName,
+		AppID:         appId,
+	})
 	return nil
 }
 

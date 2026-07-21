@@ -61,15 +61,32 @@ func NewCliAuthService(authRepo CliAuthRepository, policy CliAccessPolicy) *CliA
 // ValidateCliCredential authenticates the credential, then runs the access
 // policy on the authenticated key. A key id of 0 (stateless mode) carries no
 // restrictions, so the policy is skipped.
-func (s *CliAuthService) ValidateCliCredential(ctx context.Context, appId string, auth types.Auth, branchName string, clientIP netip.Addr) error {
+func (s *CliAuthService) ValidateCliCredential(ctx context.Context, appId string, auth types.Auth, branchName string, clientIP netip.Addr) (CliCredential, error) {
 	apiKeyID, err := s.authRepo.ValidateCliCredential(ctx, appId, auth)
 	if err != nil {
-		return fmt.Errorf("failed to validate auth: %w", err)
+		return CliCredential{}, fmt.Errorf("failed to validate auth: %w", err)
+	}
+	credential := CliCredential{AppID: appId}
+	if apiKeyID != 0 {
+		credential.KeyID = strconv.FormatInt(apiKeyID, 10)
+		// Best-effort: the name only serves the audit trail's actor display,
+		// an unreadable key list must not fail a valid credential.
+		if rows, metadataErr := s.authRepo.GetApiKeysMetadataByAppID(ctx, appId); metadataErr == nil {
+			for _, row := range rows {
+				if row.ID == apiKeyID {
+					credential.KeyName = row.Name
+					break
+				}
+			}
+		}
 	}
 	if s.policy == nil || apiKeyID == 0 {
-		return nil
+		return credential, nil
 	}
-	return s.policy.AuthorizeCliRequest(ctx, appId, apiKeyID, branchName, clientIP)
+	if err := s.policy.AuthorizeCliRequest(ctx, appId, apiKeyID, branchName, clientIP); err != nil {
+		return CliCredential{}, err
+	}
+	return credential, nil
 }
 
 func (s *CliAuthService) GenerateAPIKey(ctx context.Context, appId string, name string) (string, error) {

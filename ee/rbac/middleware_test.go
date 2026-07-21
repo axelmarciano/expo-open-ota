@@ -60,7 +60,7 @@ func performCliAppRequest(t *testing.T, mw mux.MiddlewareFunc) *httptest.Respons
 			w.Write([]byte("handler executed"))
 		}))).Methods(http.MethodPost)
 	req := httptest.NewRequest(http.MethodPost, "/api/apps/app-1/branches", nil)
-	req = req.WithContext(services.WithCliAuth(req.Context(), "app-1"))
+	req = req.WithContext(services.WithCliAuth(req.Context(), services.CliCredential{AppID: "app-1"}))
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, req)
 	return recorder

@@ -46,13 +46,13 @@ func NewAuthMiddleware(dashboardAuthService *services.DashboardAuthService, cliA
 				// These routes are branch-less reads: only the IP allowlist
 				// applies here, branch protection is enforced on the publish
 				// routes that carry a BRANCH.
-				err := cliAuthService.ValidateCliCredential(r.Context(), appId, auth, "", helpers.ClientIP(r))
+				credential, err := cliAuthService.ValidateCliCredential(r.Context(), appId, auth, "", helpers.ClientIP(r))
 				if err != nil {
 					handlers.RenderCliAuthError(w, err)
 					return
 				}
 
-				next.ServeHTTP(w, r.WithContext(services.WithCliAuth(r.Context(), appId)))
+				next.ServeHTTP(w, r.WithContext(services.WithCliAuth(r.Context(), credential)))
 				return
 			}
 			bearerToken, err := helpers.GetBearerToken(r)

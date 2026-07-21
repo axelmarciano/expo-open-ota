@@ -72,30 +72,16 @@ func (s *UserService) SetOnAuditEvent(record auditlog.RecordFunc) {
 	s.onAuditEvent = record
 }
 
-// recordUserEvent reports one account mutation. The actor is the admin
-// principal on the request context (readable here since the identity helpers
-// moved to this package); the actorUserId parameters some methods still take
-// exist for their business rules, never for the audit trail.
+// recordUserEvent reports one account mutation. The actor comes from the
+// request context (see auditActorFromContext); the actorUserId parameters
+// some methods still take exist for their business rules, never for the
+// audit trail.
 func (s *UserService) recordUserEvent(ctx context.Context, action auditlog.Action, target store.User, metadata map[string]any) {
-	if s.onAuditEvent == nil {
-		return
-	}
-	actorID, actorDisplay := "", ""
-	if principal := PrincipalFromContext(ctx); principal != nil {
-		actorID, actorDisplay = principal.UserId, principal.Email
-		if actorDisplay == "" {
-			actorDisplay = principal.UserId
-		}
-	}
-	s.onAuditEvent(ctx, auditlog.Event{
-		ActorType:     auditlog.ActorUser,
-		ActorID:       actorID,
-		ActorDisplay:  actorDisplay,
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
 		Action:        action,
 		TargetType:    "user",
 		TargetID:      target.Id,
 		TargetDisplay: target.Email,
-		Outcome:       auditlog.OutcomeSuccess,
 		Metadata:      metadata,
 	})
 }
