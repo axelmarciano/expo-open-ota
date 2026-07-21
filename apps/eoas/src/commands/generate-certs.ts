@@ -10,6 +10,7 @@ import path from 'path';
 
 import Log from '../lib/log';
 import { promptAsync } from '../lib/prompts';
+import { ensurePrivateKeyIgnored } from '../lib/utils';
 
 export default class GenerateCerts extends Command {
   static override args = {};
@@ -82,6 +83,9 @@ export default class GenerateCerts extends Command {
     });
     const keyPairPEM = convertKeyPairToPEM(keyPair);
     const certificatePEM = convertCertificateToCertificatePEM(certificate);
+    // Before the key touches the disk, so there is no window where it exists
+    // uncovered by the ignore rule.
+    ensurePrivateKeyIgnored(process.cwd());
     await Promise.all([
       writeFile(path.join(keyOutput, 'public-key.pem'), keyPairPEM.publicKeyPEM),
       writeFile(path.join(keyOutput, 'private-key.pem'), keyPairPEM.privateKeyPEM),
@@ -91,5 +95,11 @@ export default class GenerateCerts extends Command {
       `Generated public and private keys output in ${keyOutputDir}. Please follow the documentation to securely store them and do not commit them to your repository.`
     );
     Log.succeed(`Generated code signing certificate output in ${certificateOutputDir}.`);
+    Log.warn(
+      '⚠️ private-key.pem is used by your OTA server to sign updates. Never commit it and do not keep it inside your app project: configure it on your server (or in a secret store), then remove it from this machine.'
+    );
+    Log.warn(
+      'Your team does not need this key for local development: run the dev server with DISABLE_CODE_SIGNING=true. See the "Local development" section of the documentation.'
+    );
   }
 }

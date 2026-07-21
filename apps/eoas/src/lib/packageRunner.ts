@@ -63,7 +63,9 @@ function detectRunnerFromPackageJson(startDir: string): string | undefined {
   while (dir !== root) {
     const pkgPath = path.join(dir, 'package.json');
     try {
+      // eslint-disable-next-line node/no-sync
       if (fs.existsSync(pkgPath)) {
+        // eslint-disable-next-line node/no-sync
         const pkg = fs.readJsonSync(pkgPath);
         if (pkg.packageManager) {
           const name = pkg.packageManager.split('@')[0];

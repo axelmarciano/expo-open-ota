@@ -2,7 +2,7 @@ module.exports = {
   root: true,
   extends: ['universe/node'],
   plugins: ['node'],
-  ignorePatterns: ['bin/'],
+  ignorePatterns: ['bin/', 'dist/'],
   rules: {
     'no-console': 'warn',
     'no-constant-condition': ['warn', { checkLoops: false }],
@@ -37,7 +37,8 @@ module.exports = {
     {
       files: ['*.ts', '*.d.ts'],
       parserOptions: {
-        project: './tsconfig.json',
+        // Extends tsconfig.json to also cover __tests__, which the build excludes.
+        project: './tsconfig.eslint.json',
       },
       rules: {
         '@typescript-eslint/explicit-function-return-type': [
