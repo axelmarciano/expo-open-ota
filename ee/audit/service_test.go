@@ -22,6 +22,7 @@ type fakeAuditRepo struct {
 	ctxErrAtInsert error
 	hadDeadline    bool
 	insertErr      error
+	listErr        error
 	listResult     []Event
 	listParams     ListParams
 }
@@ -37,12 +38,24 @@ func (f *fakeAuditRepo) Insert(ctx context.Context, event Event) (Event, error) 
 	return event, nil
 }
 
+// List honors BeforeID and Limit like the real store (listResult must be
+// seeded newest first), so the handler tests can walk real pages.
 func (f *fakeAuditRepo) List(ctx context.Context, params ListParams) ([]Event, error) {
 	f.listParams = params
-	if params.Limit < len(f.listResult) {
-		return f.listResult[:params.Limit], nil
+	if f.listErr != nil {
+		return nil, f.listErr
 	}
-	return f.listResult, nil
+	result := make([]Event, 0, len(f.listResult))
+	for _, event := range f.listResult {
+		if params.BeforeID != nil && event.ID >= *params.BeforeID {
+			continue
+		}
+		result = append(result, event)
+	}
+	if params.Limit < len(result) {
+		result = result[:params.Limit]
+	}
+	return result, nil
 }
 
 func (f *fakeAuditRepo) Count(ctx context.Context, filters ListFilters) (int64, error) {
