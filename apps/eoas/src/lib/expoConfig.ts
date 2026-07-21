@@ -184,7 +184,6 @@ export function requireExpoAppId(config: ExpoConfig): string {
 // emitted as raw JavaScript expressions rather than string literals, so callers
 // can write env-dependent values like
 // "process.env.DISABLE_CODE_SIGNING ? undefined : './certs/certificate.pem'".
-// Such expressions must not contain double quotes.
 export async function createOrModifyExpoConfigAsync(
   projectDir: string,
   exp: Record<string, any>
@@ -357,8 +356,20 @@ function parseExpressionNode(j: typeof jscodeshift, code: string): any {
   return statement.expression;
 }
 
+// Raw expressions are swapped for placeholders before JSON.stringify and
+// spliced back verbatim afterwards, so JSON escaping never mangles their
+// contents (backslashes in Windows paths, quotes, ...).
 function stringifyWithEnv(obj: Record<string, any>): string {
-  return JSON.stringify(obj, null, 2).replace(/"(process\.env\.[^"]*)"/g, '$1');
+  const rawExpressions: string[] = [];
+  const json = JSON.stringify(
+    obj,
+    (_key, value) =>
+      typeof value === 'string' && value.startsWith('process.env.')
+        ? `__RAW_EXPR_${rawExpressions.push(value) - 1}__`
+        : value,
+    2
+  );
+  return json.replace(/"__RAW_EXPR_(\d+)__"/g, (_match, index) => rawExpressions[Number(index)]);
 }
 
 export async function resolveServerUrl(config: ExpoConfig): Promise<string> {

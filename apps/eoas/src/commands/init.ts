@@ -101,7 +101,7 @@ export default class Init extends Command {
       },
     });
     // The code signing fields are guarded so the dev server can run without the
-    // private key: DISABLE_CODE_SIGNING=1 expo start --dev-client. The strings
+    // private key: DISABLE_CODE_SIGNING=true expo start --dev-client. The strings
     // are emitted as raw expressions by createOrModifyExpoConfigAsync.
     const newUpdateConfig = {
       url: manifestEndpoint,

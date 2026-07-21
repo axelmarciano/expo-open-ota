@@ -99,7 +99,7 @@ export default class GenerateCerts extends Command {
       '⚠️ private-key.pem is used by your OTA server to sign updates. Never commit it and do not keep it inside your app project: configure it on your server (or in a secret store), then remove it from this machine.'
     );
     Log.warn(
-      'Your team does not need this key for local development: run the dev server with DISABLE_CODE_SIGNING=1. See the "Local development" section of the documentation.'
+      'Your team does not need this key for local development: run the dev server with DISABLE_CODE_SIGNING=true. See the "Local development" section of the documentation.'
     );
   }
 }

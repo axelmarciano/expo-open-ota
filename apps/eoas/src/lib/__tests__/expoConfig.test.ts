@@ -59,6 +59,31 @@ describe('createOrModifyExpoConfigAsync', () => {
     expect(unsigned.updates.url).toBe('https://ota.example.com/manifest');
   });
 
+  it('preserves backslashes and quotes of raw expressions when generating from app.json', async () => {
+    const projectDir = makeTmpDir('eoas-win-');
+    // eslint-disable-next-line node/no-sync
+    fs.writeFileSync(
+      path.join(projectDir, 'app.json'),
+      JSON.stringify({ expo: { name: 'demo', slug: 'demo' } }, null, 2)
+    );
+
+    // A Windows path with an apostrophe, escaped for a single-quoted JS string
+    // exactly like init.ts does.
+    const certificatePath = "C:\\certs d'Axel\\certificate.pem";
+    const escaped = certificatePath.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    await createOrModifyExpoConfigAsync(projectDir, {
+      updates: {
+        ...guardedUpdates,
+        codeSigningCertificate: `process.env.DISABLE_CODE_SIGNING ? undefined : '${escaped}'`,
+      },
+    });
+
+    // eslint-disable-next-line node/no-sync
+    const generated = fs.readFileSync(path.join(projectDir, 'app.config.js'), 'utf8');
+    const signed = evaluateConfig(generated, {});
+    expect(signed.updates.codeSigningCertificate).toBe(certificatePath);
+  });
+
   it('rewrites the updates key of an existing app.config.js and preserves the rest', async () => {
     const projectDir = makeTmpDir('eoas-dynamic-');
     // eslint-disable-next-line node/no-sync
