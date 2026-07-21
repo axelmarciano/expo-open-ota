@@ -292,6 +292,24 @@ func (q *Queries) GetActiveRolloutUpdates(ctx context.Context, arg GetActiveRoll
 	return items, nil
 }
 
+const getApiKeyNameByID = `-- name: GetApiKeyNameByID :one
+SELECT name FROM api_keys
+WHERE id = $1 AND app_id = $2
+`
+
+type GetApiKeyNameByIDParams struct {
+	ID    int64       `json:"id"`
+	AppID pgtype.UUID `json:"app_id"`
+}
+
+// The audit actor display of CLI requests: one indexed read, never a list scan.
+func (q *Queries) GetApiKeyNameByID(ctx context.Context, arg GetApiKeyNameByIDParams) (string, error) {
+	row := q.db.QueryRow(ctx, getApiKeyNameByID, arg.ID, arg.AppID)
+	var name string
+	err := row.Scan(&name)
+	return name, err
+}
+
 const getApiKeyRestrictions = `-- name: GetApiKeyRestrictions :one
 
 SELECT allowed_ips, can_access_protected_branches
@@ -1470,9 +1488,10 @@ func (q *Queries) HasActiveRolloutUpdate(ctx context.Context, arg HasActiveRollo
 	return exists, err
 }
 
-const insertApiKey = `-- name: InsertApiKey :exec
+const insertApiKey = `-- name: InsertApiKey :one
 INSERT INTO api_keys (app_id, name, hint, hashed_key)
 VALUES ($1, $2, $3, $4)
+RETURNING id
 `
 
 type InsertApiKeyParams struct {
@@ -1482,14 +1501,18 @@ type InsertApiKeyParams struct {
 	HashedKey string      `json:"hashed_key"`
 }
 
-func (q *Queries) InsertApiKey(ctx context.Context, arg InsertApiKeyParams) error {
-	_, err := q.db.Exec(ctx, insertApiKey,
+// Returns the new key's id: the audit trail needs a stable target id that
+// matches the one revocation events carry.
+func (q *Queries) InsertApiKey(ctx context.Context, arg InsertApiKeyParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertApiKey,
 		arg.AppID,
 		arg.Name,
 		arg.Hint,
 		arg.HashedKey,
 	)
-	return err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertApp = `-- name: InsertApp :one
@@ -2488,10 +2511,11 @@ func (q *Queries) RepointChannelToRolloutBranch(ctx context.Context, arg Repoint
 	return result.RowsAffected(), nil
 }
 
-const revokeApiKeyByID = `-- name: RevokeApiKeyByID :execresult
+const revokeApiKeyByID = `-- name: RevokeApiKeyByID :one
 UPDATE api_keys
 SET revoked_at = CURRENT_TIMESTAMP
 WHERE id = $1 AND app_id = $2
+RETURNING name
 `
 
 type RevokeApiKeyByIDParams struct {
@@ -2499,8 +2523,13 @@ type RevokeApiKeyByIDParams struct {
 	AppID pgtype.UUID `json:"app_id"`
 }
 
-func (q *Queries) RevokeApiKeyByID(ctx context.Context, arg RevokeApiKeyByIDParams) (pgconn.CommandTag, error) {
-	return q.db.Exec(ctx, revokeApiKeyByID, arg.ID, arg.AppID)
+// Returns the revoked key's name so the audit entry can carry it without a
+// separate read.
+func (q *Queries) RevokeApiKeyByID(ctx context.Context, arg RevokeApiKeyByIDParams) (string, error) {
+	row := q.db.QueryRow(ctx, revokeApiKeyByID, arg.ID, arg.AppID)
+	var name string
+	err := row.Scan(&name)
+	return name, err
 }
 
 const setBranchProtected = `-- name: SetBranchProtected :execrows

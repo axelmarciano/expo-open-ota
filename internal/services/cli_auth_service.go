@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"expo-open-ota/internal/auditlog"
 	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/database/postgres/pgdb"
 	"expo-open-ota/internal/types"
@@ -28,9 +29,12 @@ var ErrCliAccessDenied = fmt.Errorf("access denied")
 //     token or session, verified against the Expo API. Returns 0 as the id.
 type CliAuthRepository interface {
 	ValidateCliCredential(ctx context.Context, appId string, auth types.Auth) (int64, error)
-	InsertApiKey(ctx context.Context, appId string, name string, hint string, hashedKey string) error
+	InsertApiKey(ctx context.Context, appId string, name string, hint string, hashedKey string) (int64, error)
 	GetApiKeysMetadataByAppID(ctx context.Context, appId string) ([]pgdb.GetApiKeysMetadataByAppIDRow, error)
-	RevokeApiKeyByID(ctx context.Context, apiKeyId int64, appId string) error
+	// GetApiKeyNameByID feeds the audit actor display; RevokeApiKeyByID
+	// returns the revoked key's name so the audit entry needs no second read.
+	GetApiKeyNameByID(ctx context.Context, appId string, apiKeyId int64) (string, error)
+	RevokeApiKeyByID(ctx context.Context, apiKeyId int64, appId string) (string, error)
 }
 
 // CliAccessPolicy authorizes an authenticated CLI request against per-key
@@ -49,6 +53,9 @@ type CliAccessPolicy interface {
 type CliAuthService struct {
 	authRepo CliAuthRepository
 	policy   CliAccessPolicy
+	// onAuditEvent is the audit emission seam; nil (community) means key
+	// changes leave no events.
+	onAuditEvent auditlog.RecordFunc
 	// auditActive reports whether audit events are being collected right now
 	// (the enterprise wiring injects auditService.Enabled). It only gates the
 	// key-name lookup that enriches the audit actor display: nil or false
@@ -68,6 +75,12 @@ func (s *CliAuthService) SetAuditActive(active func() bool) {
 	s.auditActive = active
 }
 
+// SetOnAuditEvent plugs the audit emission seam (see SetSSOEnforced for the
+// pattern). Nil-safe.
+func (s *CliAuthService) SetOnAuditEvent(record auditlog.RecordFunc) {
+	s.onAuditEvent = record
+}
+
 // ValidateCliCredential authenticates the credential, then runs the access
 // policy on the authenticated key. A key id of 0 (stateless mode) carries no
 // restrictions, so the policy is skipped.
@@ -84,13 +97,8 @@ func (s *CliAuthService) ValidateCliCredential(ctx context.Context, appId string
 		// the lookup), and best-effort when it runs, an unreadable key list
 		// must not fail a valid credential.
 		if s.auditActive != nil && s.auditActive() {
-			if rows, metadataErr := s.authRepo.GetApiKeysMetadataByAppID(ctx, appId); metadataErr == nil {
-				for _, row := range rows {
-					if row.ID == apiKeyID {
-						credential.KeyName = row.Name
-						break
-					}
-				}
+			if name, nameErr := s.authRepo.GetApiKeyNameByID(ctx, appId, apiKeyID); nameErr == nil {
+				credential.KeyName = name
 			}
 		}
 	}
@@ -118,10 +126,19 @@ func (s *CliAuthService) GenerateAPIKey(ctx context.Context, appId string, name 
 	lastFour := apiKey[len(apiKey)-4:]
 	hint := fmt.Sprintf("%s*******%s", crypto.PrefixActive, lastFour)
 	// Store only the hashed version of the API key in the database for security reasons
-	err = s.authRepo.InsertApiKey(ctx, appId, name, hint, hashedKey)
+	keyID, err := s.authRepo.InsertApiKey(ctx, appId, name, hint, hashedKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to insert API key into database: %w", err)
 	}
+	// The hint is the shape shown in the dashboard, never key material.
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+		Action:        auditlog.ActionAPIKeyCreated,
+		TargetType:    "api_key",
+		TargetID:      strconv.FormatInt(keyID, 10),
+		TargetDisplay: name,
+		AppID:         appId,
+		Metadata:      map[string]any{"hint": hint},
+	})
 	return apiKey, nil
 }
 
@@ -156,9 +173,16 @@ func (s *CliAuthService) RevokeApiKey(ctx context.Context, appId string, apiKeyI
 	if err != nil {
 		return fmt.Errorf("invalid API key ID: %w", err)
 	}
-	err = s.authRepo.RevokeApiKeyByID(ctx, apiKeyIdInt, appId)
+	keyName, err := s.authRepo.RevokeApiKeyByID(ctx, apiKeyIdInt, appId)
 	if err != nil {
 		return err
 	}
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+		Action:        auditlog.ActionAPIKeyRevoked,
+		TargetType:    "api_key",
+		TargetID:      apiKeyId,
+		TargetDisplay: keyName,
+		AppID:         appId,
+	})
 	return nil
 }

@@ -99,14 +99,18 @@ type fakeCliAuthRepo struct{}
 func (fakeCliAuthRepo) ValidateCliCredential(_ context.Context, _ string, _ types.Auth) (int64, error) {
 	return 0, nil
 }
-func (fakeCliAuthRepo) InsertApiKey(_ context.Context, _ string, _ string, _ string, _ string) error {
-	return nil
+func (fakeCliAuthRepo) InsertApiKey(_ context.Context, _ string, _ string, _ string, _ string) (int64, error) {
+	return 0, nil
 }
+func (fakeCliAuthRepo) GetApiKeyNameByID(_ context.Context, _ string, _ int64) (string, error) {
+	return "", nil
+}
+
 func (fakeCliAuthRepo) GetApiKeysMetadataByAppID(_ context.Context, _ string) ([]pgdb.GetApiKeysMetadataByAppIDRow, error) {
 	return nil, nil
 }
-func (fakeCliAuthRepo) RevokeApiKeyByID(_ context.Context, _ int64, _ string) error {
-	return nil
+func (fakeCliAuthRepo) RevokeApiKeyByID(_ context.Context, _ int64, _ string) (string, error) {
+	return "", nil
 }
 
 // The CLI branch must stamp the validated app on the context: downstream

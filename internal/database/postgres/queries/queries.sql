@@ -332,9 +332,12 @@ RETURNING
     (SELECT branch_name FROM resolved_names) AS branch_name,
     (SELECT runtime_version FROM resolved_names) AS runtime_version;
 
--- name: InsertApiKey :exec
+-- name: InsertApiKey :one
+-- Returns the new key's id: the audit trail needs a stable target id that
+-- matches the one revocation events carry.
 INSERT INTO api_keys (app_id, name, hint, hashed_key)
-VALUES ($1, $2, $3, $4);
+VALUES ($1, $2, $3, $4)
+RETURNING id;
 
 -- name: GetApiKeysMetadataByAppID :many
 SELECT id, name, hint, created_at, last_used_at
@@ -342,9 +345,17 @@ FROM api_keys
 WHERE app_id = $1 AND revoked_at IS NULL
 ORDER BY created_at ASC;
 
--- name: RevokeApiKeyByID :execresult
+-- name: RevokeApiKeyByID :one
+-- Returns the revoked key's name so the audit entry can carry it without a
+-- separate read.
 UPDATE api_keys
 SET revoked_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND app_id = $2
+RETURNING name;
+
+-- name: GetApiKeyNameByID :one
+-- The audit actor display of CLI requests: one indexed read, never a list scan.
+SELECT name FROM api_keys
 WHERE id = $1 AND app_id = $2;
 
 -- name: ValidateAndTouchAuth :one

@@ -151,6 +151,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// no-ops without a control plane and a currently valid license, so the
 	// call sites stay unconditional.
 	auditService := audit.NewAuditService(auditRepo, licensing.IsEnterprise)
+	apiKeyRestrictionService.SetOnAuditEvent(auditService.Record)
 	rbacService := rbac.NewRBACService(rbacRepo, userRepo)
 	rbacService.SetOnAuditEvent(auditService.Record)
 	// The community list handlers (apps, settings) receive this method as
@@ -163,6 +164,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	cliAuthService := services.NewCliAuthService(authRepo, apiKeyRestrictionService)
 	// Only gates the audit actor's key-name lookup: no collection, no lookup.
 	cliAuthService.SetAuditActive(auditService.Enabled)
+	cliAuthService.SetOnAuditEvent(auditService.Record)
 	userService := services.NewUserService(userRepo)
 	ssoService := sso.NewSSOService(ssoRepo, userRepo, dashboardAuthService)
 	// While SSO is active, members must sign in through it (admins keep the
@@ -183,7 +185,9 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	updateService := services.NewUpdateService(updateRepo, resolvedBucket)
 	expoProtocolService := services.NewExpoProtocolService(appRepo, channelRepo, updateRepo, updateService, services.DefaultBranchRules())
 	deploymentService := services.NewDeploymentService(branchService, updateService, updateRepo, resolvedBucket)
+	deploymentService.SetOnAuditEvent(auditService.Record)
 	rolloutService := services.NewRolloutService(rolloutRepo, channelRepo, updateRepo, deploymentService)
+	rolloutService.SetOnAuditEvent(auditService.Record)
 
 	return &AppContainer{
 		AuthHandler:              dashhandlers.NewAuthHandler(dashboardAuthService),

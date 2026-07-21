@@ -232,5 +232,13 @@ func (s *AppService) RetrieveAppCertificate(ctx context.Context, appId string) (
 	if err != nil {
 		return "", fmt.Errorf("failed to wrap public key in self-signed certificate: %w", err)
 	}
+	// The one read we audit: key material access, behind its own permission.
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+		Action:        auditlog.ActionCertificateDownloaded,
+		TargetType:    "app",
+		TargetID:      appId,
+		TargetDisplay: app.Name,
+		AppID:         appId,
+	})
 	return pemCertificateString, nil
 }
