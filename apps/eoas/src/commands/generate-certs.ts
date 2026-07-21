@@ -10,6 +10,7 @@ import path from 'path';
 
 import Log from '../lib/log';
 import { promptAsync } from '../lib/prompts';
+import { ensurePrivateKeyIgnored } from '../lib/utils';
 
 export default class GenerateCerts extends Command {
   static override args = {};
@@ -82,6 +83,9 @@ export default class GenerateCerts extends Command {
     });
     const keyPairPEM = convertKeyPairToPEM(keyPair);
     const certificatePEM = convertCertificateToCertificatePEM(certificate);
+    // Before the key touches the disk, so there is no window where it exists
+    // uncovered by the ignore rule.
+    ensurePrivateKeyIgnored(process.cwd());
     await Promise.all([
       writeFile(path.join(keyOutput, 'public-key.pem'), keyPairPEM.publicKeyPEM),
       writeFile(path.join(keyOutput, 'private-key.pem'), keyPairPEM.privateKeyPEM),

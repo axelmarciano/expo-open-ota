@@ -107,10 +107,9 @@ export default class Init extends Command {
       url: manifestEndpoint,
       codeSigningMetadata:
         "process.env.DISABLE_CODE_SIGNING ? undefined : { keyid: 'main', alg: 'rsa-v1_5-sha256' }",
-      codeSigningCertificate: `process.env.DISABLE_CODE_SIGNING ? undefined : '${codeSigningCertificatePath.replace(
-        /'/g,
-        "\\'"
-      )}'`,
+      codeSigningCertificate: `process.env.DISABLE_CODE_SIGNING ? undefined : '${codeSigningCertificatePath
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")}'`,
       enabled: true,
       requestHeaders: {
         'expo-channel-name': 'process.env.RELEASE_CHANNEL',

@@ -43,6 +43,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # 18 is the floor declared in the package's engines field.
       - uses: actions/setup-node@v4

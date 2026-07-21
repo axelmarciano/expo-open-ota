@@ -57,10 +57,35 @@ describe('ensurePrivateKeyIgnored', () => {
     expect(readGitignore(projectDir)).toContain('\nprivate-key.pem\n');
   });
 
-  it('does nothing when any entry already covers the private key', () => {
-    const existing = 'certs/private-key.pem\n';
+  it('does nothing when a bare private-key.pem rule already exists', () => {
+    const existing = 'node_modules/\nprivate-key.pem\n';
     const projectDir = makeProject(existing);
     ensurePrivateKeyIgnored(projectDir);
     expect(readGitignore(projectDir)).toBe(existing);
+  });
+
+  it('adds the generic rule when only a path-specific entry exists', () => {
+    const projectDir = makeProject('certs/private-key.pem\n');
+    ensurePrivateKeyIgnored(projectDir);
+    const lines = readGitignore(projectDir).trim().split('\n');
+    expect(lines[0]).toBe('certs/private-key.pem');
+    expect(lines[lines.length - 1]).toBe('private-key.pem');
+  });
+
+  it('is not fooled by a comment mentioning the key', () => {
+    const projectDir = makeProject('# private-key.pem is sensitive\n');
+    ensurePrivateKeyIgnored(projectDir);
+    const lines = readGitignore(projectDir).trim().split('\n');
+    expect(lines[lines.length - 1]).toBe('private-key.pem');
+  });
+
+  it('appends after a negated entry so the final rule wins', () => {
+    const projectDir = makeProject('private-key.pem\n!private-key.pem\n');
+    ensurePrivateKeyIgnored(projectDir);
+    const lines = readGitignore(projectDir).trim().split('\n');
+    expect(lines[lines.length - 1]).toBe('private-key.pem');
+    expect(lines.lastIndexOf('private-key.pem')).toBeGreaterThan(
+      lines.lastIndexOf('!private-key.pem')
+    );
   });
 });
