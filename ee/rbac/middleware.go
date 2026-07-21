@@ -9,7 +9,7 @@ import (
 	"errors"
 	"expo-open-ota/internal/auditlog"
 	"expo-open-ota/internal/handlers"
-	"expo-open-ota/internal/middleware"
+	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
 	"net/http"
 
@@ -30,7 +30,7 @@ type UserLookup interface {
 // (or deleted user) must lose access immediately, not at the next refresh.
 // On failure it writes the response and returns ok=false.
 func (s *RBACService) resolveSubject(w http.ResponseWriter, r *http.Request) (Subject, bool) {
-	principal := middleware.PrincipalFromContext(r.Context())
+	principal := services.PrincipalFromContext(r.Context())
 	if principal == nil {
 		handlers.RenderError(w, http.StatusForbidden, "This action requires a dashboard session")
 		return Subject{}, false
@@ -102,7 +102,7 @@ func (s *RBACService) recordDenied(r *http.Request, subject Subject, appID strin
 	metadata["method"] = r.Method
 	metadata["path"] = r.URL.Path
 	actorDisplay := subject.UserID
-	if principal := middleware.PrincipalFromContext(r.Context()); principal != nil && principal.Email != "" {
+	if principal := services.PrincipalFromContext(r.Context()); principal != nil && principal.Email != "" {
 		actorDisplay = principal.Email
 	}
 	s.onAuditEvent(r.Context(), auditlog.Event{
@@ -145,8 +145,8 @@ func renderAuthorizeError(w http.ResponseWriter, err error) {
 func RequireAppVisible(service *RBACService) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if middleware.PrincipalFromContext(r.Context()) == nil {
-				if middleware.CliAuthAppFromContext(r.Context()) != "" {
+			if services.PrincipalFromContext(r.Context()) == nil {
+				if services.CliAuthAppFromContext(r.Context()) != "" {
 					next.ServeHTTP(w, r)
 					return
 				}

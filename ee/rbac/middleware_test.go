@@ -6,7 +6,6 @@ package rbac
 
 import (
 	"context"
-	"expo-open-ota/internal/middleware"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
 	"net/http"
@@ -43,7 +42,7 @@ func performAppRequest(t *testing.T, mw mux.MiddlewareFunc, principal *services.
 		}))).Methods(http.MethodPost)
 	req := httptest.NewRequest(http.MethodPost, "/api/apps/app-1/branches", nil)
 	if principal != nil {
-		req = req.WithContext(middleware.WithPrincipal(req.Context(), principal))
+		req = req.WithContext(services.WithPrincipal(req.Context(), principal))
 	}
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, req)
@@ -61,7 +60,7 @@ func performCliAppRequest(t *testing.T, mw mux.MiddlewareFunc) *httptest.Respons
 			w.Write([]byte("handler executed"))
 		}))).Methods(http.MethodPost)
 	req := httptest.NewRequest(http.MethodPost, "/api/apps/app-1/branches", nil)
-	req = req.WithContext(middleware.WithCliAuth(req.Context(), "app-1"))
+	req = req.WithContext(services.WithCliAuth(req.Context(), "app-1"))
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, req)
 	return recorder

@@ -8,7 +8,6 @@ import (
 	"context"
 	"expo-open-ota/ee/audit"
 	"expo-open-ota/internal/auditlog"
-	"expo-open-ota/internal/middleware"
 	"expo-open-ota/internal/services"
 	"testing"
 	"time"
@@ -39,7 +38,7 @@ func TestActivateAndRemoveEmitAuditEvents(t *testing.T) {
 	service := NewLicenseService(&fakeLicenseRepo{})
 	auditStore := &fakeAuditStore{}
 	service.SetOnAuditEvent(audit.NewAuditService(auditStore, IsEnterprise).Record)
-	ctx := middleware.WithPrincipal(context.Background(),
+	ctx := services.WithPrincipal(context.Background(),
 		&services.DashboardPrincipal{UserId: "admin-1", Email: "admin@example.com"})
 
 	expiry := time.Now().Add(365 * 24 * time.Hour).UTC()

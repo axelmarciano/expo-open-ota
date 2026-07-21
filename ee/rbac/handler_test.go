@@ -7,7 +7,6 @@ package rbac
 import (
 	"context"
 	"encoding/json"
-	"expo-open-ota/internal/middleware"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
 	"net/http"
@@ -36,7 +35,7 @@ func newHandlerRig(handler *RBACHandler) func(t *testing.T, method, path, body s
 		t.Helper()
 		ctx := context.Background()
 		if principal != nil {
-			ctx = middleware.WithPrincipal(ctx, principal)
+			ctx = services.WithPrincipal(ctx, principal)
 		}
 		req := httptest.NewRequestWithContext(ctx, method, path, strings.NewReader(body))
 		recorder := httptest.NewRecorder()

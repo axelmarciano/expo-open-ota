@@ -24,11 +24,11 @@ func runAuthMiddleware(t *testing.T, configure func(r *http.Request)) *httptest.
 	router.HandleFunc("/settings", func(w http.ResponseWriter, r *http.Request) {
 		// Surface the principal so tests can assert the middleware propagated
 		// it to the handler, not just that authentication passed.
-		if principal := PrincipalFromContext(r.Context()); principal != nil {
+		if principal := services.PrincipalFromContext(r.Context()); principal != nil {
 			w.Header().Set("X-Principal-Email", principal.Email)
 			w.Header().Set("X-Principal-Admin", strconv.FormatBool(principal.IsAdmin))
 		}
-		w.Header().Set("X-Cli-App", CliAuthAppFromContext(r.Context()))
+		w.Header().Set("X-Cli-App", services.CliAuthAppFromContext(r.Context()))
 		w.WriteHeader(http.StatusOK)
 	})
 	r := httptest.NewRequest("GET", "/settings", nil)
@@ -119,8 +119,8 @@ func TestAuthMiddlewareCliBranchStampsMarker(t *testing.T) {
 	appRouter := router.PathPrefix("/{APP_ID}").Subrouter()
 	appRouter.Use(NewAuthMiddleware(services.NewDashboardAuthService(nil), services.NewCliAuthService(fakeCliAuthRepo{}, nil)))
 	appRouter.HandleFunc("/branches", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Cli-App", CliAuthAppFromContext(r.Context()))
-		if PrincipalFromContext(r.Context()) != nil {
+		w.Header().Set("X-Cli-App", services.CliAuthAppFromContext(r.Context()))
+		if services.PrincipalFromContext(r.Context()) != nil {
 			t.Error("a CLI request must not carry a dashboard principal")
 		}
 		w.WriteHeader(http.StatusOK)

@@ -7,7 +7,6 @@ package sso
 import (
 	"context"
 	"expo-open-ota/internal/auditlog"
-	"expo-open-ota/internal/middleware"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
 	"testing"
@@ -111,7 +110,7 @@ func TestSSOConfigChangesEmitAuditEvents(t *testing.T) {
 	service, _ := newTestService(t, newFakeSSORepo(users, nil), users)
 	recorder := &fakeAuditRecorder{}
 	service.SetOnAuditEvent(recorder.Record)
-	ctx := middleware.WithPrincipal(context.Background(),
+	ctx := services.WithPrincipal(context.Background(),
 		&services.DashboardPrincipal{UserId: "admin-1", Email: "admin@example.com"})
 
 	// Disabled configuration: saving skips OIDC discovery, no IdP needed.

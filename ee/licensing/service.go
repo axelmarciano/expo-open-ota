@@ -8,7 +8,7 @@ import (
 	"context"
 	"errors"
 	"expo-open-ota/internal/auditlog"
-	"expo-open-ota/internal/middleware"
+	"expo-open-ota/internal/services"
 	"log"
 	"time"
 )
@@ -74,7 +74,7 @@ func (s *LicenseService) recordLicenseEvent(ctx context.Context, action auditlog
 		return
 	}
 	actorID, actorDisplay := "", ""
-	if principal := middleware.PrincipalFromContext(ctx); principal != nil {
+	if principal := services.PrincipalFromContext(ctx); principal != nil {
 		actorID, actorDisplay = principal.UserId, principal.Email
 		if actorDisplay == "" {
 			actorDisplay = principal.UserId

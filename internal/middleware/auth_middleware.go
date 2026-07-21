@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"context"
 	"errors"
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/helpers"
@@ -12,38 +11,9 @@ import (
 	"github.com/gorilla/mux"
 )
 
-type principalContextKey struct{}
-
-// PrincipalFromContext returns the dashboard principal stored by
-// NewAuthMiddleware, or nil when the request was authenticated another way
-// (CLI credential) or not at all.
-func PrincipalFromContext(ctx context.Context) *services.DashboardPrincipal {
-	principal, _ := ctx.Value(principalContextKey{}).(*services.DashboardPrincipal)
-	return principal
-}
-
-// WithPrincipal stores a dashboard principal on the context.
-func WithPrincipal(ctx context.Context, principal *services.DashboardPrincipal) context.Context {
-	return context.WithValue(ctx, principalContextKey{}, principal)
-}
-
-type cliAuthContextKey struct{}
-
-// WithCliAuth marks the request as authenticated by an app-scoped CLI
-// credential. The marker exists so downstream gates can assert "validated CLI
-// request" as a fact instead of inferring it from the absence of a dashboard
-// principal, which would silently fail open on a route someone mounts without
-// the auth middleware.
-func WithCliAuth(ctx context.Context, appId string) context.Context {
-	return context.WithValue(ctx, cliAuthContextKey{}, appId)
-}
-
-// CliAuthAppFromContext returns the app the CLI credential was validated for,
-// or "" when the request did not authenticate through the CLI path.
-func CliAuthAppFromContext(ctx context.Context) string {
-	appId, _ := ctx.Value(cliAuthContextKey{}).(string)
-	return appId
-}
+// The principal and CLI-credential context helpers live in services
+// (request_context.go), next to the types and producers they belong to; this
+// package only stamps and reads them through the services accessors.
 
 // NewAuthMiddleware guards a route with one of two unrelated credentials,
 // picked by the Use-Cli-Auth header:
@@ -82,7 +52,7 @@ func NewAuthMiddleware(dashboardAuthService *services.DashboardAuthService, cliA
 					return
 				}
 
-				next.ServeHTTP(w, r.WithContext(WithCliAuth(r.Context(), appId)))
+				next.ServeHTTP(w, r.WithContext(services.WithCliAuth(r.Context(), appId)))
 				return
 			}
 			bearerToken, err := helpers.GetBearerToken(r)
@@ -100,7 +70,7 @@ func NewAuthMiddleware(dashboardAuthService *services.DashboardAuthService, cliA
 				http.Error(w, "Invalid token", http.StatusUnauthorized)
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), principal)))
+			next.ServeHTTP(w, r.WithContext(services.WithPrincipal(r.Context(), principal)))
 		})
 	}
 }
@@ -117,7 +87,7 @@ func NewAuthMiddleware(dashboardAuthService *services.DashboardAuthService, cliA
 func NewAdminMiddleware(userRepo services.UserRepository) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			principal := PrincipalFromContext(r.Context())
+			principal := services.PrincipalFromContext(r.Context())
 			if principal == nil {
 				http.Error(w, "This action requires a dashboard session", http.StatusForbidden)
 				return

@@ -9,7 +9,6 @@ import (
 	"errors"
 	"expo-open-ota/ee/licensing"
 	"expo-open-ota/internal/auditlog"
-	"expo-open-ota/internal/middleware"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
 	"fmt"
@@ -166,7 +165,7 @@ func (s *RBACService) recordManagement(ctx context.Context, action auditlog.Acti
 		return
 	}
 	actorID, actorDisplay := "", ""
-	if principal := middleware.PrincipalFromContext(ctx); principal != nil {
+	if principal := services.PrincipalFromContext(ctx); principal != nil {
 		actorID, actorDisplay = principal.UserId, principal.Email
 		if actorDisplay == "" {
 			actorDisplay = principal.UserId

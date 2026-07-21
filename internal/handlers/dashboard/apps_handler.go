@@ -8,7 +8,6 @@ import (
 	cache2 "expo-open-ota/internal/cache"
 	"expo-open-ota/internal/dashboard"
 	"expo-open-ota/internal/handlers"
-	"expo-open-ota/internal/middleware"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
 	"expo-open-ota/internal/validation"
@@ -47,7 +46,7 @@ func (h *AppHandler) filterVisibleApps(r *http.Request, apps []config.AppDescrip
 	if h.visibleApps == nil {
 		return apps, nil
 	}
-	restricted, visible, err := h.visibleApps(r.Context(), middleware.PrincipalFromContext(r.Context()))
+	restricted, visible, err := h.visibleApps(r.Context(), services.PrincipalFromContext(r.Context()))
 	if err != nil {
 		return nil, err
 	}

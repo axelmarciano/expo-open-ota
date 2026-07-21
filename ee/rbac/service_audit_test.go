@@ -7,7 +7,6 @@ package rbac
 import (
 	"context"
 	"expo-open-ota/internal/auditlog"
-	"expo-open-ota/internal/middleware"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
 	"testing"
@@ -18,7 +17,7 @@ import (
 
 // adminCtx carries the admin principal the way the admin-gated routes do.
 func adminCtx() context.Context {
-	return middleware.WithPrincipal(context.Background(),
+	return services.WithPrincipal(context.Background(),
 		&services.DashboardPrincipal{UserId: "admin-1", Email: "admin@example.com", IsAdmin: true})
 }
 

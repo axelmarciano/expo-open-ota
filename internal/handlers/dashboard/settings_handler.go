@@ -7,7 +7,6 @@ import (
 	"expo-open-ota/internal/cdn"
 	"expo-open-ota/internal/handlers"
 	"expo-open-ota/internal/helpers"
-	"expo-open-ota/internal/middleware"
 	"expo-open-ota/internal/providers/expo"
 	"expo-open-ota/internal/services"
 	"net/http"
@@ -107,7 +106,7 @@ func (h *SettingsHandler) GetSettingsHandler(w http.ResponseWriter, r *http.Requ
 	// Filter after the stateless expo lookup above: that one needs any app id
 	// and only runs without a control plane, where nothing is ever filtered.
 	if h.visibleApps != nil {
-		restricted, visible, err := h.visibleApps(r.Context(), middleware.PrincipalFromContext(r.Context()))
+		restricted, visible, err := h.visibleApps(r.Context(), services.PrincipalFromContext(r.Context()))
 		if err != nil {
 			handlers.RenderError(w, http.StatusInternalServerError, "An internal error occurred while fetching app settings")
 			return
