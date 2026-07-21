@@ -59,7 +59,9 @@ type AuditRepository interface {
 	Count(ctx context.Context, filters ListFilters) (int64, error)
 }
 
-var ErrRequiresControlPlane = errors.New("the audit log lives in the database: this deployment runs in stateless mode, which is community edition only")
+var (
+	ErrRequiresControlPlane = errors.New("the audit log lives in the database: this deployment runs in stateless mode, which is community edition only")
+)
 
 // AuditService records and serves the enterprise audit trail. Recording is
 // hard-gated on Enabled(): without a control plane and a currently valid

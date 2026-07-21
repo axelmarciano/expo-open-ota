@@ -160,9 +160,10 @@ func NewRouter(container *AppContainer) *mux.Router {
 	authSubrouter.Handle("/users/{USER_ID}", adminOnly(http.HandlerFunc(container.UsersHandler.UpdateUserHandler))).Methods(http.MethodPatch)
 	authSubrouter.Handle("/users/{USER_ID}", adminOnly(http.HandlerFunc(container.UsersHandler.DeleteUserHandler))).Methods(http.MethodDelete)
 
-	authSubrouter.Handle("/audit_logs", adminOnly(http.HandlerFunc(container.AuditHandler.ListAuditLogsHandler))).Methods(http.MethodGet)
-
-	// Audit logs router (control-plane only, admin only). The audit log is append-only by design, so the only mutation is the retention purge (added with the purge job). Reads are paginated and filterable.
+	// Audit log (control-plane only, admin only). The log is append-only by
+	// design, so the only mutation is the retention purge (added with the
+	// purge job); reads are paginated and filterable.
+	authSubrouter.Handle("/audit/events", adminOnly(http.HandlerFunc(container.AuditHandler.ListAuditLogsHandler))).Methods(http.MethodGet)
 
 	// Enterprise user roles & per-app grants (control-plane only). Managing
 	// who can do what is an administration surface, so every route is
