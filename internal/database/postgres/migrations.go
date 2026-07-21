@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	_ "expo-open-ota/internal/database/postgres/migrations"
@@ -12,6 +13,9 @@ import (
 
 //go:embed migrations/*
 var embedMigrations embed.FS
+
+// Arbitrary app-wide id for the Postgres advisory lock that serializes migrators.
+const migrationAdvisoryLockID = 823672941
 
 func RunDBMigrations(dbURL string) {
 	db, err := sql.Open("pgx", dbURL)
@@ -27,6 +31,23 @@ func RunDBMigrations(dbURL string) {
 	}
 
 	log.Println("🔧 [DATABASE] Checking and running PostgreSQL schema migrations...")
+
+	// Several migrators can run at once: parallel test packages sharing one
+	// TEST_DATABASE_URL, or multiple server replicas booting simultaneously.
+	// Without a lock they race inside goose.Up (duplicate CREATE TABLE hits
+	// pg_type_typname_nsp_index) and the loser dies on Fatalf. An advisory
+	// lock serializes them: the first applies, the rest wait then no-op.
+	// Advisory locks are session-scoped, so hold a dedicated connection.
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		log.Fatalf("❌ [DATABASE] Failed to acquire connection for migration lock: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", migrationAdvisoryLockID); err != nil {
+		log.Fatalf("❌ [DATABASE] Failed to acquire migration advisory lock: %v", err)
+	}
+	defer conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", migrationAdvisoryLockID)
 
 	// WithAllowMissing applies migrations whose version is lower than the one already
 	// recorded in the database. Parallel PRs get merged out of timestamp order, so a
