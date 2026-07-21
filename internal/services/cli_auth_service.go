@@ -49,6 +49,11 @@ type CliAccessPolicy interface {
 type CliAuthService struct {
 	authRepo CliAuthRepository
 	policy   CliAccessPolicy
+	// auditActive reports whether audit events are being collected right now
+	// (the enterprise wiring injects auditService.Enabled). It only gates the
+	// key-name lookup that enriches the audit actor display: nil or false
+	// means no lookup, never any security behavior change.
+	auditActive func() bool
 }
 
 func NewCliAuthService(authRepo CliAuthRepository, policy CliAccessPolicy) *CliAuthService {
@@ -56,6 +61,11 @@ func NewCliAuthService(authRepo CliAuthRepository, policy CliAccessPolicy) *CliA
 		authRepo: authRepo,
 		policy:   policy,
 	}
+}
+
+// SetAuditActive plugs the live "audit is collecting" signal. Nil-safe.
+func (s *CliAuthService) SetAuditActive(active func() bool) {
+	s.auditActive = active
 }
 
 // ValidateCliCredential authenticates the credential, then runs the access
@@ -69,13 +79,17 @@ func (s *CliAuthService) ValidateCliCredential(ctx context.Context, appId string
 	credential := CliCredential{AppID: appId}
 	if apiKeyID != 0 {
 		credential.KeyID = strconv.FormatInt(apiKeyID, 10)
-		// Best-effort: the name only serves the audit trail's actor display,
-		// an unreadable key list must not fail a valid credential.
-		if rows, metadataErr := s.authRepo.GetApiKeysMetadataByAppID(ctx, appId); metadataErr == nil {
-			for _, row := range rows {
-				if row.ID == apiKeyID {
-					credential.KeyName = row.Name
-					break
+		// The name only serves the audit trail's actor display: skipped
+		// entirely while nothing is collected (community edition never pays
+		// the lookup), and best-effort when it runs, an unreadable key list
+		// must not fail a valid credential.
+		if s.auditActive != nil && s.auditActive() {
+			if rows, metadataErr := s.authRepo.GetApiKeysMetadataByAppID(ctx, appId); metadataErr == nil {
+				for _, row := range rows {
+					if row.ID == apiKeyID {
+						credential.KeyName = row.Name
+						break
+					}
 				}
 			}
 		}

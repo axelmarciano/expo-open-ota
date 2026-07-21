@@ -147,7 +147,7 @@ func TestChannelEventsEmitAuditEvents(t *testing.T) {
 	assert.Equal(t, auditlog.ActionChannelCreated, created.Action)
 	assert.Equal(t, "production", created.TargetID)
 	assert.Equal(t, "app-1", created.AppID)
-	assert.Equal(t, map[string]any{"channel_id": int64(11), "branch": "main"}, created.Metadata)
+	assert.Equal(t, map[string]any{"channel_id": "11", "branch": "main"}, created.Metadata)
 
 	require.NoError(t, channelService.DeleteChannel(ctx, "production", "app-1"))
 	require.Len(t, recorder.events, 2)
@@ -165,7 +165,7 @@ func TestBranchEventsEmitAuditEvents(t *testing.T) {
 	require.Len(t, recorder.events, 1)
 	assert.Equal(t, auditlog.ActionBranchCreated, recorder.events[0].Action)
 	assert.Equal(t, "main", recorder.events[0].TargetID)
-	assert.Equal(t, map[string]any{"branch_id": int64(7)}, recorder.events[0].Metadata)
+	assert.Equal(t, map[string]any{"branch_id": "7"}, recorder.events[0].Metadata)
 
 	require.NoError(t, branchService.DeleteBranch(ctx, "main", "app-1"))
 	require.Len(t, recorder.events, 2)

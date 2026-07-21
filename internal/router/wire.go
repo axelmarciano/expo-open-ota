@@ -161,6 +161,8 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// The restriction service doubles as the CLI access policy: every CLI
 	// request runs through its enforcement after authenticating.
 	cliAuthService := services.NewCliAuthService(authRepo, apiKeyRestrictionService)
+	// Only gates the audit actor's key-name lookup: no collection, no lookup.
+	cliAuthService.SetAuditActive(auditService.Enabled)
 	userService := services.NewUserService(userRepo)
 	ssoService := sso.NewSSOService(ssoRepo, userRepo, dashboardAuthService)
 	// While SSO is active, members must sign in through it (admins keep the

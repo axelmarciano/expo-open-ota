@@ -7,6 +7,7 @@ import (
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/validation"
 	"fmt"
+	"strconv"
 )
 
 type ChannelService struct {
@@ -58,8 +59,10 @@ func (s *ChannelService) CreateChannel(ctx context.Context, appId string, branch
 		return 0, err
 	}
 	// Channels are addressed by name everywhere (routes, expo-channel-name):
-	// the name is the target id, the numeric id an annotation.
-	metadata := map[string]any{"channel_id": channelId}
+	// the name is the target id, the numeric id an annotation. Ids travel as
+	// strings in metadata: an int64 as a JSON number corrupts past 2^53 in
+	// the dashboard's JavaScript.
+	metadata := map[string]any{"channel_id": strconv.FormatInt(channelId, 10)}
 	if branchName != nil {
 		metadata["branch"] = *branchName
 	}

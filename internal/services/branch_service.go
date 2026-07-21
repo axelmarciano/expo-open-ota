@@ -71,7 +71,9 @@ func (s *BranchService) CreateBranch(ctx context.Context, appId string, branchNa
 		TargetID:      branchName,
 		TargetDisplay: branchName,
 		AppID:         appId,
-		Metadata:      map[string]any{"branch_id": branchId},
+		// Ids travel as strings in metadata: an int64 as a JSON number
+		// corrupts past 2^53 in the dashboard's JavaScript.
+		Metadata: map[string]any{"branch_id": strconv.FormatInt(branchId, 10)},
 	})
 	return branchId, nil
 }
