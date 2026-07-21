@@ -52,6 +52,7 @@ const (
 	ActionUserUpdated        Action = "user.updated"
 	ActionUserDeleted        Action = "user.deleted"
 	ActionUserSSOProvisioned Action = "user.sso_provisioned"
+	ActionUserSSOLinked      Action = "user.sso_linked"
 	ActionUserApproved       Action = "user.approved"
 	ActionUserAdminGranted   Action = "user.admin_granted"
 	ActionUserAdminRevoked   Action = "user.admin_revoked"

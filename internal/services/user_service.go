@@ -72,6 +72,35 @@ func (s *UserService) SetOnAuditEvent(record auditlog.RecordFunc) {
 	s.onAuditEvent = record
 }
 
+// userDisplay resolves an account's email for the audit trail, best-effort:
+// an unresolvable id still records, displayed as the id itself.
+func (s *UserService) userDisplay(ctx context.Context, userId string) string {
+	if user, err := s.userRepo.GetUserByID(ctx, userId); err == nil {
+		return user.Email
+	}
+	return userId
+}
+
+// recordUserEvent reports one account mutation. The actor is the admin id the
+// handlers already pass explicitly, never the request context: this package
+// cannot read the principal without an import cycle with the middleware.
+func (s *UserService) recordUserEvent(ctx context.Context, actorUserId string, action auditlog.Action, target store.User, metadata map[string]any) {
+	if s.onAuditEvent == nil {
+		return
+	}
+	s.onAuditEvent(ctx, auditlog.Event{
+		ActorType:     auditlog.ActorUser,
+		ActorID:       actorUserId,
+		ActorDisplay:  s.userDisplay(ctx, actorUserId),
+		Action:        action,
+		TargetType:    "user",
+		TargetID:      target.Id,
+		TargetDisplay: target.Email,
+		Outcome:       auditlog.OutcomeSuccess,
+		Metadata:      metadata,
+	})
+}
+
 // NewUserService accepts a nil repository (stateless mode); every method then
 // answers ErrUsersRequireControlPlane.
 func NewUserService(userRepo UserRepository) *UserService {
@@ -106,7 +135,7 @@ func (s *UserService) GetMe(ctx context.Context, userId string, email string) (s
 	return s.userRepo.GetUserByID(ctx, userId)
 }
 
-func (s *UserService) CreateUser(ctx context.Context, email string, password string, isAdmin bool) (store.User, error) {
+func (s *UserService) CreateUser(ctx context.Context, actorUserId string, email string, password string, isAdmin bool) (store.User, error) {
 	if err := s.requireControlPlane(); err != nil {
 		return store.User{}, err
 	}
@@ -127,7 +156,7 @@ func (s *UserService) CreateUser(ctx context.Context, email string, password str
 	if err != nil {
 		return store.User{}, err
 	}
-	return s.userRepo.InsertUser(ctx, store.InsertUserParameters{
+	user, err := s.userRepo.InsertUser(ctx, store.InsertUserParameters{
 		ID:           uuid.New().String(),
 		Email:        normalizedEmail,
 		PasswordHash: passwordHash,
@@ -136,6 +165,11 @@ func (s *UserService) CreateUser(ctx context.Context, email string, password str
 		// validate afterwards.
 		Enabled: true,
 	})
+	if err != nil {
+		return store.User{}, err
+	}
+	s.recordUserEvent(ctx, actorUserId, auditlog.ActionUserCreated, user, map[string]any{"is_admin": isAdmin})
+	return user, nil
 }
 
 func (s *UserService) DeleteUser(ctx context.Context, actorUserId string, targetUserId string) error {
@@ -145,12 +179,19 @@ func (s *UserService) DeleteUser(ctx context.Context, actorUserId string, target
 	if actorUserId == targetUserId {
 		return ErrCannotDeleteOwnAccount
 	}
+	// Read before the delete: afterwards there is no row left to name in the
+	// audit entry. Best-effort, like the entry itself.
+	target, targetErr := s.userRepo.GetUserByID(ctx, targetUserId)
 	if err := s.userRepo.DeleteUserByID(ctx, targetUserId); err != nil {
 		if errors.Is(err, store.ErrWouldLeaveNoAdmin) {
 			return ErrLastAdmin
 		}
 		return err
 	}
+	if targetErr != nil {
+		target = store.User{Id: targetUserId, Email: targetUserId}
+	}
+	s.recordUserEvent(ctx, actorUserId, auditlog.ActionUserDeleted, target, nil)
 	return nil
 }
 
@@ -163,12 +204,30 @@ func (s *UserService) SetUserAdmin(ctx context.Context, actorUserId string, targ
 	if actorUserId == targetUserId {
 		return ErrCannotChangeOwnAdminFlag
 	}
+	target, targetErr := s.userRepo.GetUserByID(ctx, targetUserId)
 	if err := s.userRepo.UpdateUserIsAdmin(ctx, targetUserId, isAdmin); err != nil {
 		if errors.Is(err, store.ErrWouldLeaveNoAdmin) {
 			return ErrLastAdmin
 		}
 		return err
 	}
+	// An idempotent PATCH is not a privilege change: no event. Unknown
+	// previous state records anyway — losing an escalation would be worse
+	// than a duplicate. The compare races concurrent admins editing the same
+	// account: a stale pre-read can mislabel a real transition as a no-op.
+	// Accepted: the window is two humans on the same row within milliseconds,
+	// and closing it would need the store to return the previous value.
+	if targetErr == nil && target.IsAdmin == isAdmin {
+		return nil
+	}
+	if targetErr != nil {
+		target = store.User{Id: targetUserId, Email: targetUserId}
+	}
+	action := auditlog.ActionUserAdminGranted
+	if !isAdmin {
+		action = auditlog.ActionUserAdminRevoked
+	}
+	s.recordUserEvent(ctx, actorUserId, action, target, nil)
 	return nil
 }
 
@@ -185,11 +244,25 @@ func (s *UserService) SetUserEnabled(ctx context.Context, actorUserId string, ta
 	if actorUserId == targetUserId {
 		return ErrCannotDisableOwnAccount
 	}
+	target, targetErr := s.userRepo.GetUserByID(ctx, targetUserId)
 	if err := s.userRepo.UpdateUserEnabled(ctx, targetUserId, enabled); err != nil {
 		if errors.Is(err, store.ErrWouldLeaveNoAdmin) {
 			return ErrLastAdmin
 		}
 		return err
+	}
+	if targetErr == nil && target.Enabled == enabled {
+		return nil
+	}
+	if targetErr != nil {
+		target = store.User{Id: targetUserId, Email: targetUserId}
+	}
+	// Approving a pending account has its own name in the catalog; revoking
+	// access is a plain update carrying the new state.
+	if enabled {
+		s.recordUserEvent(ctx, actorUserId, auditlog.ActionUserApproved, target, nil)
+	} else {
+		s.recordUserEvent(ctx, actorUserId, auditlog.ActionUserUpdated, target, map[string]any{"enabled": false})
 	}
 	return nil
 }

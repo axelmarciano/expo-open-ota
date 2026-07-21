@@ -9,6 +9,7 @@ import (
 	"errors"
 	"expo-open-ota/ee/licensing"
 	"expo-open-ota/internal/auditlog"
+	"expo-open-ota/internal/middleware"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
 	"fmt"
@@ -157,6 +158,33 @@ func (s *RBACService) SetOnAuditEvent(record auditlog.RecordFunc) {
 	s.onAuditEvent = record
 }
 
+// recordManagement reports one roles/grants mutation. The actor is the admin
+// principal on the request context (these routes are admin-gated, so it is
+// present on every real request).
+func (s *RBACService) recordManagement(ctx context.Context, action auditlog.Action, targetType string, targetID string, targetDisplay string, metadata map[string]any) {
+	if s.onAuditEvent == nil {
+		return
+	}
+	actorID, actorDisplay := "", ""
+	if principal := middleware.PrincipalFromContext(ctx); principal != nil {
+		actorID, actorDisplay = principal.UserId, principal.Email
+		if actorDisplay == "" {
+			actorDisplay = principal.UserId
+		}
+	}
+	s.onAuditEvent(ctx, auditlog.Event{
+		ActorType:     auditlog.ActorUser,
+		ActorID:       actorID,
+		ActorDisplay:  actorDisplay,
+		Action:        action,
+		TargetType:    targetType,
+		TargetID:      targetID,
+		TargetDisplay: targetDisplay,
+		Outcome:       auditlog.OutcomeSuccess,
+		Metadata:      metadata,
+	})
+}
+
 // NewRBACService accepts a nil repository (stateless mode); every method then
 // answers ErrRequiresControlPlane and Enabled() stays false.
 func NewRBACService(repo RBACRepository, userLookup UserLookup) *RBACService {
@@ -218,11 +246,17 @@ func (s *RBACService) CreateRole(ctx context.Context, name string, permissions [
 	if err := validatePermissions(permissions); err != nil {
 		return Role{}, err
 	}
-	return s.repo.InsertRole(ctx, Role{
+	role, err := s.repo.InsertRole(ctx, Role{
 		ID:          uuid.NewString(),
 		Name:        name,
 		Permissions: permissions,
 	})
+	if err != nil {
+		return Role{}, err
+	}
+	s.recordManagement(ctx, auditlog.ActionRoleCreated, "role", role.ID, role.Name,
+		map[string]any{"permissions": fromPermissions(role.Permissions)})
+	return role, nil
 }
 
 func (s *RBACService) UpdateRole(ctx context.Context, id string, name string, permissions []Permission) error {
@@ -236,14 +270,29 @@ func (s *RBACService) UpdateRole(ctx context.Context, id string, name string, pe
 	if err := validatePermissions(permissions); err != nil {
 		return err
 	}
-	return s.repo.UpdateRole(ctx, id, name, permissions)
+	if err := s.repo.UpdateRole(ctx, id, name, permissions); err != nil {
+		return err
+	}
+	s.recordManagement(ctx, auditlog.ActionRoleUpdated, "role", id, name,
+		map[string]any{"permissions": fromPermissions(permissions)})
+	return nil
 }
 
 func (s *RBACService) DeleteRole(ctx context.Context, id string) error {
 	if err := s.requireWritable(); err != nil {
 		return err
 	}
-	return s.repo.DeleteRole(ctx, id)
+	// Read before the delete: afterwards there is no row left to name in the
+	// audit entry. Best-effort, like the entry itself.
+	roleName := id
+	if role, err := s.repo.GetRoleByID(ctx, id); err == nil {
+		roleName = role.Name
+	}
+	if err := s.repo.DeleteRole(ctx, id); err != nil {
+		return err
+	}
+	s.recordManagement(ctx, auditlog.ActionRoleDeleted, "role", id, roleName, nil)
+	return nil
 }
 
 func (s *RBACService) GetUserGrants(ctx context.Context, userID string) ([]AppGrant, error) {
@@ -277,7 +326,33 @@ func (s *RBACService) SetUserGrants(ctx context.Context, userID string, grants [
 			return err
 		}
 	}
-	return s.repo.ReplaceUserGrants(ctx, userID, grants)
+	if err := s.repo.ReplaceUserGrants(ctx, userID, grants); err != nil {
+		return err
+	}
+	// Guarded here, not just in recordManagement: the display lookup and the
+	// metadata build must cost nothing when nobody listens.
+	if s.onAuditEvent != nil {
+		targetDisplay := userID
+		if s.userLookup != nil {
+			if user, err := s.userLookup.GetUserByID(ctx, userID); err == nil {
+				targetDisplay = user.Email
+			}
+		}
+		grantsMetadata := make([]map[string]any, len(grants))
+		for i, grant := range grants {
+			grantMetadata := map[string]any{"app_id": grant.AppID}
+			if grant.RoleID != nil {
+				grantMetadata["role_id"] = *grant.RoleID
+			}
+			if len(grant.ExtraPermissions) > 0 {
+				grantMetadata["extra_permissions"] = fromPermissions(grant.ExtraPermissions)
+			}
+			grantsMetadata[i] = grantMetadata
+		}
+		s.recordManagement(ctx, auditlog.ActionUserGrantsUpdated, "user", userID, targetDisplay,
+			map[string]any{"grants": grantsMetadata})
+	}
+	return nil
 }
 
 // Authorize decides one dashboard mutation on one app. Admins are allowed

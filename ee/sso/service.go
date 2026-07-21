@@ -14,6 +14,7 @@ import (
 	"expo-open-ota/ee/licensing"
 	"expo-open-ota/internal/auditlog"
 	"expo-open-ota/internal/crypto"
+	"expo-open-ota/internal/middleware"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
 	"fmt"
@@ -347,6 +348,16 @@ func (s *SSOService) SaveConfig(ctx context.Context, input SaveConfigInput) (*Ad
 	if err := s.repo.SaveConfig(ctx, *cfg); err != nil {
 		return nil, err
 	}
+	// The security toggles are the point of this entry: "who weakened this
+	// control and when" must be answerable from the log alone.
+	s.recordConfigEvent(ctx, auditlog.ActionSSOConfigSaved, map[string]any{
+		"issuer":                 cfg.Issuer,
+		"enabled":                cfg.Enabled,
+		"manual_user_validation": cfg.ManualUserValidation,
+		"trust_unverified_email": cfg.TrustUnverifiedEmail,
+		"allowed_email_domains":  cfg.AllowedEmailDomains,
+		"allowed_groups":         cfg.AllowedGroups,
+	})
 	return s.adminView(cfg), nil
 }
 
@@ -357,7 +368,11 @@ func (s *SSOService) DeleteConfig(ctx context.Context) error {
 	if !s.licenseValid() {
 		return ErrSSORequiresValidLicense
 	}
-	return s.repo.DeleteConfig(ctx)
+	if err := s.repo.DeleteConfig(ctx); err != nil {
+		return err
+	}
+	s.recordConfigEvent(ctx, auditlog.ActionSSOConfigDeleted, nil)
+	return nil
 }
 
 // BeginLogin mints the per-login state (state, nonce, PKCE verifier), seals
@@ -484,6 +499,32 @@ func (s *SSOService) CompleteLogin(ctx context.Context, flowToken string, state 
 // sign-ins simply leave no audit events.
 func (s *SSOService) SetOnAuditEvent(record auditlog.RecordFunc) {
 	s.onAuditEvent = record
+}
+
+// recordConfigEvent reports an admin SSO-configuration action, actor = the
+// admin principal on the request context (both routes are admin-gated). The
+// metadata never carries the client secret.
+func (s *SSOService) recordConfigEvent(ctx context.Context, action auditlog.Action, metadata map[string]any) {
+	if s.onAuditEvent == nil {
+		return
+	}
+	actorID, actorDisplay := "", ""
+	if principal := middleware.PrincipalFromContext(ctx); principal != nil {
+		actorID, actorDisplay = principal.UserId, principal.Email
+		if actorDisplay == "" {
+			actorDisplay = principal.UserId
+		}
+	}
+	s.onAuditEvent(ctx, auditlog.Event{
+		ActorType:    auditlog.ActorUser,
+		ActorID:      actorID,
+		ActorDisplay: actorDisplay,
+		Action:       action,
+		TargetType:   "sso_config",
+		TargetID:     "sso_config",
+		Outcome:      auditlog.OutcomeSuccess,
+		Metadata:     metadata,
+	})
 }
 
 type flowState struct {
@@ -621,6 +662,22 @@ func (s *SSOService) lookupOrProvision(ctx context.Context, cfg *SSOConfig, subj
 		if err := s.repo.LinkIdentity(ctx, issuer, subject, existing.Id, email); err != nil {
 			return store.User{}, err
 		}
+		// A new sign-in door just opened on an existing account (possibly an
+		// admin's): the binding is its own security event, distinct from the
+		// sso_login that follows it.
+		if s.onAuditEvent != nil {
+			s.onAuditEvent(ctx, auditlog.Event{
+				ActorType:     auditlog.ActorSystem,
+				ActorID:       "sso",
+				ActorDisplay:  "SSO provisioning",
+				Action:        auditlog.ActionUserSSOLinked,
+				TargetType:    "user",
+				TargetID:      existing.Id,
+				TargetDisplay: existing.Email,
+				Outcome:       auditlog.OutcomeSuccess,
+				Metadata:      map[string]any{"issuer": issuer, "subject": subject},
+			})
+		}
 		return existing, nil
 	}
 	if notFoundErr := (*store.ErrResourceNotFound)(nil); !errors.As(err, &notFoundErr) {
@@ -631,13 +688,36 @@ func (s *SSOService) lookupOrProvision(ctx context.Context, cfg *SSOConfig, subj
 	// the account is SSO-only until SSO is turned off and an admin intervenes.
 	// Under manual validation the row lands disabled and the sign-in that
 	// created it is refused, so the admin has something concrete to approve.
-	return s.repo.ProvisionUser(ctx, store.InsertUserParameters{
+	user, err = s.repo.ProvisionUser(ctx, store.InsertUserParameters{
 		ID:           uuid.New().String(),
 		Email:        email,
 		PasswordHash: "",
 		IsAdmin:      false,
 		Enabled:      !cfg.ManualUserValidation,
 	}, issuer, subject)
+	if err != nil {
+		return store.User{}, err
+	}
+	// The IdP created this account, no dashboard principal exists yet: the
+	// actor is the system, the identity facts go to the metadata.
+	if s.onAuditEvent != nil {
+		s.onAuditEvent(ctx, auditlog.Event{
+			ActorType:     auditlog.ActorSystem,
+			ActorID:       "sso",
+			ActorDisplay:  "SSO provisioning",
+			Action:        auditlog.ActionUserSSOProvisioned,
+			TargetType:    "user",
+			TargetID:      user.Id,
+			TargetDisplay: user.Email,
+			Outcome:       auditlog.OutcomeSuccess,
+			Metadata: map[string]any{
+				"issuer":           issuer,
+				"subject":          subject,
+				"pending_approval": cfg.ManualUserValidation,
+			},
+		})
+	}
+	return user, nil
 }
 
 // emailFromClaims resolves the account email. Entra commonly omits the email

@@ -156,6 +156,11 @@ func (h *UsersHandler) GetUsersHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UsersHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
+	principal := middleware.PrincipalFromContext(r.Context())
+	if principal == nil {
+		handlers.RenderError(w, http.StatusUnauthorized, "This route requires a dashboard session")
+		return
+	}
 	var requestBody struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -169,7 +174,7 @@ func (h *UsersHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request)
 		handlers.RenderError(w, http.StatusBadRequest, "email and password are required")
 		return
 	}
-	user, err := h.userService.CreateUser(r.Context(), requestBody.Email, requestBody.Password, requestBody.IsAdmin)
+	user, err := h.userService.CreateUser(r.Context(), principal.UserId, requestBody.Email, requestBody.Password, requestBody.IsAdmin)
 	if err != nil {
 		renderUserServiceError(w, err)
 		return

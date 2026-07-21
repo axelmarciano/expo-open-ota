@@ -7,6 +7,8 @@ package licensing
 import (
 	"context"
 	"errors"
+	"expo-open-ota/internal/auditlog"
+	"expo-open-ota/internal/middleware"
 	"log"
 	"time"
 )
@@ -54,6 +56,40 @@ func (s LicenseStatus) Valid() bool {
 // (licensing.IsEnterprise) in sync with the database.
 type LicenseService struct {
 	repo LicenseRepository
+	// onAuditEvent is the audit emission seam; nil means license changes
+	// leave no events. Only the admin-called Activate/Remove emit — the boot
+	// load and the sync poll are state convergence, not actions.
+	onAuditEvent auditlog.RecordFunc
+}
+
+// SetOnAuditEvent plugs the audit emission seam. Nil-safe.
+func (s *LicenseService) SetOnAuditEvent(record auditlog.RecordFunc) {
+	s.onAuditEvent = record
+}
+
+// recordLicenseEvent reports an admin license action, actor = the admin
+// principal on the request context (both routes are admin-gated).
+func (s *LicenseService) recordLicenseEvent(ctx context.Context, action auditlog.Action, metadata map[string]any) {
+	if s.onAuditEvent == nil {
+		return
+	}
+	actorID, actorDisplay := "", ""
+	if principal := middleware.PrincipalFromContext(ctx); principal != nil {
+		actorID, actorDisplay = principal.UserId, principal.Email
+		if actorDisplay == "" {
+			actorDisplay = principal.UserId
+		}
+	}
+	s.onAuditEvent(ctx, auditlog.Event{
+		ActorType:    auditlog.ActorUser,
+		ActorID:      actorID,
+		ActorDisplay: actorDisplay,
+		Action:       action,
+		TargetType:   "license",
+		TargetID:     "license",
+		Outcome:      auditlog.OutcomeSuccess,
+		Metadata:     metadata,
+	})
 }
 
 // NewLicenseService accepts a nil repository (stateless mode); every method
@@ -113,6 +149,11 @@ func (s *LicenseService) Activate(ctx context.Context, key string) (LicenseStatu
 		// Unreachable in practice: the key just parsed and is not expired.
 		return LicenseStatus{}, err
 	}
+	metadata := map[string]any{"license_id": license.LicenseID}
+	if license.Expiry != nil {
+		metadata["expires_at"] = license.Expiry.Format(time.RFC3339)
+	}
+	s.recordLicenseEvent(ctx, auditlog.ActionLicenseActivated, metadata)
 	return LicenseStatus{HasKey: true, License: license, ActivatedAt: stored.UpdatedAt}, nil
 }
 
@@ -124,6 +165,9 @@ func (s *LicenseService) Remove(ctx context.Context) error {
 	if err := s.repo.DeleteLicense(ctx); err != nil {
 		return err
 	}
+	// Emitted before Deactivate: dropping to community closes the recorder's
+	// license gate, and the removal must be the last entry it lets through.
+	s.recordLicenseEvent(ctx, auditlog.ActionLicenseRemoved, nil)
 	Deactivate()
 	return nil
 }

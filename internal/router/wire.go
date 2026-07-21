@@ -171,6 +171,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	dashboardAuthService.SetOnAuditEvent(auditService.Record)
 	ssoService.SetOnAuditEvent(auditService.Record)
 	userService.SetOnAuditEvent(auditService.Record)
+	licenseService.SetOnAuditEvent(auditService.Record)
 	appService := services.NewAppService(appRepo)
 	branchService := services.NewBranchService(branchRepo, channelRepo, updateRepo, rolloutRepo, resolvedBucket)
 	channelService := services.NewChannelService(branchRepo, channelRepo)
