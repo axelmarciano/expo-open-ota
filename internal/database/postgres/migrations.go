@@ -1,10 +1,12 @@
 package postgres
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	_ "expo-open-ota/internal/database/postgres/migrations"
 	"log"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -12,6 +14,14 @@ import (
 
 //go:embed migrations/*
 var embedMigrations embed.FS
+
+// Arbitrary app-wide id for the Postgres advisory lock that serializes migrators.
+const migrationAdvisoryLockID = 823672941
+
+// Upper bound on waiting for the advisory lock: long enough for a slow leader
+// to finish its migrations, short enough that a stuck lock surfaces as a crash
+// instead of a silent hang.
+const migrationLockTimeout = 5 * time.Minute
 
 func RunDBMigrations(dbURL string) {
 	db, err := sql.Open("pgx", dbURL)
@@ -27,6 +37,26 @@ func RunDBMigrations(dbURL string) {
 	}
 
 	log.Println("🔧 [DATABASE] Checking and running PostgreSQL schema migrations...")
+
+	// Several migrators can run at once: parallel test packages sharing one
+	// TEST_DATABASE_URL, or multiple server replicas booting simultaneously.
+	// Without a lock they race inside goose.Up (duplicate CREATE TABLE hits
+	// pg_type_typname_nsp_index) and the loser dies on Fatalf. An advisory
+	// lock serializes them: the first applies, the rest wait then no-op.
+	// Advisory locks are session-scoped, so hold a dedicated connection.
+	lockCtx, cancel := context.WithTimeout(context.Background(), migrationLockTimeout)
+	defer cancel()
+	conn, err := db.Conn(lockCtx)
+	if err != nil {
+		log.Fatalf("❌ [DATABASE] Failed to acquire connection for migration lock: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(lockCtx, "SELECT pg_advisory_lock($1)", migrationAdvisoryLockID); err != nil {
+		log.Fatalf("❌ [DATABASE] Failed to acquire migration advisory lock: %v", err)
+	}
+	// Background, not lockCtx: the unlock runs after goose.Up, possibly past the
+	// timeout. A failed unlock is harmless anyway, conn.Close releases the lock.
+	defer conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", migrationAdvisoryLockID)
 
 	// WithAllowMissing applies migrations whose version is lower than the one already
 	// recorded in the database. Parallel PRs get merged out of timestamp order, so a
