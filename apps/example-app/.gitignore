@@ -38,3 +38,6 @@ yarn-error.*
 app-example
 android/
 ios/
+
+# Code signing private key (server-side secret, never commit it)
+private-key.pem

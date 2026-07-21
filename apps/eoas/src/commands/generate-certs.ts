@@ -91,5 +91,11 @@ export default class GenerateCerts extends Command {
       `Generated public and private keys output in ${keyOutputDir}. Please follow the documentation to securely store them and do not commit them to your repository.`
     );
     Log.succeed(`Generated code signing certificate output in ${certificateOutputDir}.`);
+    Log.warn(
+      '⚠️ private-key.pem is used by your OTA server to sign updates. Never commit it and do not keep it inside your app project: configure it on your server (or in a secret store), then remove it from this machine.'
+    );
+    Log.warn(
+      'Your team does not need this key for local development: run the dev server with DISABLE_CODE_SIGNING=1. See the "Local development" section of the documentation.'
+    );
   }
 }
