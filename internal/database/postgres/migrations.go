@@ -38,13 +38,14 @@ func RunDBMigrations(dbURL string) {
 	// pg_type_typname_nsp_index) and the loser dies on Fatalf. An advisory
 	// lock serializes them: the first applies, the rest wait then no-op.
 	// Advisory locks are session-scoped, so hold a dedicated connection.
-	ctx := context.Background()
-	conn, err := db.Conn(ctx)
+	lockCtx, cancel := context.WithTimeout(context.Background(), migrationLockTimeout)
+	defer cancel()
+	conn, err := db.Conn(lockCtx)
 	if err != nil {
 		log.Fatalf("❌ [DATABASE] Failed to acquire connection for migration lock: %v", err)
 	}
 	defer conn.Close()
-	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", migrationAdvisoryLockID); err != nil {
+	if _, err := conn.ExecContext(lockCtx, "SELECT pg_advisory_lock($1)", migrationAdvisoryLockID); err != nil {
 		log.Fatalf("❌ [DATABASE] Failed to acquire migration advisory lock: %v", err)
 	}
 	defer conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", migrationAdvisoryLockID)
