@@ -28,10 +28,12 @@ func TestUserLifecycleEmitsAuditEvents(t *testing.T) {
 	userService := NewUserService(repo)
 	userService.SetOnAuditEvent(recorder.Record)
 	admin := seededAdmin(t, repo)
-	ctx := context.Background()
+	// The actor rides the request context, exactly like on the admin routes.
+	ctx := WithPrincipal(context.Background(),
+		&DashboardPrincipal{UserId: admin.Id, Email: "admin@example.com"})
 
 	// Creation names the actor by email and carries the granted role level.
-	member, err := userService.CreateUser(ctx, admin.Id, "member@example.com", "Sup3rSecret!", false)
+	member, err := userService.CreateUser(ctx, "member@example.com", "Sup3rSecret!", false)
 	require.NoError(t, err)
 	require.Len(t, recorder.events, 1)
 	created := recorder.events[0]
@@ -104,7 +106,8 @@ func TestAuditSurvivesTargetLookupFailure(t *testing.T) {
 	require.NoError(t, err)
 	userService := NewUserService(&failingLookupRepo{fakeUserRepo: base, failID: target.Id})
 	userService.SetOnAuditEvent(recorder.Record)
-	ctx := context.Background()
+	ctx := WithPrincipal(context.Background(),
+		&DashboardPrincipal{UserId: admin.Id, Email: "admin@example.com"})
 
 	// The pre-read fails but the mutation succeeds: the escalation must
 	// still be recorded, displayed as the id since the email is unreadable.
@@ -129,7 +132,7 @@ func TestRefusedUserMutationsEmitNothing(t *testing.T) {
 	// Self-targeting refusals and failed mutations must not read as actions.
 	require.Error(t, userService.DeleteUser(context.Background(), admin.Id, admin.Id))
 	require.Error(t, userService.SetUserAdmin(context.Background(), admin.Id, admin.Id, false))
-	_, err := userService.CreateUser(context.Background(), admin.Id, "not-an-email", "Sup3rSecret!", false)
+	_, err := userService.CreateUser(context.Background(), "not-an-email", "Sup3rSecret!", false)
 	require.Error(t, err)
 	require.Empty(t, recorder.events)
 }

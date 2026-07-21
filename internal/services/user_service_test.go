@@ -135,9 +135,9 @@ func seedUserService(t *testing.T) (*UserService, *fakeUserRepo, store.User, sto
 	t.Helper()
 	repo := newFakeUserRepo()
 	service := NewUserService(repo)
-	admin, err := service.CreateUser(context.Background(), "test-actor", "admin@example.com", "Sup3rSecret!", true)
+	admin, err := service.CreateUser(context.Background(), "admin@example.com", "Sup3rSecret!", true)
 	require.NoError(t, err)
-	member, err := service.CreateUser(context.Background(), "test-actor", "member@example.com", "Sup3rSecret!", false)
+	member, err := service.CreateUser(context.Background(), "member@example.com", "Sup3rSecret!", false)
 	require.NoError(t, err)
 	return service, repo, admin, member
 }
@@ -145,23 +145,23 @@ func seedUserService(t *testing.T) (*UserService, *fakeUserRepo, store.User, sto
 func TestCreateUserValidations(t *testing.T) {
 	service := NewUserService(newFakeUserRepo())
 
-	_, err := service.CreateUser(context.Background(), "test-actor", "not-an-email", "Sup3rSecret!", false)
+	_, err := service.CreateUser(context.Background(), "not-an-email", "Sup3rSecret!", false)
 	assert.ErrorContains(t, err, "invalid email address")
 
 	// Mailbox forms parse, but would be stored verbatim and never match a
 	// login lookup — refused.
-	_, err = service.CreateUser(context.Background(), "test-actor", "Jane <jane@example.com>", "Sup3rSecret!", false)
+	_, err = service.CreateUser(context.Background(), "Jane <jane@example.com>", "Sup3rSecret!", false)
 	assert.ErrorContains(t, err, "invalid email address")
 
-	_, err = service.CreateUser(context.Background(), "test-actor", "user@example.com", "weak", false)
+	_, err = service.CreateUser(context.Background(), "user@example.com", "weak", false)
 	assert.ErrorContains(t, err, "password does not meet the policy")
 
-	created, err := service.CreateUser(context.Background(), "test-actor", "  User@Example.COM ", "Sup3rSecret!", false)
+	created, err := service.CreateUser(context.Background(), "  User@Example.COM ", "Sup3rSecret!", false)
 	require.NoError(t, err)
 	assert.Equal(t, "user@example.com", created.Email)
 
 	// Same address in another casing is the same account.
-	_, err = service.CreateUser(context.Background(), "test-actor", "USER@example.com", "Sup3rSecret!", false)
+	_, err = service.CreateUser(context.Background(), "USER@example.com", "Sup3rSecret!", false)
 	alreadyExistsErr := (*store.ErrResourceAlreadyExists)(nil)
 	assert.ErrorAs(t, err, &alreadyExistsErr)
 }
@@ -266,11 +266,11 @@ func TestCreateUserBlockedWhileSSOEnforced(t *testing.T) {
 	ssoActive := true
 	service.SetSSOEnforced(func(context.Context) bool { return ssoActive })
 
-	_, err := service.CreateUser(ctx, "test-actor", "user@example.com", "Sup3rSecret!", false)
+	_, err := service.CreateUser(ctx, "user@example.com", "Sup3rSecret!", false)
 	assert.ErrorIs(t, err, ErrUserCreationDisabledBySSO)
 
 	ssoActive = false
-	_, err = service.CreateUser(ctx, "test-actor", "user@example.com", "Sup3rSecret!", false)
+	_, err = service.CreateUser(ctx, "user@example.com", "Sup3rSecret!", false)
 	assert.NoError(t, err)
 }
 
@@ -280,7 +280,7 @@ func TestUserServiceRequiresControlPlane(t *testing.T) {
 
 	_, err := service.GetUsers(ctx)
 	assert.ErrorIs(t, err, ErrUsersRequireControlPlane)
-	_, err = service.CreateUser(ctx, "test-actor", "user@example.com", "Sup3rSecret!", false)
+	_, err = service.CreateUser(ctx, "user@example.com", "Sup3rSecret!", false)
 	assert.ErrorIs(t, err, ErrUsersRequireControlPlane)
 	assert.ErrorIs(t, service.DeleteUser(ctx, "a", "b"), ErrUsersRequireControlPlane)
 	assert.ErrorIs(t, service.SetUserAdmin(ctx, "a", "b", true), ErrUsersRequireControlPlane)
@@ -296,7 +296,7 @@ func TestDashboardAuthServiceWithUserRepo(t *testing.T) {
 	authService := NewDashboardAuthService(repo)
 	ctx := context.Background()
 
-	user, err := userService.CreateUser(ctx, "test-actor", "admin@example.com", "Sup3rSecret!", true)
+	user, err := userService.CreateUser(ctx, "admin@example.com", "Sup3rSecret!", true)
 	require.NoError(t, err)
 
 	_, err = authService.LoginWithEmailPassword(ctx, "admin@example.com", "wrong")
@@ -332,7 +332,7 @@ func TestDashboardAuthServiceWithUserRepo(t *testing.T) {
 
 	// A deleted user cannot refresh its way back in. The repo-level guard
 	// refuses to delete the last admin, so hand it a replacement first.
-	_, err = userService.CreateUser(ctx, "test-actor", "second-admin@example.com", "Sup3rSecret!", true)
+	_, err = userService.CreateUser(ctx, "second-admin@example.com", "Sup3rSecret!", true)
 	require.NoError(t, err)
 	require.NoError(t, repo.DeleteUserByID(ctx, user.Id))
 	_, err = authService.RefreshSession(ctx, session.RefreshToken)
@@ -340,7 +340,7 @@ func TestDashboardAuthServiceWithUserRepo(t *testing.T) {
 
 	// Even if the address is later reused by a new account, the old refresh
 	// token stays dead: it is bound to the deleted user's id, not the email.
-	_, err = userService.CreateUser(ctx, "test-actor", "admin@example.com", "Sup3rSecret!", true)
+	_, err = userService.CreateUser(ctx, "admin@example.com", "Sup3rSecret!", true)
 	require.NoError(t, err)
 	_, err = authService.RefreshSession(ctx, session.RefreshToken)
 	assert.Error(t, err)

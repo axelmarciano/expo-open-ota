@@ -75,9 +75,9 @@ func TestDisabledAccountCannotSignInOrRefresh(t *testing.T) {
 	authService := NewDashboardAuthService(repo)
 	ctx := context.Background()
 
-	admin, err := userService.CreateUser(ctx, "test-actor", "admin@example.com", "Sup3rSecret!", true)
+	admin, err := userService.CreateUser(ctx, "admin@example.com", "Sup3rSecret!", true)
 	require.NoError(t, err)
-	member, err := userService.CreateUser(ctx, "test-actor", "member@example.com", "Sup3rSecret!", false)
+	member, err := userService.CreateUser(ctx, "member@example.com", "Sup3rSecret!", false)
 	require.NoError(t, err)
 
 	// A live session, obtained while the account was still enabled.
@@ -113,9 +113,9 @@ func TestSSOEnforcementOnPasswordLogin(t *testing.T) {
 	authService := NewDashboardAuthService(repo)
 	ctx := context.Background()
 
-	_, err := userService.CreateUser(ctx, "test-actor", "admin@example.com", "Sup3rSecret!", true)
+	_, err := userService.CreateUser(ctx, "admin@example.com", "Sup3rSecret!", true)
 	require.NoError(t, err)
-	_, err = userService.CreateUser(ctx, "test-actor", "member@example.com", "Sup3rSecret!", false)
+	_, err = userService.CreateUser(ctx, "member@example.com", "Sup3rSecret!", false)
 	require.NoError(t, err)
 
 	memberSession, err := authService.LoginWithEmailPassword(ctx, "member@example.com", "Sup3rSecret!")

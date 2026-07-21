@@ -72,26 +72,25 @@ func (s *UserService) SetOnAuditEvent(record auditlog.RecordFunc) {
 	s.onAuditEvent = record
 }
 
-// userDisplay resolves an account's email for the audit trail, best-effort:
-// an unresolvable id still records, displayed as the id itself.
-func (s *UserService) userDisplay(ctx context.Context, userId string) string {
-	if user, err := s.userRepo.GetUserByID(ctx, userId); err == nil {
-		return user.Email
-	}
-	return userId
-}
-
-// recordUserEvent reports one account mutation. The actor is the admin id the
-// handlers already pass explicitly, never the request context: this package
-// cannot read the principal without an import cycle with the middleware.
-func (s *UserService) recordUserEvent(ctx context.Context, actorUserId string, action auditlog.Action, target store.User, metadata map[string]any) {
+// recordUserEvent reports one account mutation. The actor is the admin
+// principal on the request context (readable here since the identity helpers
+// moved to this package); the actorUserId parameters some methods still take
+// exist for their business rules, never for the audit trail.
+func (s *UserService) recordUserEvent(ctx context.Context, action auditlog.Action, target store.User, metadata map[string]any) {
 	if s.onAuditEvent == nil {
 		return
 	}
+	actorID, actorDisplay := "", ""
+	if principal := PrincipalFromContext(ctx); principal != nil {
+		actorID, actorDisplay = principal.UserId, principal.Email
+		if actorDisplay == "" {
+			actorDisplay = principal.UserId
+		}
+	}
 	s.onAuditEvent(ctx, auditlog.Event{
 		ActorType:     auditlog.ActorUser,
-		ActorID:       actorUserId,
-		ActorDisplay:  s.userDisplay(ctx, actorUserId),
+		ActorID:       actorID,
+		ActorDisplay:  actorDisplay,
 		Action:        action,
 		TargetType:    "user",
 		TargetID:      target.Id,
@@ -135,7 +134,7 @@ func (s *UserService) GetMe(ctx context.Context, userId string, email string) (s
 	return s.userRepo.GetUserByID(ctx, userId)
 }
 
-func (s *UserService) CreateUser(ctx context.Context, actorUserId string, email string, password string, isAdmin bool) (store.User, error) {
+func (s *UserService) CreateUser(ctx context.Context, email string, password string, isAdmin bool) (store.User, error) {
 	if err := s.requireControlPlane(); err != nil {
 		return store.User{}, err
 	}
@@ -168,7 +167,7 @@ func (s *UserService) CreateUser(ctx context.Context, actorUserId string, email 
 	if err != nil {
 		return store.User{}, err
 	}
-	s.recordUserEvent(ctx, actorUserId, auditlog.ActionUserCreated, user, map[string]any{"is_admin": isAdmin})
+	s.recordUserEvent(ctx, auditlog.ActionUserCreated, user, map[string]any{"is_admin": isAdmin})
 	return user, nil
 }
 
@@ -191,7 +190,7 @@ func (s *UserService) DeleteUser(ctx context.Context, actorUserId string, target
 	if targetErr != nil {
 		target = store.User{Id: targetUserId, Email: targetUserId}
 	}
-	s.recordUserEvent(ctx, actorUserId, auditlog.ActionUserDeleted, target, nil)
+	s.recordUserEvent(ctx, auditlog.ActionUserDeleted, target, nil)
 	return nil
 }
 
@@ -227,7 +226,7 @@ func (s *UserService) SetUserAdmin(ctx context.Context, actorUserId string, targ
 	if !isAdmin {
 		action = auditlog.ActionUserAdminRevoked
 	}
-	s.recordUserEvent(ctx, actorUserId, action, target, nil)
+	s.recordUserEvent(ctx, action, target, nil)
 	return nil
 }
 
@@ -260,9 +259,9 @@ func (s *UserService) SetUserEnabled(ctx context.Context, actorUserId string, ta
 	// Approving a pending account has its own name in the catalog; revoking
 	// access is a plain update carrying the new state.
 	if enabled {
-		s.recordUserEvent(ctx, actorUserId, auditlog.ActionUserApproved, target, nil)
+		s.recordUserEvent(ctx, auditlog.ActionUserApproved, target, nil)
 	} else {
-		s.recordUserEvent(ctx, actorUserId, auditlog.ActionUserUpdated, target, map[string]any{"enabled": false})
+		s.recordUserEvent(ctx, auditlog.ActionUserUpdated, target, map[string]any{"enabled": false})
 	}
 	return nil
 }
