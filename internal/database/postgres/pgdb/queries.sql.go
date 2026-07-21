@@ -2486,6 +2486,16 @@ func (q *Queries) MigrateLegacyUpdate(ctx context.Context, arg MigrateLegacyUpda
 	return err
 }
 
+const purgeAuditLogEventsBefore = `-- name: PurgeAuditLogEventsBefore :execresult
+DELETE FROM audit_log_events
+WHERE occurred_at < $1
+`
+
+// The retention purge, the audit table's single mutation besides inserts.
+func (q *Queries) PurgeAuditLogEventsBefore(ctx context.Context, occurredAt pgtype.Timestamptz) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, purgeAuditLogEventsBefore, occurredAt)
+}
+
 const repointChannelToRolloutBranch = `-- name: RepointChannelToRolloutBranch :execrows
 UPDATE channels
 SET branch_id = (

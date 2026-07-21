@@ -133,6 +133,12 @@ var DefaultEnvValues = map[string]string{
 	"AWS_REGION":             "eu-west-3",
 	"AWS_BASE_ENDPOINT":      "",
 
+	// Audit log retention (ee/audit): about 1.5 years, matching EAS and the
+	// 1-3 year industry norm. Purged rows are gone from Postgres; anything
+	// longer lived belongs to the operator's own pipeline (database backups,
+	// the audit stream once enabled).
+	"AUDIT_LOG_RETENTION_DAYS": "550",
+
 	// Database connection defaults
 	"DB_URL":                "",
 	"DB_MAX_CONNS":          "25",

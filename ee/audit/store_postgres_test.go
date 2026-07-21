@@ -30,7 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func setupAuditStore(t *testing.T) *PostgresAuditStore {
+func setupAuditStore(t *testing.T) (*PostgresAuditStore, *pgxpool.Pool) {
 	t.Helper()
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
@@ -50,7 +50,7 @@ func setupAuditStore(t *testing.T) *PostgresAuditStore {
 	pool, err := pgxpool.New(context.Background(), dbURL)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	return NewPostgresAuditStore(&database.Engine{Queries: pgdb.New(pool), DB: pool})
+	return NewPostgresAuditStore(&database.Engine{Queries: pgdb.New(pool), DB: pool}), pool
 }
 
 func insertTestEvent(t *testing.T, auditStore *PostgresAuditStore, event Event) Event {
@@ -61,7 +61,7 @@ func insertTestEvent(t *testing.T, auditStore *PostgresAuditStore, event Event) 
 }
 
 func TestAuditEventRoundtrip(t *testing.T) {
-	auditStore := setupAuditStore(t)
+	auditStore, _ := setupAuditStore(t)
 	actorID := uuid.NewString()
 	appID := uuid.NewString()
 
@@ -113,7 +113,7 @@ func TestAuditEventRoundtrip(t *testing.T) {
 }
 
 func TestAuditEventAccountLevelAndEmptyMetadata(t *testing.T) {
-	auditStore := setupAuditStore(t)
+	auditStore, _ := setupAuditStore(t)
 	actorID := uuid.NewString()
 
 	insertTestEvent(t, auditStore, Event{
@@ -137,7 +137,7 @@ func TestAuditEventAccountLevelAndEmptyMetadata(t *testing.T) {
 }
 
 func TestAuditEventFilters(t *testing.T) {
-	auditStore := setupAuditStore(t)
+	auditStore, _ := setupAuditStore(t)
 	actorID := uuid.NewString()
 	otherActorID := uuid.NewString()
 	appID := uuid.NewString()
@@ -186,7 +186,7 @@ func TestAuditEventFilters(t *testing.T) {
 }
 
 func TestAuditEventOutcomeFilter(t *testing.T) {
-	auditStore := setupAuditStore(t)
+	auditStore, _ := setupAuditStore(t)
 	actorID := uuid.NewString()
 
 	insertTestEvent(t, auditStore, Event{
@@ -211,8 +211,40 @@ func TestAuditEventOutcomeFilter(t *testing.T) {
 	require.Equal(t, auditlog.OutcomeFailure, events[0].Outcome)
 }
 
+func TestPurgeBeforeRemovesOnlyExpiredRows(t *testing.T) {
+	auditStore, pool := setupAuditStore(t)
+	actorID := uuid.NewString()
+	ctx := context.Background()
+
+	expired := insertTestEvent(t, auditStore, Event{
+		ActorType: auditlog.ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
+		Action: auditlog.ActionUserLogin, TargetType: "user", TargetID: actorID,
+	})
+	fresh := insertTestEvent(t, auditStore, Event{
+		ActorType: auditlog.ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
+		Action: auditlog.ActionUserLogin, TargetType: "user", TargetID: actorID,
+	})
+	// occurred_at is the database's clock, so the expired row is aged by hand.
+	_, err := pool.Exec(ctx,
+		"UPDATE audit_log_events SET occurred_at = now() - interval '600 days' WHERE id = $1",
+		expired.ID)
+	require.NoError(t, err)
+
+	purged, err := auditStore.PurgeBefore(ctx, time.Now().Add(-550*24*time.Hour))
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, purged, int64(1))
+
+	events, err := auditStore.List(ctx, ListParams{
+		ListFilters: ListFilters{ActorID: &actorID},
+		Limit:       10,
+	})
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, fresh.ID, events[0].ID)
+}
+
 func TestAuditEventKeysetPagination(t *testing.T) {
-	auditStore := setupAuditStore(t)
+	auditStore, _ := setupAuditStore(t)
 	actorID := uuid.NewString()
 
 	var insertedIDs []int64

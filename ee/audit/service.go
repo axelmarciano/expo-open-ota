@@ -50,13 +50,14 @@ const (
 	MaxPageSize     = 100
 )
 
-// AuditRepository persists and reads audit entries. Insert is the only write:
-// the log is append-only by construction (the retention purge, added with the
-// purge job, will be the single exception).
+// AuditRepository persists and reads audit entries. Insert is the only write
+// besides PurgeBefore: the log is append-only by construction, the retention
+// purge is its single sanctioned exception.
 type AuditRepository interface {
 	Insert(ctx context.Context, event Event) (Event, error)
 	List(ctx context.Context, params ListParams) ([]Event, error)
 	Count(ctx context.Context, filters ListFilters) (int64, error)
+	PurgeBefore(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
 var (
@@ -154,4 +155,49 @@ func (s *AuditService) Count(ctx context.Context, filters ListFilters) (int64, e
 		return 0, ErrRequiresControlPlane
 	}
 	return s.repo.Count(ctx, filters)
+}
+
+// PurgeOlderThan applies the retention window. Deliberately not license
+// gated: retention is a promise about collected data, and a lapsed license
+// must not make entries outlive it.
+func (s *AuditService) PurgeOlderThan(ctx context.Context, retention time.Duration) (int64, error) {
+	if s.repo == nil {
+		return 0, ErrRequiresControlPlane
+	}
+	return s.repo.PurgeBefore(ctx, time.Now().Add(-retention))
+}
+
+// StartRetentionPurge purges once at boot then daily (see licensing.StartSync
+// for the pattern). Multiple replicas racing the same DELETE are harmless:
+// rows are only deleted once.
+func (s *AuditService) StartRetentionPurge(ctx context.Context, retention time.Duration) {
+	if s.repo == nil {
+		return
+	}
+	go func() {
+		s.runPurge(ctx, retention)
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.runPurge(ctx, retention)
+			}
+		}
+	}()
+}
+
+func (s *AuditService) runPurge(ctx context.Context, retention time.Duration) {
+	purgeCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	purged, err := s.PurgeOlderThan(purgeCtx, retention)
+	if err != nil {
+		log.Printf("audit: retention purge failed: %v", err)
+		return
+	}
+	if purged > 0 {
+		log.Printf("audit: retention purge removed %d events older than %s", purged, retention)
+	}
 }

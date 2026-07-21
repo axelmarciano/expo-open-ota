@@ -25,6 +25,8 @@ type fakeAuditRepo struct {
 	listErr        error
 	listResult     []Event
 	listParams     ListParams
+	purgeCutoff    time.Time
+	purgedCount    int64
 }
 
 func (f *fakeAuditRepo) Insert(ctx context.Context, event Event) (Event, error) {
@@ -60,6 +62,11 @@ func (f *fakeAuditRepo) List(ctx context.Context, params ListParams) ([]Event, e
 
 func (f *fakeAuditRepo) Count(ctx context.Context, filters ListFilters) (int64, error) {
 	return int64(len(f.listResult)), nil
+}
+
+func (f *fakeAuditRepo) PurgeBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	f.purgeCutoff = cutoff
+	return f.purgedCount, nil
 }
 
 func enabledService(repo AuditRepository) *AuditService {
@@ -168,6 +175,26 @@ func TestListPagination(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, page, 3)
 	require.Nil(t, nextCursor)
+}
+
+func TestPurgeOlderThanUsesTheRetentionCutoff(t *testing.T) {
+	repo := &fakeAuditRepo{purgedCount: 12}
+	// Deliberately unlicensed: retention applies to collected data whatever
+	// the licence state.
+	service := NewAuditService(repo, func() bool { return false })
+
+	purged, err := service.PurgeOlderThan(context.Background(), 550*24*time.Hour)
+	require.NoError(t, err)
+	require.EqualValues(t, 12, purged)
+	require.WithinDuration(t, time.Now().Add(-550*24*time.Hour), repo.purgeCutoff, time.Minute)
+}
+
+func TestPurgeRequiresControlPlane(t *testing.T) {
+	service := NewAuditService(nil, func() bool { return true })
+	_, err := service.PurgeOlderThan(context.Background(), time.Hour)
+	require.ErrorIs(t, err, ErrRequiresControlPlane)
+	// And the scheduler declines to start rather than panic.
+	service.StartRetentionPurge(context.Background(), time.Hour)
 }
 
 func TestListReadsStayOpenWithoutLicense(t *testing.T) {

@@ -32,6 +32,9 @@ func (f *fakeAuditStore) List(_ context.Context, _ audit.ListParams) ([]auditlog
 func (f *fakeAuditStore) Count(_ context.Context, _ audit.ListFilters) (int64, error) {
 	return 0, nil
 }
+func (f *fakeAuditStore) PurgeBefore(_ context.Context, _ time.Time) (int64, error) {
+	return 0, nil
+}
 
 func TestActivateAndRemoveEmitAuditEvents(t *testing.T) {
 	priv := setupTestKeypair(t)

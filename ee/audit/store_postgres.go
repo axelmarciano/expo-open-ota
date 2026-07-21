@@ -122,6 +122,14 @@ func (s *PostgresAuditStore) List(ctx context.Context, params ListParams) ([]Eve
 	return events, nil
 }
 
+func (s *PostgresAuditStore) PurgeBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	commandTag, err := s.engine.Queries.PurgeAuditLogEventsBefore(ctx, pgtype.Timestamptz{Time: cutoff, Valid: true})
+	if err != nil {
+		return 0, fmt.Errorf("failed to purge audit events from database: %w", err)
+	}
+	return commandTag.RowsAffected(), nil
+}
+
 func (s *PostgresAuditStore) Count(ctx context.Context, filters ListFilters) (int64, error) {
 	count, err := s.engine.Queries.CountAuditLogEvents(ctx, pgdb.CountAuditLogEventsParams{
 		ActorID:      filters.ActorID,

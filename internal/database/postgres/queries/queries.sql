@@ -926,6 +926,11 @@ WHERE (sqlc.narg('actor_id')::TEXT IS NULL OR actor_id = sqlc.narg('actor_id'))
 ORDER BY id DESC
 LIMIT sqlc.arg('row_limit');
 
+-- name: PurgeAuditLogEventsBefore :execresult
+-- The retention purge, the audit table's single mutation besides inserts.
+DELETE FROM audit_log_events
+WHERE occurred_at < $1;
+
 -- name: CountAuditLogEvents :one
 -- Same filters as ListAuditLogEvents minus the cursor: the total the viewer
 -- shows next to the paginated list.
