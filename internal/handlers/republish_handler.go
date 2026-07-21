@@ -76,10 +76,12 @@ func (h *RepublishHandler) HandleRepublish(w http.ResponseWriter, r *http.Reques
 		}
 		var rErr *services.RepublishError
 		if errors.As(err, &rErr) {
+			log.Printf("[RequestID: %s] Republish error: %v", requestID, rErr)
 			http.Error(w, rErr.Message, rErr.Status)
 			return
 		}
-		http.Error(w, "Error republishing update", http.StatusInternalServerError)
+		log.Printf("[RequestID: %s] Unexpected error during republish: %v", requestID, err)
+		http.Error(w, "An unexpected error occurred during republish", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

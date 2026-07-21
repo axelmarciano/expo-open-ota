@@ -13,10 +13,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"cloud.google.com/go/storage"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/iterator"
 )
 
@@ -47,37 +47,37 @@ func (b *GCSBucket) DeleteUpdateFolder(appId, branch, runtimeVersion, updateId s
 		return err
 	}
 	prefix := b.prefixedKey(fmt.Sprintf("%s/%s/%s/%s/", appId, branch, runtimeVersion, updateId))
-	it := bh.Objects(ctx, &storage.Query{Prefix: prefix})
-	sem := make(chan struct{}, runtime.NumCPU())
-	var wg sync.WaitGroup
-	errCh := make(chan error, 16)
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(runtime.NumCPU())
+	it := bh.Objects(gctx, &storage.Query{Prefix: prefix})
+	var listErr error
 	for {
 		attrs, err := it.Next()
 		if err == iterator.Done {
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("failed to list objects: %w", err)
+			listErr = fmt.Errorf("failed to list objects: %w", err)
+			break
 		}
 		if attrs.Name == "" { // prefix entry
 			continue
 		}
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(name string) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			if err := bh.Object(name).Delete(ctx); err != nil {
-				errCh <- fmt.Errorf("failed to delete object %s: %w", name, err)
+		name := attrs.Name
+		g.Go(func() error {
+			if err := bh.Object(name).Delete(gctx); err != nil {
+				return fmt.Errorf("failed to delete object %s: %w", name, err)
 			}
-		}(attrs.Name)
+			return nil
+		})
 	}
-	wg.Wait()
-	close(errCh)
-	for e := range errCh {
-		if e != nil {
-			return e
-		}
+	// A worker error cancels gctx, which also aborts the listing above; the
+	// worker error is the interesting one, so report it first.
+	if err := g.Wait(); err != nil {
+		return err
+	}
+	if listErr != nil {
+		return listErr
 	}
 	return nil
 }
@@ -277,18 +277,18 @@ func (b *GCSBucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId s
 	sourcePrefix := b.prefixedKey(fmt.Sprintf("%s/%s/%s/%s/", previousUpdate.AppId, previousUpdate.Branch, previousUpdate.RuntimeVersion, previousUpdate.UpdateId))
 	targetPrefix := b.prefixedKey(fmt.Sprintf("%s/%s/%s/%s/", previousUpdate.AppId, previousUpdate.Branch, previousUpdate.RuntimeVersion, newUpdateId))
 
-	it := bh.Objects(ctx, &storage.Query{Prefix: sourcePrefix})
-	var wg sync.WaitGroup
-	errChan := make(chan error, 16)
-	sem := make(chan struct{}, runtime.NumCPU())
-
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(runtime.NumCPU())
+	it := bh.Objects(gctx, &storage.Query{Prefix: sourcePrefix})
+	var listErr error
 	for {
 		attrs, err := it.Next()
 		if err == iterator.Done {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("failed to list objects: %w", err)
+			listErr = fmt.Errorf("failed to list objects: %w", err)
+			break
 		}
 		if attrs.Name == "" {
 			continue
@@ -300,24 +300,22 @@ func (b *GCSBucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId s
 		src := attrs.Name
 		dst := targetPrefix + relPath
 
-		wg.Add(1)
-		go func(srcKey, dstKey string) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			cop := bh.Object(dstKey).CopierFrom(bh.Object(srcKey))
-			if _, err := cop.Run(ctx); err != nil {
-				errChan <- fmt.Errorf("copy %s -> %s: %w", srcKey, dstKey, err)
+		g.Go(func() error {
+			cop := bh.Object(dst).CopierFrom(bh.Object(src))
+			if _, err := cop.Run(gctx); err != nil {
+				return fmt.Errorf("copy %s -> %s: %w", src, dst, err)
 			}
-		}(src, dst)
+			return nil
+		})
 	}
 
-	wg.Wait()
-	close(errChan)
-	for e := range errChan {
-		if e != nil {
-			return nil, e
-		}
+	// A worker error cancels gctx, which also aborts the listing above; the
+	// worker error is the interesting one, so report it first.
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	if listErr != nil {
+		return nil, listErr
 	}
 
 	updateId, err := strconv.ParseInt(newUpdateId, 10, 64)

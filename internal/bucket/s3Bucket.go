@@ -13,12 +13,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"golang.org/x/sync/errgroup"
 )
 
 type S3Bucket struct {
@@ -329,14 +329,15 @@ func (b *S3Bucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId st
 		Prefix: awssdk.String(sourcePrefix),
 	})
 
-	var wg sync.WaitGroup
-	errChan := make(chan error, 16)
-	sem := make(chan struct{}, runtime.NumCPU())
+	g, gctx := errgroup.WithContext(context.TODO())
+	g.SetLimit(runtime.NumCPU())
 
+	var listErr error
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(gctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list objects: %w", err)
+			listErr = fmt.Errorf("failed to list objects: %w", err)
+			break
 		}
 
 		for _, object := range page.Contents {
@@ -350,43 +351,37 @@ func (b *S3Bucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId st
 			srcKey := key
 			dstKey := targetPrefix + relPath
 
-			wg.Add(1)
-			go func(srcKey, dstKey string) {
-				defer wg.Done()
-				sem <- struct{}{}
-				defer func() { <-sem }()
-
-				getObjOutput, err := s3Client.GetObject(context.TODO(), &s3.GetObjectInput{
+			g.Go(func() error {
+				getObjOutput, err := s3Client.GetObject(gctx, &s3.GetObjectInput{
 					Bucket: awssdk.String(b.BucketName),
 					Key:    awssdk.String(srcKey),
 				})
 				if err != nil {
-					errChan <- fmt.Errorf("error getting object %s: %w", srcKey, err)
-					return
+					return fmt.Errorf("error getting object %s: %w", srcKey, err)
 				}
 				defer getObjOutput.Body.Close()
 
-				_, err = s3Client.PutObject(context.TODO(), &s3.PutObjectInput{
+				_, err = s3Client.PutObject(gctx, &s3.PutObjectInput{
 					Bucket:        awssdk.String(b.BucketName),
 					Key:           awssdk.String(dstKey),
 					Body:          getObjOutput.Body,
 					ContentLength: getObjOutput.ContentLength,
 				})
 				if err != nil {
-					errChan <- fmt.Errorf("error putting object %s: %w", dstKey, err)
-					return
+					return fmt.Errorf("error putting object %s: %w", dstKey, err)
 				}
-			}(srcKey, dstKey)
+				return nil
+			})
 		}
 	}
 
-	wg.Wait()
-	close(errChan)
-
-	for e := range errChan {
-		if e != nil {
-			return nil, e
-		}
+	// A worker error cancels gctx, which also aborts the listing above; the
+	// worker error is the interesting one, so report it first.
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	if listErr != nil {
+		return nil, listErr
 	}
 
 	updateId, err := strconv.ParseInt(newUpdateId, 10, 64)
