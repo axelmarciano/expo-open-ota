@@ -240,14 +240,14 @@ export const AuditLog = () => {
               </select>
               <div className="flex items-center gap-1">
                 <Input
-                  className="h-9 w-44 text-xs"
+                  className="h-9 w-52 text-xs"
                   type="datetime-local"
                   value={filters.from}
                   onChange={event => setFilters(f => ({ ...f, from: event.target.value }))}
                 />
                 <span className="text-muted-foreground">→</span>
                 <Input
-                  className="h-9 w-44 text-xs"
+                  className="h-9 w-52 text-xs"
                   type="datetime-local"
                   value={filters.to}
                   onChange={event => setFilters(f => ({ ...f, to: event.target.value }))}

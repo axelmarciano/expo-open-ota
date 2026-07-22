@@ -136,6 +136,7 @@ For teams that need tighter control, the [Enterprise edition](https://mercure-te
 - **Single sign-on (OIDC)**: let your team sign in through Microsoft Entra ID, Okta, Google Workspace, Keycloak or any OpenID Connect issuer.
 - **Protected branches**: once a branch is protected, only API tokens you explicitly allow can publish, roll back or republish on it. A token handed to a developer for staging can never ship to production.
 - **IP allowlists**: restrict each API token to your CI runners' addresses, per address or CIDR range.
+- **Audit logs**: every publish, rollback, login, role change and configuration edit is recorded with who did it, from which IP, and whether it succeeded. Browse the trail from the dashboard or export it as NDJSON for your compliance tooling.
 
 <table>
   <tr>
