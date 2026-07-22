@@ -13,6 +13,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const advanceAuditExportCursor = `-- name: AdvanceAuditExportCursor :execresult
+UPDATE audit_export_state
+SET last_exported_id = $2
+WHERE id AND last_exported_id = $1
+`
+
+type AdvanceAuditExportCursorParams struct {
+	LastExportedID   int64 `json:"last_exported_id"`
+	LastExportedID_2 int64 `json:"last_exported_id_2"`
+}
+
+// Optimistic compare-and-swap: 0 rows means another replica advanced first
+// and this batch must be abandoned (its file was an idempotent overwrite).
+func (q *Queries) AdvanceAuditExportCursor(ctx context.Context, arg AdvanceAuditExportCursorParams) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, advanceAuditExportCursor, arg.LastExportedID, arg.LastExportedID_2)
+}
+
 const clearUpdateRollout = `-- name: ClearUpdateRollout :execrows
 UPDATE updates
 SET rollout_percentage = NULL
@@ -39,6 +56,41 @@ func (q *Queries) ClearUpdateRollout(ctx context.Context, arg ClearUpdateRollout
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const countAuditLogEvents = `-- name: CountAuditLogEvents :one
+SELECT COUNT(*) FROM audit_log_events
+WHERE ($1::TEXT IS NULL OR actor_id = $1)
+  AND ($2::TEXT IS NULL OR action = $2)
+  AND ($3::TEXT IS NULL OR app_id = $3)
+  AND ($4::TEXT IS NULL OR outcome = $4)
+  AND ($5::TIMESTAMPTZ IS NULL OR occurred_at >= $5)
+  AND ($6::TIMESTAMPTZ IS NULL OR occurred_at <= $6)
+`
+
+type CountAuditLogEventsParams struct {
+	ActorID      *string            `json:"actor_id"`
+	Action       *string            `json:"action"`
+	AppID        *string            `json:"app_id"`
+	Outcome      *string            `json:"outcome"`
+	OccurredFrom pgtype.Timestamptz `json:"occurred_from"`
+	OccurredTo   pgtype.Timestamptz `json:"occurred_to"`
+}
+
+// Same filters as ListAuditLogEvents minus the cursor: the total the viewer
+// shows next to the paginated list.
+func (q *Queries) CountAuditLogEvents(ctx context.Context, arg CountAuditLogEventsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAuditLogEvents,
+		arg.ActorID,
+		arg.Action,
+		arg.AppID,
+		arg.Outcome,
+		arg.OccurredFrom,
+		arg.OccurredTo,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const countGrantsByRole = `-- name: CountGrantsByRole :one
@@ -257,6 +309,24 @@ func (q *Queries) GetActiveRolloutUpdates(ctx context.Context, arg GetActiveRoll
 	return items, nil
 }
 
+const getApiKeyNameByID = `-- name: GetApiKeyNameByID :one
+SELECT name FROM api_keys
+WHERE id = $1 AND app_id = $2
+`
+
+type GetApiKeyNameByIDParams struct {
+	ID    int64       `json:"id"`
+	AppID pgtype.UUID `json:"app_id"`
+}
+
+// The audit actor display of CLI requests: one indexed read, never a list scan.
+func (q *Queries) GetApiKeyNameByID(ctx context.Context, arg GetApiKeyNameByIDParams) (string, error) {
+	row := q.db.QueryRow(ctx, getApiKeyNameByID, arg.ID, arg.AppID)
+	var name string
+	err := row.Scan(&name)
+	return name, err
+}
+
 const getApiKeyRestrictions = `-- name: GetApiKeyRestrictions :one
 
 SELECT allowed_ips, can_access_protected_branches
@@ -407,6 +477,17 @@ func (q *Queries) GetApps(ctx context.Context) ([]GetAppsRow, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const getAuditExportCursor = `-- name: GetAuditExportCursor :one
+SELECT last_exported_id FROM audit_export_state WHERE id
+`
+
+func (q *Queries) GetAuditExportCursor(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, getAuditExportCursor)
+	var last_exported_id int64
+	err := row.Scan(&last_exported_id)
+	return last_exported_id, err
 }
 
 const getBranchByName = `-- name: GetBranchByName :one
@@ -1435,9 +1516,10 @@ func (q *Queries) HasActiveRolloutUpdate(ctx context.Context, arg HasActiveRollo
 	return exists, err
 }
 
-const insertApiKey = `-- name: InsertApiKey :exec
+const insertApiKey = `-- name: InsertApiKey :one
 INSERT INTO api_keys (app_id, name, hint, hashed_key)
 VALUES ($1, $2, $3, $4)
+RETURNING id
 `
 
 type InsertApiKeyParams struct {
@@ -1447,14 +1529,18 @@ type InsertApiKeyParams struct {
 	HashedKey string      `json:"hashed_key"`
 }
 
-func (q *Queries) InsertApiKey(ctx context.Context, arg InsertApiKeyParams) error {
-	_, err := q.db.Exec(ctx, insertApiKey,
+// Returns the new key's id: the audit trail needs a stable target id that
+// matches the one revocation events carry.
+func (q *Queries) InsertApiKey(ctx context.Context, arg InsertApiKeyParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertApiKey,
 		arg.AppID,
 		arg.Name,
 		arg.Hint,
 		arg.HashedKey,
 	)
-	return err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertApp = `-- name: InsertApp :one
@@ -1490,6 +1576,68 @@ func (q *Queries) InsertApp(ctx context.Context, arg InsertAppParams) (pgtype.UU
 	var id pgtype.UUID
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertAuditLogEvent = `-- name: InsertAuditLogEvent :one
+
+INSERT INTO audit_log_events (actor_type, actor_id, actor_display, action,
+                              target_type, target_id, target_display, app_id,
+                              outcome, ip, user_agent, metadata)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id, occurred_at, actor_type, actor_id, actor_display, action, target_type, target_id, target_display, app_id, outcome, ip, user_agent, metadata
+`
+
+type InsertAuditLogEventParams struct {
+	ActorType     string  `json:"actor_type"`
+	ActorID       string  `json:"actor_id"`
+	ActorDisplay  string  `json:"actor_display"`
+	Action        string  `json:"action"`
+	TargetType    string  `json:"target_type"`
+	TargetID      string  `json:"target_id"`
+	TargetDisplay string  `json:"target_display"`
+	AppID         *string `json:"app_id"`
+	Outcome       string  `json:"outcome"`
+	Ip            string  `json:"ip"`
+	UserAgent     string  `json:"user_agent"`
+	Metadata      []byte  `json:"metadata"`
+}
+
+// Enterprise audit log (ee/audit)
+// occurred_at is always the database's clock (column default), never a
+// caller-supplied time: one clock orders the whole log.
+func (q *Queries) InsertAuditLogEvent(ctx context.Context, arg InsertAuditLogEventParams) (AuditLogEvent, error) {
+	row := q.db.QueryRow(ctx, insertAuditLogEvent,
+		arg.ActorType,
+		arg.ActorID,
+		arg.ActorDisplay,
+		arg.Action,
+		arg.TargetType,
+		arg.TargetID,
+		arg.TargetDisplay,
+		arg.AppID,
+		arg.Outcome,
+		arg.Ip,
+		arg.UserAgent,
+		arg.Metadata,
+	)
+	var i AuditLogEvent
+	err := row.Scan(
+		&i.ID,
+		&i.OccurredAt,
+		&i.ActorType,
+		&i.ActorID,
+		&i.ActorDisplay,
+		&i.Action,
+		&i.TargetType,
+		&i.TargetID,
+		&i.TargetDisplay,
+		&i.AppID,
+		&i.Outcome,
+		&i.Ip,
+		&i.UserAgent,
+		&i.Metadata,
+	)
+	return i, err
 }
 
 const insertBranch = `-- name: InsertBranch :one
@@ -1941,6 +2089,132 @@ func (q *Queries) ListAccessibleAppIDs(ctx context.Context, userID pgtype.UUID) 
 	return items, nil
 }
 
+const listAuditLogEvents = `-- name: ListAuditLogEvents :many
+SELECT id, occurred_at, actor_type, actor_id, actor_display, action, target_type, target_id, target_display, app_id, outcome, ip, user_agent, metadata FROM audit_log_events
+WHERE ($1::TEXT IS NULL OR actor_id = $1)
+  AND ($2::TEXT IS NULL OR action = $2)
+  AND ($3::TEXT IS NULL OR app_id = $3)
+  AND ($4::TEXT IS NULL OR outcome = $4)
+  AND ($5::TIMESTAMPTZ IS NULL OR occurred_at >= $5)
+  AND ($6::TIMESTAMPTZ IS NULL OR occurred_at <= $6)
+  AND ($7::BIGINT IS NULL OR id < $7)
+ORDER BY id DESC
+LIMIT $8
+`
+
+type ListAuditLogEventsParams struct {
+	ActorID      *string            `json:"actor_id"`
+	Action       *string            `json:"action"`
+	AppID        *string            `json:"app_id"`
+	Outcome      *string            `json:"outcome"`
+	OccurredFrom pgtype.Timestamptz `json:"occurred_from"`
+	OccurredTo   pgtype.Timestamptz `json:"occurred_to"`
+	BeforeID     *int64             `json:"before_id"`
+	RowLimit     int32              `json:"row_limit"`
+}
+
+// The viewer read: newest first, keyset-paginated on id (insert order, so no
+// tie-breaking column is needed), every filter optional. before_id is the
+// cursor: NULL on the first page, then the last id of the previous page.
+func (q *Queries) ListAuditLogEvents(ctx context.Context, arg ListAuditLogEventsParams) ([]AuditLogEvent, error) {
+	rows, err := q.db.Query(ctx, listAuditLogEvents,
+		arg.ActorID,
+		arg.Action,
+		arg.AppID,
+		arg.Outcome,
+		arg.OccurredFrom,
+		arg.OccurredTo,
+		arg.BeforeID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuditLogEvent
+	for rows.Next() {
+		var i AuditLogEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.OccurredAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.ActorDisplay,
+			&i.Action,
+			&i.TargetType,
+			&i.TargetID,
+			&i.TargetDisplay,
+			&i.AppID,
+			&i.Outcome,
+			&i.Ip,
+			&i.UserAgent,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAuditLogEventsAfter = `-- name: ListAuditLogEventsAfter :many
+SELECT id, occurred_at, actor_type, actor_id, actor_display, action, target_type, target_id, target_display, app_id, outcome, ip, user_agent, metadata FROM audit_log_events
+WHERE id > $1
+  AND occurred_at < now() - INTERVAL '30 seconds'
+ORDER BY id ASC
+LIMIT $2
+`
+
+type ListAuditLogEventsAfterParams struct {
+	ID    int64 `json:"id"`
+	Limit int32 `json:"limit"`
+}
+
+// The archive exporter's batch read: strictly after the cursor, oldest first.
+// The 30-second visibility lag closes a loss window: BIGSERIAL ids are drawn
+// in execution order but rows become visible in commit order, so without the
+// lag the exporter could read id N+1, advance the cursor past a still
+// uncommitted id N, and never see N again. Inserts live at most 5 seconds
+// (recordTimeout in ee/audit), so a row stamped 30 seconds ago (occurred_at
+// and now() share the database clock) is committed or gone for good.
+func (q *Queries) ListAuditLogEventsAfter(ctx context.Context, arg ListAuditLogEventsAfterParams) ([]AuditLogEvent, error) {
+	rows, err := q.db.Query(ctx, listAuditLogEventsAfter, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuditLogEvent
+	for rows.Next() {
+		var i AuditLogEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.OccurredAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.ActorDisplay,
+			&i.Action,
+			&i.TargetType,
+			&i.TargetID,
+			&i.TargetDisplay,
+			&i.AppID,
+			&i.Outcome,
+			&i.Ip,
+			&i.UserAgent,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRoles = `-- name: ListRoles :many
 SELECT id, name, permissions, created_at, updated_at FROM roles
 ORDER BY name ASC
@@ -2295,6 +2569,29 @@ func (q *Queries) MigrateLegacyUpdate(ctx context.Context, arg MigrateLegacyUpda
 	return err
 }
 
+const purgeAuditLogEventsBefore = `-- name: PurgeAuditLogEventsBefore :execresult
+DELETE FROM audit_log_events
+WHERE occurred_at < $1
+`
+
+// The retention purge, the audit table's single mutation besides inserts.
+func (q *Queries) PurgeAuditLogEventsBefore(ctx context.Context, occurredAt pgtype.Timestamptz) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, purgeAuditLogEventsBefore, occurredAt)
+}
+
+const purgeExportedAuditLogEventsBefore = `-- name: PurgeExportedAuditLogEventsBefore :execresult
+DELETE FROM audit_log_events
+WHERE occurred_at < $1
+  AND id <= (SELECT last_exported_id FROM audit_export_state)
+`
+
+// The retention purge while archiving is enabled: an expired row that the
+// exporter has not archived yet is kept until it is, so "purged rows live on
+// in the archive" holds even when the purge races a large export backlog.
+func (q *Queries) PurgeExportedAuditLogEventsBefore(ctx context.Context, occurredAt pgtype.Timestamptz) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, purgeExportedAuditLogEventsBefore, occurredAt)
+}
+
 const repointChannelToRolloutBranch = `-- name: RepointChannelToRolloutBranch :execrows
 UPDATE channels
 SET branch_id = (
@@ -2320,10 +2617,11 @@ func (q *Queries) RepointChannelToRolloutBranch(ctx context.Context, arg Repoint
 	return result.RowsAffected(), nil
 }
 
-const revokeApiKeyByID = `-- name: RevokeApiKeyByID :execresult
+const revokeApiKeyByID = `-- name: RevokeApiKeyByID :one
 UPDATE api_keys
 SET revoked_at = CURRENT_TIMESTAMP
-WHERE id = $1 AND app_id = $2
+WHERE id = $1 AND app_id = $2 AND revoked_at IS NULL
+RETURNING name
 `
 
 type RevokeApiKeyByIDParams struct {
@@ -2331,8 +2629,15 @@ type RevokeApiKeyByIDParams struct {
 	AppID pgtype.UUID `json:"app_id"`
 }
 
-func (q *Queries) RevokeApiKeyByID(ctx context.Context, arg RevokeApiKeyByIDParams) (pgconn.CommandTag, error) {
-	return q.db.Exec(ctx, revokeApiKeyByID, arg.ID, arg.AppID)
+// Returns the revoked key's name so the audit entry can carry it without a
+// separate read. Only a live key matches: re-revoking (double submit, retry)
+// must not re-stamp the historical revoked_at nor emit a second audit entry,
+// so it falls into the same no-rows not-found path as an unknown id.
+func (q *Queries) RevokeApiKeyByID(ctx context.Context, arg RevokeApiKeyByIDParams) (string, error) {
+	row := q.db.QueryRow(ctx, revokeApiKeyByID, arg.ID, arg.AppID)
+	var name string
+	err := row.Scan(&name)
+	return name, err
 }
 
 const setBranchProtected = `-- name: SetBranchProtected :execrows

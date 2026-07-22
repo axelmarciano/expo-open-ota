@@ -4,6 +4,7 @@ import (
 	"context"
 	"expo-open-ota/config"
 	"expo-open-ota/ee/apikeyrestrictions"
+	"expo-open-ota/ee/audit"
 	"expo-open-ota/ee/licensing"
 	"expo-open-ota/ee/rbac"
 	"expo-open-ota/ee/sso"
@@ -41,6 +42,7 @@ type AppContainer struct {
 	UploadHandler            *handlers.UploadHandler
 	RepublishHandler         *handlers.RepublishHandler
 	UsersHandler             *dashhandlers.UsersHandler
+	AuditHandler             *audit.AuditHandler
 	UserRepo                 services.UserRepository
 }
 
@@ -82,6 +84,9 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// User roles and per-app grants (ee/rbac) live in the database too; nil
 	// keeps the whole feature on the community fallback.
 	var rbacRepo rbac.RBACRepository
+	// The audit trail (ee/audit) as well: nil keeps its recorder a no-op, so
+	// stateless deployments never collect an event.
+	var auditRepo audit.AuditRepository
 
 	cleanup := func() {}
 	dbUrl := config.GetDBURL()
@@ -113,6 +118,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		ssoRepo = sso.NewPostgresSSOStore(dbEngine)
 		apiKeyRestrictionRepo = apikeyrestrictions.NewPostgresApiKeyRestrictionStore(dbEngine)
 		rbacRepo = rbac.NewPostgresRBACStore(dbEngine)
+		auditRepo = audit.NewPostgresAuditStore(dbEngine)
 		branchRepo = store.NewPostgresBranchStore(dbEngine)
 		channelRepo = store.NewPostgresChannelStore(dbEngine)
 		updateRepo = store.NewPostgresUpdateStore(dbEngine)
@@ -142,7 +148,22 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	licenseService.StartSync(ctx, 30*time.Second)
 
 	apiKeyRestrictionService := apikeyrestrictions.NewApiKeyRestrictionService(apiKeyRestrictionRepo)
+	// The audit recorder is handed to every emitting surface below; it
+	// no-ops without a control plane and a currently valid license, so the
+	// call sites stay unconditional.
+	auditService := audit.NewAuditService(auditRepo, licensing.IsEnterprise)
+	// The archive and the retention purge read their own configuration: that
+	// knowledge is the feature's, not the wiring's. The archive starts first
+	// so the purge spares unarchived rows, and an enabled-but-misconfigured
+	// archive fails the boot loudly: a compliance archive that silently does
+	// not run is worse than a crash.
+	if err := auditService.StartArchiveFromEnv(ctx); err != nil {
+		log.Fatalf("🚨 [AUDIT] %v", err)
+	}
+	auditService.StartRetentionPurgeFromEnv(ctx)
+	apiKeyRestrictionService.SetOnAuditEvent(auditService.Record)
 	rbacService := rbac.NewRBACService(rbacRepo, userRepo)
+	rbacService.SetOnAuditEvent(auditService.Record)
 	// The community list handlers (apps, settings) receive this method as
 	// their AppVisibilityFilter: they filter what a member sees without their
 	// package ever importing ee/rbac.
@@ -151,6 +172,9 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// The restriction service doubles as the CLI access policy: every CLI
 	// request runs through its enforcement after authenticating.
 	cliAuthService := services.NewCliAuthService(authRepo, apiKeyRestrictionService)
+	// Only gates the audit actor's key-name lookup: no collection, no lookup.
+	cliAuthService.SetAuditActive(auditService.Enabled)
+	cliAuthService.SetOnAuditEvent(auditService.Record)
 	userService := services.NewUserService(userRepo)
 	ssoService := sso.NewSSOService(ssoRepo, userRepo, dashboardAuthService)
 	// While SSO is active, members must sign in through it (admins keep the
@@ -158,13 +182,22 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// provisioning instead of manual creation.
 	dashboardAuthService.SetSSOEnforced(ssoService.Enabled)
 	userService.SetSSOEnforced(ssoService.Enabled)
+	dashboardAuthService.SetOnAuditEvent(auditService.Record)
+	ssoService.SetOnAuditEvent(auditService.Record)
+	userService.SetOnAuditEvent(auditService.Record)
+	licenseService.SetOnAuditEvent(auditService.Record)
 	appService := services.NewAppService(appRepo)
+	appService.SetOnAuditEvent(auditService.Record)
 	branchService := services.NewBranchService(branchRepo, channelRepo, updateRepo, rolloutRepo, resolvedBucket)
+	branchService.SetOnAuditEvent(auditService.Record)
 	channelService := services.NewChannelService(branchRepo, channelRepo)
+	channelService.SetOnAuditEvent(auditService.Record)
 	updateService := services.NewUpdateService(updateRepo, resolvedBucket)
 	expoProtocolService := services.NewExpoProtocolService(appRepo, channelRepo, updateRepo, updateService, services.DefaultBranchRules())
 	deploymentService := services.NewDeploymentService(branchService, updateService, updateRepo, resolvedBucket)
+	deploymentService.SetOnAuditEvent(auditService.Record)
 	rolloutService := services.NewRolloutService(rolloutRepo, channelRepo, updateRepo, deploymentService)
+	rolloutService.SetOnAuditEvent(auditService.Record)
 
 	return &AppContainer{
 		AuthHandler:              dashhandlers.NewAuthHandler(dashboardAuthService),
@@ -178,6 +211,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		ChannelHandler:           dashhandlers.NewChannelHandler(channelService),
 		ExpoProtocolHandler:      handlers.NewExpoProtocolHandler(expoProtocolService),
 		LicenseHandler:           licensing.NewLicenseHandler(licenseService),
+		AuditHandler:             audit.NewAuditHandler(auditService),
 		RBACHandler:              rbac.NewRBACHandler(rbacService),
 		RBACService:              rbacService,
 		RepublishHandler:         handlers.NewRepublishHandler(cliAuthService, deploymentService),

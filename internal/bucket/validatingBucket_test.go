@@ -48,9 +48,9 @@ func (s *stubBucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId 
 	s.mark()
 	return nil, nil
 }
-func (s *stubBucket) RetrieveMigrationHistory() ([]string, error)   { s.mark(); return nil, nil }
-func (s *stubBucket) ApplyMigration(migrationId string) error       { s.mark(); return nil }
-func (s *stubBucket) RemoveMigrationFromHistory(id string) error    { s.mark(); return nil }
+func (s *stubBucket) RetrieveMigrationHistory() ([]string, error) { s.mark(); return nil, nil }
+func (s *stubBucket) ApplyMigration(migrationId string) error     { s.mark(); return nil }
+func (s *stubBucket) RemoveMigrationFromHistory(id string) error  { s.mark(); return nil }
 
 func validUpdate() types.Update {
 	return types.Update{AppId: "app-1", Branch: "main", RuntimeVersion: "1.0", UpdateId: "123"}
@@ -82,15 +82,15 @@ func TestValidateSegment_AcceptsValidNames(t *testing.T) {
 
 func TestValidateSegment_RejectsNullAndControlChars(t *testing.T) {
 	cases := map[string]string{
-		"null byte":         "foo\x00bar",
-		"soh":               "foo\x01bar",
-		"bell":              "foo\x07bar",
-		"backspace":         "foo\x08bar",
-		"tab":               "foo\tbar",
-		"newline":           "foo\nbar",
-		"carriage return":   "foo\rbar",
-		"escape":            "foo\x1bbar",
-		"del":               "foo\x7fbar",
+		"null byte":       "foo\x00bar",
+		"soh":             "foo\x01bar",
+		"bell":            "foo\x07bar",
+		"backspace":       "foo\x08bar",
+		"tab":             "foo\tbar",
+		"newline":         "foo\nbar",
+		"carriage return": "foo\rbar",
+		"escape":          "foo\x1bbar",
+		"del":             "foo\x7fbar",
 	}
 	for name, v := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -178,10 +178,10 @@ func TestResolveKeyPrefix_HappyPaths(t *testing.T) {
 
 func TestResolveKeyPrefix_PanicsOnUnsafeValues(t *testing.T) {
 	cases := map[string]string{
-		"absolute unix":  "/eoota",
-		"dot-dot":        "foo/../bar",
-		"backslash":      "eoota\\bad",
-		"windows drive":  "C:\\eoota",
+		"absolute unix": "/eoota",
+		"dot-dot":       "foo/../bar",
+		"backslash":     "eoota\\bad",
+		"windows drive": "C:\\eoota",
 	}
 	for name, bad := range cases {
 		t.Run(name, func(t *testing.T) {

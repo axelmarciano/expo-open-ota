@@ -33,14 +33,18 @@ func (s *BucketAuthStore) ValidateCliCredential(ctx context.Context, appId strin
 	return 0, nil
 }
 
-func (s *BucketAuthStore) InsertApiKey(ctx context.Context, appId string, name string, hint string, hashedKey string) error {
-	return ErrNotSupportedInStatelessMode
+func (s *BucketAuthStore) InsertApiKey(ctx context.Context, appId string, name string, hint string, hashedKey string) (int64, error) {
+	return 0, ErrNotSupportedInStatelessMode
 }
 
 func (s *BucketAuthStore) GetApiKeysMetadataByAppID(ctx context.Context, appId string) ([]pgdb.GetApiKeysMetadataByAppIDRow, error) {
 	return []pgdb.GetApiKeysMetadataByAppIDRow{}, ErrNotSupportedInStatelessMode
 }
 
-func (s *BucketAuthStore) RevokeApiKeyByID(ctx context.Context, apiKeyId int64, appId string) error {
-	return ErrNotSupportedInStatelessMode
+func (s *BucketAuthStore) GetApiKeyNameByID(ctx context.Context, appId string, apiKeyId int64) (string, error) {
+	return "", ErrNotSupportedInStatelessMode
+}
+
+func (s *BucketAuthStore) RevokeApiKeyByID(ctx context.Context, apiKeyId int64, appId string) (string, error) {
+	return "", ErrNotSupportedInStatelessMode
 }

@@ -5,6 +5,7 @@ import {
   Box,
   CircleUser,
   Fingerprint,
+  ScrollText,
   HardDriveDownload,
   Info,
   KeyRound,
@@ -203,6 +204,9 @@ export function AppSidebar() {
                 </NavLink>
                 <NavLink to="/sso" icon={Fingerprint} badge={<EnterpriseNavBadge />}>
                   SSO
+                </NavLink>
+                <NavLink to="/audit-logs" icon={ScrollText} badge={<EnterpriseNavBadge />}>
+                  Audit log
                 </NavLink>
               </div>
             </>

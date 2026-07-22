@@ -51,12 +51,13 @@ func (h *UploadHandler) MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *ht
 		return
 	}
 	auth := helpers.GetAuth(r)
-	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth, branchName, helpers.ClientIP(r))
+	credential, err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth, branchName, helpers.ClientIP(r))
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
 		RenderCliAuthError(w, err)
 		return
 	}
+	r = r.WithContext(services.WithCliAuth(r.Context(), credential))
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")
 	if runtimeVersion == "" {
 		log.Printf("[RequestID: %s] No runtime version provided", requestID)
@@ -122,12 +123,13 @@ func (h *UploadHandler) RequestUploadLocalFileHandler(w http.ResponseWriter, r *
 	auth := helpers.GetAuth(r)
 	// No branch here: the signed upload token already binds the file path to
 	// the branch that went through RequestUploadUrlHandler's branch check.
-	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth, "", helpers.ClientIP(r))
+	credential, err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth, "", helpers.ClientIP(r))
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
 		RenderCliAuthError(w, err)
 		return
 	}
+	r = r.WithContext(services.WithCliAuth(r.Context(), credential))
 
 	token := r.URL.Query().Get("token")
 	if token == "" {
@@ -197,12 +199,13 @@ func (h *UploadHandler) RequestUploadUrlHandler(w http.ResponseWriter, r *http.R
 	}
 
 	auth := helpers.GetAuth(r)
-	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth, branchName, helpers.ClientIP(r))
+	credential, err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth, branchName, helpers.ClientIP(r))
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
 		RenderCliAuthError(w, err)
 		return
 	}
+	r = r.WithContext(services.WithCliAuth(r.Context(), credential))
 
 	platform := r.URL.Query().Get("platform")
 	if platform != "" && (platform != "ios" && platform != "android") {

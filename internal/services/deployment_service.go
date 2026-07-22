@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"expo-open-ota/internal/auditlog"
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/cache"
 	"expo-open-ota/internal/crypto"
@@ -77,6 +78,37 @@ type DeploymentService struct {
 	updateService *UpdateService
 	updateRepo    UpdateRepository
 	bucket        bucket.Bucket
+	// onAuditEvent is the audit emission seam; nil (community) means
+	// publishes, rollbacks and republishes leave no events.
+	onAuditEvent auditlog.RecordFunc
+}
+
+// SetOnAuditEvent plugs the audit emission seam (see SetSSOEnforced for the
+// pattern). Nil-safe.
+func (s *DeploymentService) SetOnAuditEvent(record auditlog.RecordFunc) {
+	s.onAuditEvent = record
+}
+
+// recordDeliveryEvent reports one delivery action on an update that just went
+// live. The actor comes from the request context: the CLI credential of the
+// publish routes, or the dashboard principal.
+func (s *DeploymentService) recordDeliveryEvent(ctx context.Context, action auditlog.Action, update types.Update, metadata map[string]any) {
+	if s.onAuditEvent == nil {
+		return
+	}
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	metadata["branch"] = update.Branch
+	metadata["runtime_version"] = update.RuntimeVersion
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+		Action:        action,
+		TargetType:    "update",
+		TargetID:      update.UpdateId,
+		TargetDisplay: update.UpdateId,
+		AppID:         update.AppId,
+		Metadata:      metadata,
+	})
 }
 
 func NewDeploymentService(branchService *BranchService, updateService *UpdateService, updateRepo UpdateRepository, bucket bucket.Bucket) *DeploymentService {
@@ -133,6 +165,8 @@ func (s *DeploymentService) ProcessUploadedUpdate(ctx context.Context, params Pr
 			return err
 		}
 		log.Printf("[RequestID: %s] Latest update evaluation triggered auto-check routine.", params.RequestID)
+		s.recordDeliveryEvent(ctx, auditlog.ActionUpdatePublished, *currentUpdate,
+			map[string]any{"platform": params.Platform})
 		return nil
 	}
 
@@ -149,6 +183,8 @@ func (s *DeploymentService) ProcessUploadedUpdate(ctx context.Context, params Pr
 			return err
 		}
 		log.Printf("[RequestID: %s] Updates are not identical, update marked as checked", params.RequestID)
+		s.recordDeliveryEvent(ctx, auditlog.ActionUpdatePublished, *currentUpdate,
+			map[string]any{"platform": params.Platform})
 		return nil
 	}
 
@@ -342,7 +378,15 @@ func (s *DeploymentService) CreateRollback(ctx context.Context, appId, platform,
 	if hasActiveRollout {
 		return nil, ErrActiveRolloutBlocksPublish
 	}
-	return s.createRollbackInternal(ctx, appId, platform, commitHash, runtimeVersion, branchName)
+	rollback, err := s.createRollbackInternal(ctx, appId, platform, commitHash, runtimeVersion, branchName)
+	if err != nil {
+		return nil, err
+	}
+	// Only the CLI-facing rollback records here: RolloutService's revert goes
+	// through the internal variant and reports as update_rollout.reverted.
+	s.recordDeliveryEvent(ctx, auditlog.ActionUpdateRollback, *rollback,
+		map[string]any{"platform": platform, "commit_hash": commitHash})
+	return rollback, nil
 }
 
 // createRollbackInternal is CreateRollback without the active-rollout guard; the
@@ -382,7 +426,15 @@ func (s *DeploymentService) RepublishUpdate(ctx context.Context, previousUpdate 
 	if hasActiveRollout {
 		return nil, ErrActiveRolloutBlocksPublish
 	}
-	return s.republishUpdateInternal(ctx, previousUpdate, platform, commitHash)
+	newUpdate, err := s.republishUpdateInternal(ctx, previousUpdate, platform, commitHash)
+	if err != nil {
+		return nil, err
+	}
+	// Same split as CreateRollback: the rollout revert republishes through
+	// the internal variant and reports as update_rollout.reverted.
+	s.recordDeliveryEvent(ctx, auditlog.ActionUpdateRepublished, *newUpdate,
+		map[string]any{"platform": platform, "source_update_id": previousUpdate.UpdateId})
+	return newUpdate, nil
 }
 
 // republishUpdateInternal is RepublishUpdate without the active-rollout guard; see

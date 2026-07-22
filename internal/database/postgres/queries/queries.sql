@@ -332,9 +332,12 @@ RETURNING
     (SELECT branch_name FROM resolved_names) AS branch_name,
     (SELECT runtime_version FROM resolved_names) AS runtime_version;
 
--- name: InsertApiKey :exec
+-- name: InsertApiKey :one
+-- Returns the new key's id: the audit trail needs a stable target id that
+-- matches the one revocation events carry.
 INSERT INTO api_keys (app_id, name, hint, hashed_key)
-VALUES ($1, $2, $3, $4);
+VALUES ($1, $2, $3, $4)
+RETURNING id;
 
 -- name: GetApiKeysMetadataByAppID :many
 SELECT id, name, hint, created_at, last_used_at
@@ -342,9 +345,19 @@ FROM api_keys
 WHERE app_id = $1 AND revoked_at IS NULL
 ORDER BY created_at ASC;
 
--- name: RevokeApiKeyByID :execresult
+-- name: RevokeApiKeyByID :one
+-- Returns the revoked key's name so the audit entry can carry it without a
+-- separate read. Only a live key matches: re-revoking (double submit, retry)
+-- must not re-stamp the historical revoked_at nor emit a second audit entry,
+-- so it falls into the same no-rows not-found path as an unknown id.
 UPDATE api_keys
 SET revoked_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND app_id = $2 AND revoked_at IS NULL
+RETURNING name;
+
+-- name: GetApiKeyNameByID :one
+-- The audit actor display of CLI requests: one indexed read, never a list scan.
+SELECT name FROM api_keys
 WHERE id = $1 AND app_id = $2;
 
 -- name: ValidateAndTouchAuth :one
@@ -888,3 +901,77 @@ VALUES ($1, $2, $3, $4);
 SELECT user_id, COUNT(*) AS grant_count
 FROM user_app_grants
 GROUP BY user_id;
+
+-- Enterprise audit log (ee/audit)
+
+-- name: InsertAuditLogEvent :one
+-- occurred_at is always the database's clock (column default), never a
+-- caller-supplied time: one clock orders the whole log.
+INSERT INTO audit_log_events (actor_type, actor_id, actor_display, action,
+                              target_type, target_id, target_display, app_id,
+                              outcome, ip, user_agent, metadata)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING *;
+
+-- name: ListAuditLogEvents :many
+-- The viewer read: newest first, keyset-paginated on id (insert order, so no
+-- tie-breaking column is needed), every filter optional. before_id is the
+-- cursor: NULL on the first page, then the last id of the previous page.
+SELECT * FROM audit_log_events
+WHERE (sqlc.narg('actor_id')::TEXT IS NULL OR actor_id = sqlc.narg('actor_id'))
+  AND (sqlc.narg('action')::TEXT IS NULL OR action = sqlc.narg('action'))
+  AND (sqlc.narg('app_id')::TEXT IS NULL OR app_id = sqlc.narg('app_id'))
+  AND (sqlc.narg('outcome')::TEXT IS NULL OR outcome = sqlc.narg('outcome'))
+  AND (sqlc.narg('occurred_from')::TIMESTAMPTZ IS NULL OR occurred_at >= sqlc.narg('occurred_from'))
+  AND (sqlc.narg('occurred_to')::TIMESTAMPTZ IS NULL OR occurred_at <= sqlc.narg('occurred_to'))
+  AND (sqlc.narg('before_id')::BIGINT IS NULL OR id < sqlc.narg('before_id'))
+ORDER BY id DESC
+LIMIT sqlc.arg('row_limit');
+
+-- name: ListAuditLogEventsAfter :many
+-- The archive exporter's batch read: strictly after the cursor, oldest first.
+-- The 30-second visibility lag closes a loss window: BIGSERIAL ids are drawn
+-- in execution order but rows become visible in commit order, so without the
+-- lag the exporter could read id N+1, advance the cursor past a still
+-- uncommitted id N, and never see N again. Inserts live at most 5 seconds
+-- (recordTimeout in ee/audit), so a row stamped 30 seconds ago (occurred_at
+-- and now() share the database clock) is committed or gone for good.
+SELECT * FROM audit_log_events
+WHERE id > $1
+  AND occurred_at < now() - INTERVAL '30 seconds'
+ORDER BY id ASC
+LIMIT $2;
+
+-- name: GetAuditExportCursor :one
+SELECT last_exported_id FROM audit_export_state WHERE id;
+
+-- name: AdvanceAuditExportCursor :execresult
+-- Optimistic compare-and-swap: 0 rows means another replica advanced first
+-- and this batch must be abandoned (its file was an idempotent overwrite).
+UPDATE audit_export_state
+SET last_exported_id = $2
+WHERE id AND last_exported_id = $1;
+
+-- name: PurgeAuditLogEventsBefore :execresult
+-- The retention purge, the audit table's single mutation besides inserts.
+DELETE FROM audit_log_events
+WHERE occurred_at < $1;
+
+-- name: PurgeExportedAuditLogEventsBefore :execresult
+-- The retention purge while archiving is enabled: an expired row that the
+-- exporter has not archived yet is kept until it is, so "purged rows live on
+-- in the archive" holds even when the purge races a large export backlog.
+DELETE FROM audit_log_events
+WHERE occurred_at < $1
+  AND id <= (SELECT last_exported_id FROM audit_export_state);
+
+-- name: CountAuditLogEvents :one
+-- Same filters as ListAuditLogEvents minus the cursor: the total the viewer
+-- shows next to the paginated list.
+SELECT COUNT(*) FROM audit_log_events
+WHERE (sqlc.narg('actor_id')::TEXT IS NULL OR actor_id = sqlc.narg('actor_id'))
+  AND (sqlc.narg('action')::TEXT IS NULL OR action = sqlc.narg('action'))
+  AND (sqlc.narg('app_id')::TEXT IS NULL OR app_id = sqlc.narg('app_id'))
+  AND (sqlc.narg('outcome')::TEXT IS NULL OR outcome = sqlc.narg('outcome'))
+  AND (sqlc.narg('occurred_from')::TIMESTAMPTZ IS NULL OR occurred_at >= sqlc.narg('occurred_from'))
+  AND (sqlc.narg('occurred_to')::TIMESTAMPTZ IS NULL OR occurred_at <= sqlc.narg('occurred_to'));

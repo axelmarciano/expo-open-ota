@@ -42,7 +42,7 @@ func (s *PostgresAuthStore) ValidateCliCredential(ctx context.Context, appId str
 	return apiKeyID, nil
 }
 
-func (s *PostgresAuthStore) InsertApiKey(ctx context.Context, appId string, name string, hint string, hashedKey string) error {
+func (s *PostgresAuthStore) InsertApiKey(ctx context.Context, appId string, name string, hint string, hashedKey string) (int64, error) {
 	pgAppID := ToPgUUID(appId)
 	return s.engine.Queries.InsertApiKey(ctx, pgdb.InsertApiKeyParams{
 		AppID:     pgAppID,
@@ -57,21 +57,28 @@ func (s *PostgresAuthStore) GetApiKeysMetadataByAppID(ctx context.Context, appId
 	return s.engine.Queries.GetApiKeysMetadataByAppID(ctx, pgAppID)
 }
 
-func (s *PostgresAuthStore) RevokeApiKeyByID(ctx context.Context, apiKeyId int64, appId string) error {
+func (s *PostgresAuthStore) RevokeApiKeyByID(ctx context.Context, apiKeyId int64, appId string) (string, error) {
 	pgAppID := ToPgUUID(appId)
-	commandTag, err := s.engine.Queries.RevokeApiKeyByID(ctx, pgdb.RevokeApiKeyByIDParams{
+	name, err := s.engine.Queries.RevokeApiKeyByID(ctx, pgdb.RevokeApiKeyByIDParams{
 		ID:    apiKeyId,
 		AppID: pgAppID,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to execute revoke query: %w", err)
-	}
-
-	if commandTag.RowsAffected() == 0 {
-		return &ErrResourceNotFound{
-			Resource:   "api_key",
-			Identifier: fmt.Sprintf("id: %d, appId: %s", apiKeyId, appId),
+		// RETURNING turns the old 0-rows outcome into no-rows: same not-found.
+		if database.IsNoRows(err) {
+			return "", &ErrResourceNotFound{
+				Resource:   "api_key",
+				Identifier: fmt.Sprintf("id: %d, appId: %s", apiKeyId, appId),
+			}
 		}
+		return "", fmt.Errorf("failed to execute revoke query: %w", err)
 	}
-	return nil
+	return name, nil
+}
+
+func (s *PostgresAuthStore) GetApiKeyNameByID(ctx context.Context, appId string, apiKeyId int64) (string, error) {
+	return s.engine.Queries.GetApiKeyNameByID(ctx, pgdb.GetApiKeyNameByIDParams{
+		ID:    apiKeyId,
+		AppID: ToPgUUID(appId),
+	})
 }

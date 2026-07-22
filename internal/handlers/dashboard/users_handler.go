@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"expo-open-ota/internal/handlers"
-	"expo-open-ota/internal/middleware"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
 	"net/http"
@@ -97,7 +96,7 @@ func renderUserServiceError(w http.ResponseWriter, err error) {
 // control-plane mode the service re-reads the row so the dashboard sees a
 // revoked admin flag on its next load, not at token refresh.
 func (h *UsersHandler) GetMeHandler(w http.ResponseWriter, r *http.Request) {
-	principal := middleware.PrincipalFromContext(r.Context())
+	principal := services.PrincipalFromContext(r.Context())
 	if principal == nil {
 		handlers.RenderError(w, http.StatusUnauthorized, "This route requires a dashboard session")
 		return
@@ -117,7 +116,7 @@ func (h *UsersHandler) GetMeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UsersHandler) ChangeMyPasswordHandler(w http.ResponseWriter, r *http.Request) {
-	principal := middleware.PrincipalFromContext(r.Context())
+	principal := services.PrincipalFromContext(r.Context())
 	if principal == nil {
 		handlers.RenderError(w, http.StatusUnauthorized, "This route requires a dashboard session")
 		return
@@ -181,7 +180,7 @@ func (h *UsersHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request)
 // fields are optional pointers so a request can carry either one without the
 // absent one reading as "set to false"; sending both applies both.
 func (h *UsersHandler) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
-	principal := middleware.PrincipalFromContext(r.Context())
+	principal := services.PrincipalFromContext(r.Context())
 	if principal == nil {
 		handlers.RenderError(w, http.StatusUnauthorized, "This route requires a dashboard session")
 		return
@@ -215,7 +214,7 @@ func (h *UsersHandler) UpdateUserHandler(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *UsersHandler) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
-	principal := middleware.PrincipalFromContext(r.Context())
+	principal := services.PrincipalFromContext(r.Context())
 	if principal == nil {
 		handlers.RenderError(w, http.StatusUnauthorized, "This route requires a dashboard session")
 		return

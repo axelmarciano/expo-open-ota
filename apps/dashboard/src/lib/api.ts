@@ -55,6 +55,46 @@ export type AppDescriptor = {
   name?: string;
 };
 
+// One audit log entry, as served by GET /api/audit/events. Displays are
+// denormalized snapshots taken at write time: they keep rendering after the
+// actor or target they name is deleted.
+export type AuditEventRecord = {
+  id: number;
+  occurredAt: string;
+  actorType: 'user' | 'api_key' | 'system' | '';
+  actorId?: string;
+  actorDisplay: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  targetDisplay: string;
+  appId?: string;
+  outcome: 'success' | 'denied' | 'failure' | '';
+  ip?: string;
+  userAgent?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type AuditEventsQuery = {
+  actorId?: string;
+  action?: string;
+  appId?: string;
+  outcome?: string;
+  from?: string;
+  to?: string;
+  beforeId?: number;
+  limit?: number;
+};
+
+export type AuditEventsPage = {
+  events: AuditEventRecord[];
+  // The cursor of the next page; null/absent on the last one. Sent back
+  // verbatim as beforeId.
+  nextCursor?: number | null;
+  // The filtered total, cursor excluded.
+  count: number;
+};
+
 export type AppDetails = AppDescriptor & {
   keys: KeysConfig;
   createdAt?: number;
@@ -472,6 +512,21 @@ export class ApiClient {
     });
   }
 
+  // Enterprise audit log (admin only; reads work without a license so the
+  // page can show its dormant state behind the enterprise gate).
+  public async getAuditEvents(params: AuditEventsQuery = {}) {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== null && value !== '') {
+        query.set(key, String(value));
+      }
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return this.request<AuditEventsPage>(`/api/audit/events${suffix}`, {
+      method: 'GET',
+    });
+  }
+
   // Enterprise user roles (admin only; writes are license-gated server-side).
   public async getRoles() {
     return this.request<RoleRecord[]>(`/api/roles`, {
@@ -630,6 +685,14 @@ export class ApiClient {
 
   public async getApiKeys() {
     return this.request<ApiKeyRecord[]>(`${this.appScope()}/apiKeys`, {
+      method: 'GET',
+    });
+  }
+
+  // Same list with an explicit app, for cross-app surfaces (the audit log's
+  // actor filter) that are not bound to the selected app.
+  public async getApiKeysForApp(appId: string) {
+    return this.request<ApiKeyRecord[]>(`/api/apps/${encodeURIComponent(appId)}/apiKeys`, {
       method: 'GET',
     });
   }

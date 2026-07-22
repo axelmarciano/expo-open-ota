@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"expo-open-ota/internal/auditlog"
 	"expo-open-ota/internal/store"
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/validation"
@@ -48,6 +49,15 @@ type RolloutService struct {
 	channelRepo       ChannelRepository
 	updateRepo        UpdateRepository
 	deploymentService *DeploymentService
+	// onAuditEvent is the audit emission seam; nil (community) means rollout
+	// changes leave no events.
+	onAuditEvent auditlog.RecordFunc
+}
+
+// SetOnAuditEvent plugs the audit emission seam (see SetSSOEnforced for the
+// pattern). Nil-safe.
+func (s *RolloutService) SetOnAuditEvent(record auditlog.RecordFunc) {
+	s.onAuditEvent = record
 }
 
 func NewRolloutService(rolloutRepo RolloutRepository, channelRepo ChannelRepository, updateRepo UpdateRepository, deploymentService *DeploymentService) *RolloutService {
@@ -91,6 +101,14 @@ func (s *RolloutService) StartChannelRollout(ctx context.Context, appId string, 
 	if rows == 0 {
 		return nil, s.disambiguateStartRefusal(ctx, appId, channelName, branchName)
 	}
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+		Action:        auditlog.ActionChannelRolloutStarted,
+		TargetType:    "channel",
+		TargetID:      channelName,
+		TargetDisplay: channelName,
+		AppID:         appId,
+		Metadata:      map[string]any{"branch": branchName, "percentage": percentage},
+	})
 	return s.rolloutRepo.GetChannelRollout(ctx, appId, channelName)
 }
 
@@ -137,6 +155,14 @@ func (s *RolloutService) UpdateChannelRolloutPercentage(ctx context.Context, app
 	if rows == 0 {
 		return nil, &RolloutRequestError{Status: http.StatusNotFound, Message: fmt.Sprintf("channel %q has no active rollout", channelName)}
 	}
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+		Action:        auditlog.ActionChannelRolloutUpdated,
+		TargetType:    "channel",
+		TargetID:      channelName,
+		TargetDisplay: channelName,
+		AppID:         appId,
+		Metadata:      map[string]any{"percentage": percentage},
+	})
 	return s.rolloutRepo.GetChannelRollout(ctx, appId, channelName)
 }
 
@@ -168,6 +194,14 @@ func (s *RolloutService) EndChannelRollout(ctx context.Context, appId string, ch
 	if rows == 0 {
 		return &RolloutRequestError{Status: http.StatusNotFound, Message: fmt.Sprintf("channel %q has no active rollout", channelName)}
 	}
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+		Action:        auditlog.ActionChannelRolloutEnded,
+		TargetType:    "channel",
+		TargetID:      channelName,
+		TargetDisplay: channelName,
+		AppID:         appId,
+		Metadata:      map[string]any{"result": outcome},
+	})
 	return nil
 }
 
@@ -260,6 +294,14 @@ func (s *RolloutService) SetUpdateRolloutPercentage(ctx context.Context, appId s
 		// concurrent progression past the requested value.
 		return nil, &RolloutRequestError{Status: http.StatusConflict, Message: "the rollout ended or was progressed concurrently; reload and retry"}
 	}
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+		Action:        auditlog.ActionUpdateRolloutSet,
+		TargetType:    "branch",
+		TargetID:      branchName,
+		TargetDisplay: branchName,
+		AppID:         appId,
+		Metadata:      map[string]any{"runtime_version": runtimeVersion, "percentage": percentage},
+	})
 	return activeRollouts, nil
 }
 
@@ -312,6 +354,14 @@ func (s *RolloutService) RevertUpdateRollout(ctx context.Context, appId string, 
 			}
 		}
 	}
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+		Action:        auditlog.ActionUpdateRolloutReverted,
+		TargetType:    "branch",
+		TargetID:      branchName,
+		TargetDisplay: branchName,
+		AppID:         appId,
+		Metadata:      map[string]any{"runtime_version": runtimeVersion},
+	})
 	return activeRollouts, nil
 }
 

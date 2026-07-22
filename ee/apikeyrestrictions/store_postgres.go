@@ -21,6 +21,13 @@ func NewPostgresApiKeyRestrictionStore(engine *database.Engine) *PostgresApiKeyR
 	return &PostgresApiKeyRestrictionStore{engine: engine}
 }
 
+func (s *PostgresApiKeyRestrictionStore) GetApiKeyName(ctx context.Context, appID string, apiKeyID int64) (string, error) {
+	return s.engine.Queries.GetApiKeyNameByID(ctx, pgdb.GetApiKeyNameByIDParams{
+		ID:    apiKeyID,
+		AppID: store.ToPgUUID(appID),
+	})
+}
+
 // GetRestrictionsByAppID returns one entry per API key that has at least one
 // restriction set; keys in the default state (no protected access, no IP
 // allowlist) are simply absent.

@@ -37,6 +37,9 @@ func getDashboardPath() string {
 func NewRouter(container *AppContainer) *mux.Router {
 	r := mux.NewRouter()
 	r.Use(middleware.LoggingMiddleware)
+	// Every request carries its network context (client IP, user agent) so
+	// audit events can be emitted from any layer below without the request.
+	r.Use(middleware.RequestMetaMiddleware)
 
 	if config.GetEnv("PROMETHEUS_ENABLED") == "true" {
 		r.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
@@ -156,6 +159,11 @@ func NewRouter(container *AppContainer) *mux.Router {
 	authSubrouter.Handle("/users", adminOnly(http.HandlerFunc(container.UsersHandler.CreateUserHandler))).Methods(http.MethodPost)
 	authSubrouter.Handle("/users/{USER_ID}", adminOnly(http.HandlerFunc(container.UsersHandler.UpdateUserHandler))).Methods(http.MethodPatch)
 	authSubrouter.Handle("/users/{USER_ID}", adminOnly(http.HandlerFunc(container.UsersHandler.DeleteUserHandler))).Methods(http.MethodDelete)
+
+	// Audit log (control-plane only, admin only). The log is append-only by
+	// design, the retention purge being its single sanctioned exception;
+	// reads are paginated and filterable.
+	authSubrouter.Handle("/audit/events", adminOnly(http.HandlerFunc(container.AuditHandler.ListAuditLogsHandler))).Methods(http.MethodGet)
 
 	// Enterprise user roles & per-app grants (control-plane only). Managing
 	// who can do what is an administration surface, so every route is

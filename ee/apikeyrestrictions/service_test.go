@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"expo-open-ota/internal/services"
+	"fmt"
 	"net/netip"
 	"reflect"
 	"strings"
@@ -56,6 +57,13 @@ func (f *fakeRestrictionRepo) SetBranchProtection(ctx context.Context, appID str
 
 func (f *fakeRestrictionRepo) IsBranchProtected(ctx context.Context, appID string, branchName string) (bool, error) {
 	return f.protectedBranches[branchName], nil
+}
+
+func (f *fakeRestrictionRepo) GetApiKeyName(ctx context.Context, appID string, apiKeyID int64) (string, error) {
+	if apiKeyID == 42 {
+		return "ci-production", nil
+	}
+	return "", fmt.Errorf("unknown key")
 }
 
 func serviceWith(repo ApiKeyRestrictionRepository, licensed bool) *ApiKeyRestrictionService {

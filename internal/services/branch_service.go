@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"expo-open-ota/internal/auditlog"
 	"expo-open-ota/internal/bucket"
 	"expo-open-ota/internal/database/postgres/pgdb"
 	"expo-open-ota/internal/store"
@@ -19,6 +20,9 @@ type BranchService struct {
 	// Nil in stateless mode, where rollouts do not exist and the guards below are inert.
 	rolloutRepo RolloutRepository
 	bucket      bucket.Bucket
+	// onAuditEvent is the audit emission seam; nil (community) means branch
+	// changes leave no events.
+	onAuditEvent auditlog.RecordFunc
 }
 
 type BranchRepository interface {
@@ -31,6 +35,12 @@ type BranchRepository interface {
 	UpdateChannelBranchMapping(ctx context.Context, appId string, channelId string, branchId string) error
 	CreateRuntimeVersion(ctx context.Context, appId string, version string) (int64, error)
 	GetBranchByName(ctx context.Context, appId string, branchName string) (int64, error)
+}
+
+// SetOnAuditEvent plugs the audit emission seam (see SetSSOEnforced for the
+// pattern). Nil-safe.
+func (s *BranchService) SetOnAuditEvent(record auditlog.RecordFunc) {
+	s.onAuditEvent = record
 }
 
 func NewBranchService(branchRepo BranchRepository, channelRepo ChannelRepository, updateRepo UpdateRepository, rolloutRepo RolloutRepository, bucket bucket.Bucket) *BranchService {
@@ -55,6 +65,16 @@ func (s *BranchService) CreateBranch(ctx context.Context, appId string, branchNa
 	if err != nil {
 		return 0, err
 	}
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+		Action:        auditlog.ActionBranchCreated,
+		TargetType:    "branch",
+		TargetID:      branchName,
+		TargetDisplay: branchName,
+		AppID:         appId,
+		// Ids travel as strings in metadata: an int64 as a JSON number
+		// corrupts past 2^53 in the dashboard's JavaScript.
+		Metadata: map[string]any{"branch_id": strconv.FormatInt(branchId, 10)},
+	})
 	return branchId, nil
 }
 
@@ -95,6 +115,13 @@ func (s *BranchService) DeleteBranch(ctx context.Context, branchName string, app
 	if err != nil {
 		return err
 	}
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+		Action:        auditlog.ActionBranchDeleted,
+		TargetType:    "branch",
+		TargetID:      branchName,
+		TargetDisplay: branchName,
+		AppID:         appId,
+	})
 	go func(bucketRows []pgdb.GetUpdatesMetadataByBranchNameRow) {
 		for _, row := range bucketRows {
 			err := s.bucket.DeleteUpdateFolder(appId, branchName, row.RuntimeVersion, strconv.FormatInt(row.ID, 10))
@@ -143,6 +170,14 @@ func (s *BranchService) UpdateChannelBranchMapping(ctx context.Context, appId st
 		}
 		return err
 	}
+	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+		Action:        auditlog.ActionChannelBranchMapped,
+		TargetType:    "channel",
+		TargetID:      channelName,
+		TargetDisplay: channelName,
+		AppID:         appId,
+		Metadata:      map[string]any{"channel_id": channelId, "branch_id": branchId},
+	})
 	return nil
 }
 

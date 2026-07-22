@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"expo-open-ota/config"
+	"expo-open-ota/internal/auditlog"
 	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/store"
 	"fmt"
@@ -23,6 +24,10 @@ import (
 type DashboardAuthService struct {
 	Secret   string
 	userRepo UserRepository
+	// onAuditEvent is the audit emission seam; nil (community) means sign-ins
+	// are not recorded. Only the password login path emits here — the refresh
+	// path is session upkeep, not an authentication event.
+	onAuditEvent auditlog.RecordFunc
 	// ssoEnforced reports whether SSO is currently active (configured, enabled
 	// and licensed). Injected by the enterprise wiring; nil means never
 	// enforced, so the community edition is untouched. While enforced, member
@@ -232,9 +237,61 @@ func (a *DashboardAuthService) resolveRefreshPrincipal(ctx context.Context, user
 func (a *DashboardAuthService) LoginWithEmailPassword(ctx context.Context, email string, password string) (*DashboardSession, error) {
 	principal, err := a.resolveLoginPrincipal(ctx, email, password)
 	if err != nil {
+		a.recordLoginFailure(ctx, email, err)
 		return nil, err
 	}
+	a.recordLoginSuccess(ctx, principal)
 	return a.generateSessionPair(*principal)
+}
+
+// SetOnAuditEvent plugs the audit emission seam (see SetSSOEnforced for the
+// pattern; the enterprise wiring passes ee/audit's Record method value).
+// Nil-safe: without it, sign-ins simply leave no audit events.
+func (a *DashboardAuthService) SetOnAuditEvent(record auditlog.RecordFunc) {
+	a.onAuditEvent = record
+}
+
+func (a *DashboardAuthService) recordLoginSuccess(ctx context.Context, principal *DashboardPrincipal) {
+	if a.onAuditEvent == nil {
+		return
+	}
+	a.onAuditEvent(ctx, auditlog.Event{
+		ActorType:     auditlog.ActorUser,
+		ActorID:       principal.UserId,
+		ActorDisplay:  principal.Email,
+		Action:        auditlog.ActionUserLogin,
+		TargetType:    "user",
+		TargetID:      principal.UserId,
+		TargetDisplay: principal.Email,
+		Outcome:       auditlog.OutcomeSuccess,
+	})
+}
+
+// recordLoginFailure records rejected credentials, the brute-force signal a
+// security review asks for. Infrastructure failures (database down, missing
+// ADMIN_EMAIL) are not sign-in attempts and stay out of the log.
+func (a *DashboardAuthService) recordLoginFailure(ctx context.Context, email string, err error) {
+	if a.onAuditEvent == nil || errors.Is(err, ErrAuthUnavailable) || errors.Is(err, ErrAdminEmailNotSet) {
+		return
+	}
+	reason := "invalid_credentials"
+	switch {
+	case errors.Is(err, ErrPasswordLoginDisabledBySSO):
+		reason = "sso_enforced"
+	case errors.Is(err, ErrAccountPendingApproval):
+		reason = "pending_approval"
+	}
+	// The account may not exist: the attempted email is the only identity a
+	// failure can carry, so the actor id stays empty.
+	a.onAuditEvent(ctx, auditlog.Event{
+		ActorType:     auditlog.ActorUser,
+		ActorDisplay:  email,
+		Action:        auditlog.ActionUserLogin,
+		TargetType:    "user",
+		TargetDisplay: email,
+		Outcome:       auditlog.OutcomeFailure,
+		Metadata:      map[string]any{"reason": reason},
+	})
 }
 
 // IssueSession mints the standard dashboard JWT pair for an account that was

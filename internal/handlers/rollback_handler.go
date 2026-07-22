@@ -41,12 +41,13 @@ func (h *RollbackHandler) HandleRollback(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	auth := helpers.GetAuth(r)
-	err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth, branchName, helpers.ClientIP(r))
+	credential, err := h.cliAuthService.ValidateCliCredential(r.Context(), appId, auth, branchName, helpers.ClientIP(r))
 	if err != nil {
 		log.Printf("[RequestID: %s] Error validating auth: %v", requestID, err)
 		RenderCliAuthError(w, err)
 		return
 	}
+	r = r.WithContext(services.WithCliAuth(r.Context(), credential))
 	runtimeVersion := r.URL.Query().Get("runtimeVersion")
 	if runtimeVersion == "" {
 		log.Printf("[RequestID: %s] No runtime version provided", requestID)

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"expo-open-ota/config"
 	"expo-open-ota/ee/licensing"
+	"expo-open-ota/internal/auditlog"
 	"expo-open-ota/internal/crypto"
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
@@ -188,6 +189,9 @@ type SSOService struct {
 	repo     SSORepository
 	userRepo services.UserRepository
 	sessions *services.DashboardAuthService
+	// onAuditEvent is the audit emission seam; nil means SSO sign-ins leave
+	// no events.
+	onAuditEvent auditlog.RecordFunc
 	// licenseValid is the live licensing state; a field so same-package tests
 	// can pin it without minting signed keys.
 	licenseValid func() bool
@@ -343,6 +347,16 @@ func (s *SSOService) SaveConfig(ctx context.Context, input SaveConfigInput) (*Ad
 	if err := s.repo.SaveConfig(ctx, *cfg); err != nil {
 		return nil, err
 	}
+	// The security toggles are the point of this entry: "who weakened this
+	// control and when" must be answerable from the log alone.
+	s.recordConfigEvent(ctx, auditlog.ActionSSOConfigSaved, map[string]any{
+		"issuer":                 cfg.Issuer,
+		"enabled":                cfg.Enabled,
+		"manual_user_validation": cfg.ManualUserValidation,
+		"trust_unverified_email": cfg.TrustUnverifiedEmail,
+		"allowed_email_domains":  cfg.AllowedEmailDomains,
+		"allowed_groups":         cfg.AllowedGroups,
+	})
 	return s.adminView(cfg), nil
 }
 
@@ -353,7 +367,11 @@ func (s *SSOService) DeleteConfig(ctx context.Context) error {
 	if !s.licenseValid() {
 		return ErrSSORequiresValidLicense
 	}
-	return s.repo.DeleteConfig(ctx)
+	if err := s.repo.DeleteConfig(ctx); err != nil {
+		return err
+	}
+	s.recordConfigEvent(ctx, auditlog.ActionSSOConfigDeleted, nil)
+	return nil
 }
 
 // BeginLogin mints the per-login state (state, nonce, PKCE verifier), seals
@@ -442,9 +460,12 @@ func (s *SSOService) CompleteLogin(ctx context.Context, flowToken string, state 
 	// so it must be one the provider vouches for, not one the user typed.
 	// Gate it before any of those uses.
 	if !emailVerified && !cfg.TrustUnverifiedEmail {
-		return nil, fmt.Errorf("%w: %q is not verified (enable trust for this provider if it does not emit email_verified)", ErrSSOEmailUnverified, email)
+		err := fmt.Errorf("%w: %q is not verified (enable trust for this provider if it does not emit email_verified)", ErrSSOEmailUnverified, email)
+		s.recordSSOLoginFailure(ctx, email, err)
+		return nil, err
 	}
 	if err := checkSignInRestrictions(cfg, email, claims); err != nil {
+		s.recordSSOLoginFailure(ctx, email, err)
 		return nil, err
 	}
 	user, err := s.resolveUser(ctx, cfg, idToken.Subject, email)
@@ -455,9 +476,93 @@ func (s *SSOService) CompleteLogin(ctx context.Context, flowToken string, state 
 	// path just needs its own error so the login page can explain that the
 	// account exists and is waiting, rather than showing a generic refusal.
 	if !user.Enabled {
-		return nil, fmt.Errorf("%w: %q is not approved yet", ErrSSOAccountPendingApproval, email)
+		err := fmt.Errorf("%w: %q is not approved yet", ErrSSOAccountPendingApproval, email)
+		s.recordSSOLoginFailure(ctx, email, err)
+		return nil, err
 	}
-	return s.sessions.IssueSession(ctx, user)
+	session, err := s.sessions.IssueSession(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	if s.onAuditEvent != nil {
+		s.onAuditEvent(ctx, auditlog.Event{
+			ActorType:     auditlog.ActorUser,
+			ActorID:       user.Id,
+			ActorDisplay:  user.Email,
+			Action:        auditlog.ActionUserSSOLogin,
+			TargetType:    "user",
+			TargetID:      user.Id,
+			TargetDisplay: user.Email,
+			Outcome:       auditlog.OutcomeSuccess,
+		})
+	}
+	return session, nil
+}
+
+// recordSSOLoginFailure records the deliberate sign-in refusals, the probing
+// signal a security review asks for: unverified email, domain/group
+// restrictions, and accounts awaiting approval (the SSO mirror of
+// DashboardAuthService.recordLoginFailure). Protocol and infrastructure
+// failures (state mismatch, provider unreachable) are not sign-in decisions
+// and stay out of the log, hence the sentinel allowlist.
+func (s *SSOService) recordSSOLoginFailure(ctx context.Context, email string, err error) {
+	if s.onAuditEvent == nil {
+		return
+	}
+	var reason string
+	switch {
+	case errors.Is(err, ErrSSOEmailUnverified):
+		reason = "email_unverified"
+	case errors.Is(err, ErrSSOAccessRestricted):
+		reason = "access_restricted"
+	case errors.Is(err, ErrSSOAccountPendingApproval):
+		reason = "pending_approval"
+	default:
+		return
+	}
+	// The account may not exist yet (JIT provisioning): the attempted email
+	// is the only identity a failure can carry, so the actor id stays empty.
+	s.onAuditEvent(ctx, auditlog.Event{
+		ActorType:     auditlog.ActorUser,
+		ActorDisplay:  email,
+		Action:        auditlog.ActionUserSSOLogin,
+		TargetType:    "user",
+		TargetDisplay: email,
+		Outcome:       auditlog.OutcomeFailure,
+		Metadata:      map[string]any{"reason": reason},
+	})
+}
+
+// SetOnAuditEvent plugs the audit emission seam. Nil-safe: without it, SSO
+// sign-ins simply leave no audit events.
+func (s *SSOService) SetOnAuditEvent(record auditlog.RecordFunc) {
+	s.onAuditEvent = record
+}
+
+// recordConfigEvent reports an admin SSO-configuration action, actor = the
+// admin principal on the request context (both routes are admin-gated). The
+// metadata never carries the client secret.
+func (s *SSOService) recordConfigEvent(ctx context.Context, action auditlog.Action, metadata map[string]any) {
+	if s.onAuditEvent == nil {
+		return
+	}
+	actorID, actorDisplay := "", ""
+	if principal := services.PrincipalFromContext(ctx); principal != nil {
+		actorID, actorDisplay = principal.UserId, principal.Email
+		if actorDisplay == "" {
+			actorDisplay = principal.UserId
+		}
+	}
+	s.onAuditEvent(ctx, auditlog.Event{
+		ActorType:    auditlog.ActorUser,
+		ActorID:      actorID,
+		ActorDisplay: actorDisplay,
+		Action:       action,
+		TargetType:   "sso_config",
+		TargetID:     "sso_config",
+		Outcome:      auditlog.OutcomeSuccess,
+		Metadata:     metadata,
+	})
 }
 
 type flowState struct {
@@ -595,6 +700,22 @@ func (s *SSOService) lookupOrProvision(ctx context.Context, cfg *SSOConfig, subj
 		if err := s.repo.LinkIdentity(ctx, issuer, subject, existing.Id, email); err != nil {
 			return store.User{}, err
 		}
+		// A new sign-in door just opened on an existing account (possibly an
+		// admin's): the binding is its own security event, distinct from the
+		// sso_login that follows it.
+		if s.onAuditEvent != nil {
+			s.onAuditEvent(ctx, auditlog.Event{
+				ActorType:     auditlog.ActorSystem,
+				ActorID:       "sso",
+				ActorDisplay:  "SSO provisioning",
+				Action:        auditlog.ActionUserSSOLinked,
+				TargetType:    "user",
+				TargetID:      existing.Id,
+				TargetDisplay: existing.Email,
+				Outcome:       auditlog.OutcomeSuccess,
+				Metadata:      map[string]any{"issuer": issuer, "subject": subject},
+			})
+		}
 		return existing, nil
 	}
 	if notFoundErr := (*store.ErrResourceNotFound)(nil); !errors.As(err, &notFoundErr) {
@@ -605,13 +726,36 @@ func (s *SSOService) lookupOrProvision(ctx context.Context, cfg *SSOConfig, subj
 	// the account is SSO-only until SSO is turned off and an admin intervenes.
 	// Under manual validation the row lands disabled and the sign-in that
 	// created it is refused, so the admin has something concrete to approve.
-	return s.repo.ProvisionUser(ctx, store.InsertUserParameters{
+	user, err = s.repo.ProvisionUser(ctx, store.InsertUserParameters{
 		ID:           uuid.New().String(),
 		Email:        email,
 		PasswordHash: "",
 		IsAdmin:      false,
 		Enabled:      !cfg.ManualUserValidation,
 	}, issuer, subject)
+	if err != nil {
+		return store.User{}, err
+	}
+	// The IdP created this account, no dashboard principal exists yet: the
+	// actor is the system, the identity facts go to the metadata.
+	if s.onAuditEvent != nil {
+		s.onAuditEvent(ctx, auditlog.Event{
+			ActorType:     auditlog.ActorSystem,
+			ActorID:       "sso",
+			ActorDisplay:  "SSO provisioning",
+			Action:        auditlog.ActionUserSSOProvisioned,
+			TargetType:    "user",
+			TargetID:      user.Id,
+			TargetDisplay: user.Email,
+			Outcome:       auditlog.OutcomeSuccess,
+			Metadata: map[string]any{
+				"issuer":           issuer,
+				"subject":          subject,
+				"pending_approval": cfg.ManualUserValidation,
+			},
+		})
+	}
+	return user, nil
 }
 
 // emailFromClaims resolves the account email. Entra commonly omits the email

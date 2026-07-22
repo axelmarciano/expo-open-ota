@@ -8,9 +8,11 @@ import (
 	"context"
 	"errors"
 	"expo-open-ota/ee/licensing"
+	"expo-open-ota/internal/auditlog"
 	"expo-open-ota/internal/services"
 	"fmt"
 	"net/netip"
+	"strconv"
 )
 
 // ApiKeyRestrictions is the enterprise access restrictions attached to one
@@ -32,6 +34,8 @@ type ApiKeyRestrictionRepository interface {
 	GetRestrictions(ctx context.Context, apiKeyID int64) (ApiKeyRestrictions, error)
 	SetBranchProtection(ctx context.Context, appID string, branchName string, protected bool) error
 	IsBranchProtected(ctx context.Context, appID string, branchName string) (bool, error)
+	// GetApiKeyName resolves the key's display name for the audit trail.
+	GetApiKeyName(ctx context.Context, appID string, apiKeyID int64) (string, error)
 }
 
 var (
@@ -56,6 +60,42 @@ type ApiKeyRestrictionService struct {
 	// licenseValid is the live licensing state; a field so same-package tests
 	// can pin it without minting signed keys.
 	licenseValid func() bool
+	// onAuditEvent is the audit emission seam; nil means restriction changes
+	// leave no events.
+	onAuditEvent auditlog.RecordFunc
+}
+
+// SetOnAuditEvent plugs the audit emission seam. Nil-safe.
+func (s *ApiKeyRestrictionService) SetOnAuditEvent(record auditlog.RecordFunc) {
+	s.onAuditEvent = record
+}
+
+// recordRestrictionEvent reports one restriction mutation, actor = the
+// dashboard principal on the request context (both routes are
+// permission-gated dashboard mutations).
+func (s *ApiKeyRestrictionService) recordRestrictionEvent(ctx context.Context, action auditlog.Action, targetType string, targetID string, targetDisplay string, appID string, metadata map[string]any) {
+	if s.onAuditEvent == nil {
+		return
+	}
+	actorID, actorDisplay := "", ""
+	if principal := services.PrincipalFromContext(ctx); principal != nil {
+		actorID, actorDisplay = principal.UserId, principal.Email
+		if actorDisplay == "" {
+			actorDisplay = principal.UserId
+		}
+	}
+	s.onAuditEvent(ctx, auditlog.Event{
+		ActorType:     auditlog.ActorUser,
+		ActorID:       actorID,
+		ActorDisplay:  actorDisplay,
+		Action:        action,
+		TargetType:    targetType,
+		TargetID:      targetID,
+		TargetDisplay: targetDisplay,
+		AppID:         appID,
+		Outcome:       auditlog.OutcomeSuccess,
+		Metadata:      metadata,
+	})
 }
 
 // NewApiKeyRestrictionService accepts a nil repository (stateless mode);
@@ -86,7 +126,29 @@ func (s *ApiKeyRestrictionService) SetRestrictions(ctx context.Context, appID st
 	if err != nil {
 		return err
 	}
-	return s.repo.SetRestrictions(ctx, appID, apiKeyID, canAccessProtectedBranches, allowedIps)
+	if err := s.repo.SetRestrictions(ctx, appID, apiKeyID, canAccessProtectedBranches, allowedIps); err != nil {
+		return err
+	}
+	// CIDRs are access policy, not secrets: the point of the entry is "who
+	// widened this key's reach and when". Recorded in their NORMALIZED form,
+	// the one actually persisted and enforced, not the raw input: parseCidrs
+	// masks host bits, and the log must state the effective allow-list.
+	normalizedCidrs := make([]string, len(allowedIps))
+	for i, prefix := range allowedIps {
+		normalizedCidrs[i] = prefix.String()
+	}
+	// Same convention as api_key.created/revoked: the entry names the key,
+	// the numeric id stays the stable target id. Best-effort lookup.
+	targetDisplay := strconv.FormatInt(apiKeyID, 10)
+	if s.onAuditEvent != nil {
+		if name, nameErr := s.repo.GetApiKeyName(ctx, appID, apiKeyID); nameErr == nil {
+			targetDisplay = name
+		}
+	}
+	s.recordRestrictionEvent(ctx, auditlog.ActionAPIKeyRestrictionsUpdated,
+		"api_key", strconv.FormatInt(apiKeyID, 10), targetDisplay, appID,
+		map[string]any{"can_access_protected_branches": canAccessProtectedBranches, "allowed_cidrs": normalizedCidrs})
+	return nil
 }
 
 func (s *ApiKeyRestrictionService) SetBranchProtection(ctx context.Context, appID string, branchName string, protected bool) error {
@@ -96,7 +158,12 @@ func (s *ApiKeyRestrictionService) SetBranchProtection(ctx context.Context, appI
 	if !s.licenseValid() {
 		return ErrRequiresValidLicense
 	}
-	return s.repo.SetBranchProtection(ctx, appID, branchName, protected)
+	if err := s.repo.SetBranchProtection(ctx, appID, branchName, protected); err != nil {
+		return err
+	}
+	s.recordRestrictionEvent(ctx, auditlog.ActionBranchProtectionUpdated,
+		"branch", branchName, branchName, appID, map[string]any{"protected": protected})
+	return nil
 }
 
 // AuthorizeCliRequest implements services.CliAccessPolicy: it enforces the
