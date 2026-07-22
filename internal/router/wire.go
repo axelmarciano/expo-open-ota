@@ -17,7 +17,6 @@ import (
 	"expo-open-ota/internal/services"
 	"expo-open-ota/internal/store"
 	"log"
-	"strconv"
 	"time"
 )
 
@@ -153,14 +152,15 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// no-ops without a control plane and a currently valid license, so the
 	// call sites stay unconditional.
 	auditService := audit.NewAuditService(auditRepo, licensing.IsEnterprise)
-	// Retention: purge once at boot, then daily. Not license gated, so a
-	// lapsed license cannot make entries outlive the retention promise.
-	retentionDays, err := strconv.Atoi(config.GetEnv("AUDIT_LOG_RETENTION_DAYS"))
-	if err != nil || retentionDays < 1 {
-		log.Printf("⚠️  [AUDIT] Invalid AUDIT_LOG_RETENTION_DAYS %q, using 550", config.GetEnv("AUDIT_LOG_RETENTION_DAYS"))
-		retentionDays = 550
+	// The archive and the retention purge read their own configuration: that
+	// knowledge is the feature's, not the wiring's. The archive starts first
+	// so the purge spares unarchived rows, and an enabled-but-misconfigured
+	// archive fails the boot loudly: a compliance archive that silently does
+	// not run is worse than a crash.
+	if err := auditService.StartArchiveFromEnv(ctx); err != nil {
+		log.Fatalf("🚨 [AUDIT] %v", err)
 	}
-	auditService.StartRetentionPurge(ctx, time.Duration(retentionDays)*24*time.Hour)
+	auditService.StartRetentionPurgeFromEnv(ctx)
 	apiKeyRestrictionService.SetOnAuditEvent(auditService.Record)
 	rbacService := rbac.NewRBACService(rbacRepo, userRepo)
 	rbacService.SetOnAuditEvent(auditService.Record)

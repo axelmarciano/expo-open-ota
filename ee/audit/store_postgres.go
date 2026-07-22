@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type PostgresAuditStore struct {
@@ -122,12 +123,95 @@ func (s *PostgresAuditStore) List(ctx context.Context, params ListParams) ([]Eve
 	return events, nil
 }
 
-func (s *PostgresAuditStore) PurgeBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	commandTag, err := s.engine.Queries.PurgeAuditLogEventsBefore(ctx, pgtype.Timestamptz{Time: cutoff, Valid: true})
+func (s *PostgresAuditStore) PurgeBefore(ctx context.Context, cutoff time.Time, exportedOnly bool) (int64, error) {
+	pgCutoff := pgtype.Timestamptz{Time: cutoff, Valid: true}
+	if exportedOnly {
+		commandTag, err := s.engine.Queries.PurgeExportedAuditLogEventsBefore(ctx, pgCutoff)
+		if err != nil {
+			return 0, fmt.Errorf("failed to purge exported audit events from database: %w", err)
+		}
+		return commandTag.RowsAffected(), nil
+	}
+	commandTag, err := s.engine.Queries.PurgeAuditLogEventsBefore(ctx, pgCutoff)
 	if err != nil {
 		return 0, fmt.Errorf("failed to purge audit events from database: %w", err)
 	}
 	return commandTag.RowsAffected(), nil
+}
+
+func (s *PostgresAuditStore) ListAfter(ctx context.Context, afterID int64, limit int) ([]Event, error) {
+	rows, err := s.engine.Queries.ListAuditLogEventsAfter(ctx, pgdb.ListAuditLogEventsAfterParams{
+		ID:    afterID,
+		Limit: int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list audit events for export from database: %w", err)
+	}
+	events := make([]Event, len(rows))
+	for i, row := range rows {
+		events[i] = eventFromRow(row)
+	}
+	return events, nil
+}
+
+func (s *PostgresAuditStore) ExportCursor(ctx context.Context) (int64, error) {
+	cursor, err := s.engine.Queries.GetAuditExportCursor(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read the audit export cursor from database: %w", err)
+	}
+	return cursor, nil
+}
+
+// exportAdvisoryLockID serializes archive exporters across replicas (see
+// migrationAdvisoryLockID in internal/database/postgres for the convention).
+const exportAdvisoryLockID = 823672943
+
+// TryExportLock claims the "one exporter at a time" advisory lock. A session
+// advisory lock belongs to the connection that took it, so it lives on a
+// connection pinned from the pool for the whole export, never on the shared
+// pool where every query may land on a different session.
+func (s *PostgresAuditStore) TryExportLock(ctx context.Context) (func(), bool, error) {
+	pool, isPool := s.engine.DB.(*pgxpool.Pool)
+	if !isPool {
+		// No pool means no session to pin: run unlocked. The cursor CAS keeps
+		// concurrent exporters correct, the lock only spares duplicate uploads.
+		return func() {}, true, nil
+	}
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to acquire a connection for the audit export lock: %w", err)
+	}
+	var locked bool
+	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", exportAdvisoryLockID).Scan(&locked); err != nil {
+		conn.Release()
+		return nil, false, fmt.Errorf("failed to take the audit export lock: %w", err)
+	}
+	if !locked {
+		conn.Release()
+		return nil, false, nil
+	}
+	release := func() {
+		// Background context: the unlock must run even after the tick's
+		// timeout. A failed unlock must not return a still-locked session to
+		// the pool (the lock would leak forever), so the session is closed
+		// instead: ending it releases every advisory lock it holds.
+		if _, err := conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", exportAdvisoryLockID); err != nil {
+			_ = conn.Conn().Close(context.Background())
+		}
+		conn.Release()
+	}
+	return release, true, nil
+}
+
+func (s *PostgresAuditStore) AdvanceExportCursor(ctx context.Context, from int64, to int64) (bool, error) {
+	commandTag, err := s.engine.Queries.AdvanceAuditExportCursor(ctx, pgdb.AdvanceAuditExportCursorParams{
+		LastExportedID:   from,
+		LastExportedID_2: to,
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to advance the audit export cursor in database: %w", err)
+	}
+	return commandTag.RowsAffected() == 1, nil
 }
 
 func (s *PostgresAuditStore) Count(ctx context.Context, filters ListFilters) (int64, error) {

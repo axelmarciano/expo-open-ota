@@ -13,6 +13,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const advanceAuditExportCursor = `-- name: AdvanceAuditExportCursor :execresult
+UPDATE audit_export_state
+SET last_exported_id = $2
+WHERE id AND last_exported_id = $1
+`
+
+type AdvanceAuditExportCursorParams struct {
+	LastExportedID   int64 `json:"last_exported_id"`
+	LastExportedID_2 int64 `json:"last_exported_id_2"`
+}
+
+// Optimistic compare-and-swap: 0 rows means another replica advanced first
+// and this batch must be abandoned (its file was an idempotent overwrite).
+func (q *Queries) AdvanceAuditExportCursor(ctx context.Context, arg AdvanceAuditExportCursorParams) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, advanceAuditExportCursor, arg.LastExportedID, arg.LastExportedID_2)
+}
+
 const clearUpdateRollout = `-- name: ClearUpdateRollout :execrows
 UPDATE updates
 SET rollout_percentage = NULL
@@ -460,6 +477,17 @@ func (q *Queries) GetApps(ctx context.Context) ([]GetAppsRow, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const getAuditExportCursor = `-- name: GetAuditExportCursor :one
+SELECT last_exported_id FROM audit_export_state WHERE id
+`
+
+func (q *Queries) GetAuditExportCursor(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, getAuditExportCursor)
+	var last_exported_id int64
+	err := row.Scan(&last_exported_id)
+	return last_exported_id, err
 }
 
 const getBranchByName = `-- name: GetBranchByName :one
@@ -2132,6 +2160,61 @@ func (q *Queries) ListAuditLogEvents(ctx context.Context, arg ListAuditLogEvents
 	return items, nil
 }
 
+const listAuditLogEventsAfter = `-- name: ListAuditLogEventsAfter :many
+SELECT id, occurred_at, actor_type, actor_id, actor_display, action, target_type, target_id, target_display, app_id, outcome, ip, user_agent, metadata FROM audit_log_events
+WHERE id > $1
+  AND occurred_at < now() - INTERVAL '30 seconds'
+ORDER BY id ASC
+LIMIT $2
+`
+
+type ListAuditLogEventsAfterParams struct {
+	ID    int64 `json:"id"`
+	Limit int32 `json:"limit"`
+}
+
+// The archive exporter's batch read: strictly after the cursor, oldest first.
+// The 30-second visibility lag closes a loss window: BIGSERIAL ids are drawn
+// in execution order but rows become visible in commit order, so without the
+// lag the exporter could read id N+1, advance the cursor past a still
+// uncommitted id N, and never see N again. Inserts live at most 5 seconds
+// (recordTimeout in ee/audit), so a row stamped 30 seconds ago (occurred_at
+// and now() share the database clock) is committed or gone for good.
+func (q *Queries) ListAuditLogEventsAfter(ctx context.Context, arg ListAuditLogEventsAfterParams) ([]AuditLogEvent, error) {
+	rows, err := q.db.Query(ctx, listAuditLogEventsAfter, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuditLogEvent
+	for rows.Next() {
+		var i AuditLogEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.OccurredAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.ActorDisplay,
+			&i.Action,
+			&i.TargetType,
+			&i.TargetID,
+			&i.TargetDisplay,
+			&i.AppID,
+			&i.Outcome,
+			&i.Ip,
+			&i.UserAgent,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRoles = `-- name: ListRoles :many
 SELECT id, name, permissions, created_at, updated_at FROM roles
 ORDER BY name ASC
@@ -2494,6 +2577,19 @@ WHERE occurred_at < $1
 // The retention purge, the audit table's single mutation besides inserts.
 func (q *Queries) PurgeAuditLogEventsBefore(ctx context.Context, occurredAt pgtype.Timestamptz) (pgconn.CommandTag, error) {
 	return q.db.Exec(ctx, purgeAuditLogEventsBefore, occurredAt)
+}
+
+const purgeExportedAuditLogEventsBefore = `-- name: PurgeExportedAuditLogEventsBefore :execresult
+DELETE FROM audit_log_events
+WHERE occurred_at < $1
+  AND id <= (SELECT last_exported_id FROM audit_export_state)
+`
+
+// The retention purge while archiving is enabled: an expired row that the
+// exporter has not archived yet is kept until it is, so "purged rows live on
+// in the archive" holds even when the purge races a large export backlog.
+func (q *Queries) PurgeExportedAuditLogEventsBefore(ctx context.Context, occurredAt pgtype.Timestamptz) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, purgeExportedAuditLogEventsBefore, occurredAt)
 }
 
 const repointChannelToRolloutBranch = `-- name: RepointChannelToRolloutBranch :execrows

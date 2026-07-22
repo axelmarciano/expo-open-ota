@@ -7,8 +7,10 @@ package audit
 import (
 	"context"
 	"errors"
+	"expo-open-ota/config"
 	"expo-open-ota/internal/auditlog"
 	"log"
+	"strconv"
 	"time"
 )
 
@@ -57,7 +59,18 @@ type AuditRepository interface {
 	Insert(ctx context.Context, event Event) (Event, error)
 	List(ctx context.Context, params ListParams) ([]Event, error)
 	Count(ctx context.Context, filters ListFilters) (int64, error)
-	PurgeBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	// exportedOnly keeps expired rows the archive exporter has not reached
+	// yet: set while archiving is enabled, so nothing is deleted unarchived.
+	PurgeBefore(ctx context.Context, cutoff time.Time, exportedOnly bool) (int64, error)
+	// The archive exporter's cursor and batch read (see exporter.go).
+	ListAfter(ctx context.Context, afterID int64, limit int) ([]Event, error)
+	ExportCursor(ctx context.Context) (int64, error)
+	AdvanceExportCursor(ctx context.Context, from int64, to int64) (bool, error)
+	// TryExportLock claims the cluster-wide exporter slot: ok=false means
+	// another replica is archiving right now, skip the tick. release gives
+	// the slot back. Purely an upload-dedup optimization: the cursor CAS
+	// alone keeps concurrent exporters correct.
+	TryExportLock(ctx context.Context) (release func(), ok bool, err error)
 }
 
 var (
@@ -72,6 +85,10 @@ var (
 type AuditService struct {
 	repo         AuditRepository
 	licenseValid func() bool
+	// archiveEnabled is set by startArchive (before any purge goroutine
+	// starts, see the wiring order) and makes the retention purge keep
+	// expired rows the exporter has not archived yet.
+	archiveEnabled bool
 }
 
 // NewAuditService accepts a nil repository (stateless mode); reads then answer
@@ -159,18 +176,33 @@ func (s *AuditService) Count(ctx context.Context, filters ListFilters) (int64, e
 
 // PurgeOlderThan applies the retention window. Deliberately not license
 // gated: retention is a promise about collected data, and a lapsed license
-// must not make entries outlive it.
+// must not make entries outlive it. While archiving is enabled, expired rows
+// the exporter has not archived yet survive until it catches up: "purged rows
+// live on in the archive" must hold even against a large export backlog.
 func (s *AuditService) PurgeOlderThan(ctx context.Context, retention time.Duration) (int64, error) {
 	if s.repo == nil {
 		return 0, ErrRequiresControlPlane
 	}
-	return s.repo.PurgeBefore(ctx, time.Now().Add(-retention))
+	return s.repo.PurgeBefore(ctx, time.Now().Add(-retention), s.archiveEnabled)
+}
+
+// StartRetentionPurgeFromEnv reads AUDIT_LOG_RETENTION_DAYS (falling back to
+// 550, roughly eighteen months) and starts the daily purge. Not license
+// gated, so a lapsed license cannot make entries outlive the retention
+// promise; a stateless deployment declines inside StartRetentionPurge.
+func (s *AuditService) StartRetentionPurgeFromEnv(ctx context.Context) {
+	retentionDays, err := strconv.Atoi(config.GetEnv("AUDIT_LOG_RETENTION_DAYS"))
+	if err != nil || retentionDays < 1 {
+		log.Printf("⚠️  [AUDIT] Invalid AUDIT_LOG_RETENTION_DAYS %q, using 550", config.GetEnv("AUDIT_LOG_RETENTION_DAYS"))
+		retentionDays = 550
+	}
+	s.startRetentionPurge(ctx, time.Duration(retentionDays)*24*time.Hour)
 }
 
 // StartRetentionPurge purges once at boot then daily (see licensing.StartSync
 // for the pattern). Multiple replicas racing the same DELETE are harmless:
 // rows are only deleted once.
-func (s *AuditService) StartRetentionPurge(ctx context.Context, retention time.Duration) {
+func (s *AuditService) startRetentionPurge(ctx context.Context, retention time.Duration) {
 	if s.repo == nil {
 		return
 	}

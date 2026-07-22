@@ -201,6 +201,18 @@ func (b *AzureBucket) UploadFileIntoUpdate(update types.Update, fileName string,
 	return nil
 }
 
+// PutObject implements the audit archive's object write.
+func (b *AzureBucket) PutObject(ctx context.Context, key string, body []byte) error {
+	cc, err := b.containerClient()
+	if err != nil {
+		return err
+	}
+	if _, err := cc.NewBlockBlobClient(b.prefixedKey(key)).UploadStream(ctx, bytes.NewReader(body), nil); err != nil {
+		return fmt.Errorf("error uploading blob: %w", err)
+	}
+	return nil
+}
+
 func (b *AzureBucket) DeleteUpdateFolder(appId, branch, runtimeVersion, updateId string) error {
 	ctx := context.Background()
 	cc, err := b.containerClient()

@@ -256,6 +256,20 @@ func (b *GCSBucket) UploadFileIntoUpdate(update types.Update, fileName string, f
 	return nil
 }
 
+// PutObject implements the audit archive's object write.
+func (b *GCSBucket) PutObject(ctx context.Context, key string, body []byte) error {
+	bh, err := b.bucketHandle(ctx)
+	if err != nil {
+		return err
+	}
+	w := bh.Object(b.prefixedKey(key)).NewWriter(ctx)
+	if _, err := w.Write(body); err != nil {
+		_ = w.Close()
+		return err
+	}
+	return w.Close()
+}
+
 func (b *GCSBucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId string) (*types.Update, error) {
 	if b.BucketName == "" {
 		return nil, errors.New("BucketName not set")

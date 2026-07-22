@@ -302,6 +302,26 @@ func (b *S3Bucket) UploadFileIntoUpdate(update types.Update, fileName string, fi
 	return nil
 }
 
+// PutObject implements the audit archive's object write.
+func (b *S3Bucket) PutObject(ctx context.Context, key string, body []byte) error {
+	if b.BucketName == "" {
+		return errors.New("BucketName not set")
+	}
+	s3Client, err := aws.GetS3Client()
+	if err != nil {
+		return err
+	}
+	input := &s3.PutObjectInput{
+		Bucket: awssdk.String(b.BucketName),
+		Key:    awssdk.String(b.prefixedKey(key)),
+		Body:   bytes.NewReader(body),
+	}
+	if _, err := s3Client.PutObject(ctx, input); err != nil {
+		return fmt.Errorf("PutObject error: %w", err)
+	}
+	return nil
+}
+
 func (b *S3Bucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId string) (*types.Update, error) {
 	if b.BucketName == "" {
 		return nil, errors.New("BucketName not set")

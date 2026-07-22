@@ -32,8 +32,18 @@ func (f *fakeAuditStore) List(_ context.Context, _ audit.ListParams) ([]auditlog
 func (f *fakeAuditStore) Count(_ context.Context, _ audit.ListFilters) (int64, error) {
 	return 0, nil
 }
-func (f *fakeAuditStore) PurgeBefore(_ context.Context, _ time.Time) (int64, error) {
+func (f *fakeAuditStore) PurgeBefore(_ context.Context, _ time.Time, _ bool) (int64, error) {
 	return 0, nil
+}
+func (f *fakeAuditStore) ListAfter(_ context.Context, _ int64, _ int) ([]auditlog.Event, error) {
+	return nil, nil
+}
+func (f *fakeAuditStore) ExportCursor(_ context.Context) (int64, error) { return 0, nil }
+func (f *fakeAuditStore) TryExportLock(_ context.Context) (func(), bool, error) {
+	return func() {}, true, nil
+}
+func (f *fakeAuditStore) AdvanceExportCursor(_ context.Context, _ int64, _ int64) (bool, error) {
+	return true, nil
 }
 
 func TestActivateAndRemoveEmitAuditEvents(t *testing.T) {

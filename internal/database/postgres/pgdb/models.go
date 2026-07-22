@@ -37,6 +37,11 @@ type App struct {
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 }
 
+type AuditExportState struct {
+	ID             bool  `json:"id"`
+	LastExportedID int64 `json:"last_exported_id"`
+}
+
 type AuditLogEvent struct {
 	ID            int64              `json:"id"`
 	OccurredAt    pgtype.Timestamptz `json:"occurred_at"`

@@ -2,6 +2,7 @@ package bucket
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"expo-open-ota/config"
 	"expo-open-ota/internal/crypto"
@@ -209,6 +210,20 @@ func (b *LocalBucket) GetRuntimeVersions(appId string, branch string) ([]types.R
 	}
 
 	return runtimeVersions, nil
+}
+
+// PutObject implements the audit archive's object write.
+func (b *LocalBucket) PutObject(_ context.Context, key string, body []byte) error {
+	// Same anti-traversal mechanism as the update assets (validatingBucket):
+	// no "..", no absolute paths, no backslashes.
+	if err := validateRelativePath("object key", key); err != nil {
+		return err
+	}
+	filePath := filepath.Join(b.rootPath(), filepath.FromSlash(key))
+	if err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
+		return err
+	}
+	return os.WriteFile(filePath, body, 0o644)
 }
 
 func (b *LocalBucket) UploadFileIntoUpdate(update types.Update, fileName string, file io.Reader) error {

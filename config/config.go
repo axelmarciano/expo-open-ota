@@ -133,6 +133,14 @@ var DefaultEnvValues = map[string]string{
 	"AWS_REGION":             "eu-west-3",
 	"AWS_BASE_ENDPOINT":      "",
 
+	// Audit archive (ee/audit): opt-in periodic NDJSON export of the audit
+	// log to a DEDICATED bucket/container/directory (per-provider name
+	// variables, see bucket.GetAuditLogsObjectStore). Off by default:
+	// writing to the operator's storage must be a choice.
+	"ARCHIVE_AUDIT_LOGS":                 "false",
+	"AUDIT_LOGS_EXPORT_INTERVAL_SECONDS": "300",
+	"LOCAL_AUDIT_LOGS_BASE_PATH":         "./audit-logs",
+
 	// Audit log retention (ee/audit): about 1.5 years, matching EAS and the
 	// 1-3 year industry norm. Purged rows are gone from Postgres; anything
 	// longer lived belongs to the operator's own pipeline (database backups,

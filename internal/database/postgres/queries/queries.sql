@@ -926,10 +926,42 @@ WHERE (sqlc.narg('actor_id')::TEXT IS NULL OR actor_id = sqlc.narg('actor_id'))
 ORDER BY id DESC
 LIMIT sqlc.arg('row_limit');
 
+-- name: ListAuditLogEventsAfter :many
+-- The archive exporter's batch read: strictly after the cursor, oldest first.
+-- The 30-second visibility lag closes a loss window: BIGSERIAL ids are drawn
+-- in execution order but rows become visible in commit order, so without the
+-- lag the exporter could read id N+1, advance the cursor past a still
+-- uncommitted id N, and never see N again. Inserts live at most 5 seconds
+-- (recordTimeout in ee/audit), so a row stamped 30 seconds ago (occurred_at
+-- and now() share the database clock) is committed or gone for good.
+SELECT * FROM audit_log_events
+WHERE id > $1
+  AND occurred_at < now() - INTERVAL '30 seconds'
+ORDER BY id ASC
+LIMIT $2;
+
+-- name: GetAuditExportCursor :one
+SELECT last_exported_id FROM audit_export_state WHERE id;
+
+-- name: AdvanceAuditExportCursor :execresult
+-- Optimistic compare-and-swap: 0 rows means another replica advanced first
+-- and this batch must be abandoned (its file was an idempotent overwrite).
+UPDATE audit_export_state
+SET last_exported_id = $2
+WHERE id AND last_exported_id = $1;
+
 -- name: PurgeAuditLogEventsBefore :execresult
 -- The retention purge, the audit table's single mutation besides inserts.
 DELETE FROM audit_log_events
 WHERE occurred_at < $1;
+
+-- name: PurgeExportedAuditLogEventsBefore :execresult
+-- The retention purge while archiving is enabled: an expired row that the
+-- exporter has not archived yet is kept until it is, so "purged rows live on
+-- in the archive" holds even when the purge races a large export backlog.
+DELETE FROM audit_log_events
+WHERE occurred_at < $1
+  AND id <= (SELECT last_exported_id FROM audit_export_state);
 
 -- name: CountAuditLogEvents :one
 -- Same filters as ListAuditLogEvents minus the cursor: the total the viewer

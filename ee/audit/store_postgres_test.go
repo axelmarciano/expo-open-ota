@@ -230,7 +230,7 @@ func TestPurgeBeforeRemovesOnlyExpiredRows(t *testing.T) {
 		expired.ID)
 	require.NoError(t, err)
 
-	purged, err := auditStore.PurgeBefore(ctx, time.Now().Add(-550*24*time.Hour))
+	purged, err := auditStore.PurgeBefore(ctx, time.Now().Add(-550*24*time.Hour), false)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, purged, int64(1))
 
@@ -241,6 +241,139 @@ func TestPurgeBeforeRemovesOnlyExpiredRows(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, events, 1)
 	require.Equal(t, fresh.ID, events[0].ID)
+}
+
+func TestExportCursorAndListAfter(t *testing.T) {
+	auditStore, pool := setupAuditStore(t)
+	ctx := context.Background()
+	actorID := uuid.NewString()
+
+	first := insertTestEvent(t, auditStore, Event{
+		ActorType: auditlog.ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
+		Action: auditlog.ActionUserLogin, TargetType: "user", TargetID: actorID,
+	})
+	second := insertTestEvent(t, auditStore, Event{
+		ActorType: auditlog.ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
+		Action: auditlog.ActionUserLogin, TargetType: "user", TargetID: actorID,
+	})
+	// ListAfter hides rows younger than its visibility lag (see the query),
+	// so freshly inserted rows are aged past it by hand.
+	_, err := pool.Exec(ctx,
+		"UPDATE audit_log_events SET occurred_at = now() - interval '1 minute' WHERE id = ANY($1)",
+		[]int64{first.ID, second.ID})
+	require.NoError(t, err)
+
+	// ListAfter is strictly-after and oldest first; the shared table holds
+	// other tests' rows, so assert order and membership, not exact contents.
+	events, err := auditStore.ListAfter(ctx, first.ID-1, 100000)
+	require.NoError(t, err)
+	indexOf := func(id int64) int {
+		for i, event := range events {
+			if event.ID == id {
+				return i
+			}
+		}
+		return -1
+	}
+	require.GreaterOrEqual(t, indexOf(first.ID), 0)
+	require.Greater(t, indexOf(second.ID), indexOf(first.ID))
+	for i := 1; i < len(events); i++ {
+		require.Greater(t, events[i].ID, events[i-1].ID)
+	}
+	// Strictly after: the cursor row itself is excluded.
+	afterSecond, err := auditStore.ListAfter(ctx, second.ID, 100000)
+	require.NoError(t, err)
+	require.Equal(t, -1, func() int {
+		for i, event := range afterSecond {
+			if event.ID == second.ID {
+				return i
+			}
+		}
+		return -1
+	}())
+
+	// The visibility lag: a row younger than 30 seconds stays invisible to
+	// the exporter, so a not-yet-committed smaller id can never be skipped.
+	fresh := insertTestEvent(t, auditStore, Event{
+		ActorType: auditlog.ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
+		Action: auditlog.ActionUserLogin, TargetType: "user", TargetID: actorID,
+	})
+	lagged, err := auditStore.ListAfter(ctx, first.ID-1, 100000)
+	require.NoError(t, err)
+	for _, event := range lagged {
+		require.NotEqual(t, fresh.ID, event.ID)
+	}
+
+	// The CAS singleton: advancing from the current value wins, a stale
+	// expectation loses. Re-advancing to the same value keeps shared state
+	// intact for the other test runs.
+	cursor, err := auditStore.ExportCursor(ctx)
+	require.NoError(t, err)
+	advanced, err := auditStore.AdvanceExportCursor(ctx, cursor, cursor)
+	require.NoError(t, err)
+	require.True(t, advanced)
+	advanced, err = auditStore.AdvanceExportCursor(ctx, cursor+987654321, cursor)
+	require.NoError(t, err)
+	require.False(t, advanced)
+}
+
+func TestExportLockIsExclusive(t *testing.T) {
+	auditStore, _ := setupAuditStore(t)
+	ctx := context.Background()
+
+	release, locked, err := auditStore.TryExportLock(ctx)
+	require.NoError(t, err)
+	require.True(t, locked)
+
+	// A second claim rides another pooled connection, like another replica
+	// would: it must lose while the first one holds the lock.
+	_, lockedAgain, err := auditStore.TryExportLock(ctx)
+	require.NoError(t, err)
+	require.False(t, lockedAgain)
+
+	release()
+	releaseAfter, lockedAfter, err := auditStore.TryExportLock(ctx)
+	require.NoError(t, err)
+	require.True(t, lockedAfter)
+	releaseAfter()
+}
+
+func TestPurgeExportedOnlySparesUnarchivedRows(t *testing.T) {
+	auditStore, pool := setupAuditStore(t)
+	actorID := uuid.NewString()
+	ctx := context.Background()
+
+	archived := insertTestEvent(t, auditStore, Event{
+		ActorType: auditlog.ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
+		Action: auditlog.ActionUserLogin, TargetType: "user", TargetID: actorID,
+	})
+	unarchived := insertTestEvent(t, auditStore, Event{
+		ActorType: auditlog.ActorUser, ActorID: actorID, ActorDisplay: "a@example.com",
+		Action: auditlog.ActionUserLogin, TargetType: "user", TargetID: actorID,
+	})
+	// Both are past retention; only the first is behind the export cursor.
+	_, err := pool.Exec(ctx,
+		"UPDATE audit_log_events SET occurred_at = now() - interval '600 days' WHERE id = ANY($1)",
+		[]int64{archived.ID, unarchived.ID})
+	require.NoError(t, err)
+	cursor, err := auditStore.ExportCursor(ctx)
+	require.NoError(t, err)
+	advanced, err := auditStore.AdvanceExportCursor(ctx, cursor, archived.ID)
+	require.NoError(t, err)
+	require.True(t, advanced)
+
+	_, err = auditStore.PurgeBefore(ctx, time.Now().Add(-550*24*time.Hour), true)
+	require.NoError(t, err)
+
+	// The archived row is gone, the expired-but-unarchived one survives
+	// until the exporter reaches it.
+	events, err := auditStore.List(ctx, ListParams{
+		ListFilters: ListFilters{ActorID: &actorID},
+		Limit:       10,
+	})
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, unarchived.ID, events[0].ID)
 }
 
 func TestAuditEventKeysetPagination(t *testing.T) {

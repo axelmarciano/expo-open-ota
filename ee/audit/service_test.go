@@ -19,14 +19,23 @@ type fakeAuditRepo struct {
 	// ctxErrAtInsert and hadDeadline capture the state of the context Record
 	// hands to the repository, to prove the insert survives request
 	// cancellation while staying time-bounded.
-	ctxErrAtInsert error
-	hadDeadline    bool
-	insertErr      error
-	listErr        error
-	listResult     []Event
-	listParams     ListParams
-	purgeCutoff    time.Time
-	purgedCount    int64
+	ctxErrAtInsert    error
+	hadDeadline       bool
+	insertErr         error
+	listErr           error
+	listResult        []Event
+	listParams        ListParams
+	purgeCutoff       time.Time
+	purgeExportedOnly bool
+	purgedCount       int64
+	exportCursor      int64
+	// casLoses makes AdvanceExportCursor lose the optimistic race, like a
+	// concurrent replica advancing first.
+	casLoses bool
+	// lockBusy simulates another replica holding the export advisory lock.
+	lockBusy     bool
+	lockAcquired int
+	lockReleased int
 }
 
 func (f *fakeAuditRepo) Insert(ctx context.Context, event Event) (Event, error) {
@@ -64,9 +73,47 @@ func (f *fakeAuditRepo) Count(ctx context.Context, filters ListFilters) (int64, 
 	return int64(len(f.listResult)), nil
 }
 
-func (f *fakeAuditRepo) PurgeBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+func (f *fakeAuditRepo) PurgeBefore(ctx context.Context, cutoff time.Time, exportedOnly bool) (int64, error) {
 	f.purgeCutoff = cutoff
+	f.purgeExportedOnly = exportedOnly
 	return f.purgedCount, nil
+}
+
+// ListAfter mirrors the store: strictly after the cursor, oldest first
+// (listResult is seeded newest first, so it scans backwards).
+func (f *fakeAuditRepo) ListAfter(ctx context.Context, afterID int64, limit int) ([]Event, error) {
+	result := make([]Event, 0, limit)
+	for i := len(f.listResult) - 1; i >= 0; i-- {
+		event := f.listResult[i]
+		if event.ID <= afterID {
+			continue
+		}
+		result = append(result, event)
+		if len(result) == limit {
+			break
+		}
+	}
+	return result, nil
+}
+
+func (f *fakeAuditRepo) TryExportLock(ctx context.Context) (func(), bool, error) {
+	if f.lockBusy {
+		return nil, false, nil
+	}
+	f.lockAcquired++
+	return func() { f.lockReleased++ }, true, nil
+}
+
+func (f *fakeAuditRepo) ExportCursor(ctx context.Context) (int64, error) {
+	return f.exportCursor, nil
+}
+
+func (f *fakeAuditRepo) AdvanceExportCursor(ctx context.Context, from int64, to int64) (bool, error) {
+	if f.casLoses || f.exportCursor != from {
+		return false, nil
+	}
+	f.exportCursor = to
+	return true, nil
 }
 
 func enabledService(repo AuditRepository) *AuditService {
@@ -187,6 +234,20 @@ func TestPurgeOlderThanUsesTheRetentionCutoff(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 12, purged)
 	require.WithinDuration(t, time.Now().Add(-550*24*time.Hour), repo.purgeCutoff, time.Minute)
+	// No archive: the purge deletes by age alone.
+	require.False(t, repo.purgeExportedOnly)
+}
+
+func TestPurgeSparesUnarchivedRowsWhileArchiving(t *testing.T) {
+	repo := &fakeAuditRepo{}
+	service := NewAuditService(repo, func() bool { return true })
+	service.startArchive(context.Background(), time.Hour, &fakePutter{})
+
+	_, err := service.PurgeOlderThan(context.Background(), 550*24*time.Hour)
+	require.NoError(t, err)
+	// Archiving on: expired rows the exporter has not reached yet must
+	// survive, so the purge switches to the exported-only variant.
+	require.True(t, repo.purgeExportedOnly)
 }
 
 func TestPurgeRequiresControlPlane(t *testing.T) {
@@ -194,7 +255,7 @@ func TestPurgeRequiresControlPlane(t *testing.T) {
 	_, err := service.PurgeOlderThan(context.Background(), time.Hour)
 	require.ErrorIs(t, err, ErrRequiresControlPlane)
 	// And the scheduler declines to start rather than panic.
-	service.StartRetentionPurge(context.Background(), time.Hour)
+	service.startRetentionPurge(context.Background(), time.Hour)
 }
 
 func TestListReadsStayOpenWithoutLicense(t *testing.T) {
