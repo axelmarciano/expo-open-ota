@@ -45,6 +45,13 @@ trustProxyHeaders: "false"
 # too low reads an intermediate proxy IP, too high would trust a client-supplied
 # entry.
 trustProxyDepth: "1"
+# Enterprise audit log archive (requires controlPlane="true" and an enterprise
+# license). Set to "true" to periodically export the audit log as NDJSON files
+# to a DEDICATED bucket: the *_AUDIT_LOGS_* destination var matching
+# storageMode then becomes required and must differ from the updates
+# destination. Deploy the same value to every replica; a replica left on
+# "false" purges expired rows by age without waiting for the exporter.
+archiveAuditLogs: "false"
 # Set to "true" to run the server as a Control Plane (DB mode): apps live in
 # Postgres and are created/managed from the dashboard instead of the single
 # flat-env app. Requires DB_URL and exactly one control-plane master key (see
@@ -353,6 +360,53 @@ environment:
     enabled:
       - key: "trustProxyHeaders"
         is: "true"
+  # Enterprise audit log. Retention defaults to 550 days server-side when
+  # unset; the export interval defaults to 300 seconds (minimum 10).
+  - name: "AUDIT_LOG_RETENTION_DAYS"
+    value: ""
+    enabled: true
+    required: false
+  - name: "ARCHIVE_AUDIT_LOGS"
+    key: "archiveAuditLogs"
+    required: true
+    computed: true
+  - name: "AUDIT_LOGS_EXPORT_INTERVAL_SECONDS"
+    value: ""
+    required: false
+    enabled:
+      - key: "archiveAuditLogs"
+        is: "true"
+  - name: "S3_BUCKET_AUDIT_LOGS_NAME"
+    value: ""
+    required:
+      - key: "archiveAuditLogs"
+        is: "true"
+      - key: "storageMode"
+        is: "s3"
+  - name: "GCS_BUCKET_AUDIT_LOGS_NAME"
+    value: ""
+    required:
+      - key: "archiveAuditLogs"
+        is: "true"
+      - key: "storageMode"
+        is: "gcs"
+  - name: "AZURE_BLOB_AUDIT_LOGS_CONTAINER_NAME"
+    value: ""
+    required:
+      - key: "archiveAuditLogs"
+        is: "true"
+      - key: "storageMode"
+        is: "azure"
+  # The local base path only matters for the single-replica local storage
+  # mode; the server defaults it to ./audit-logs when unset.
+  - name: "LOCAL_AUDIT_LOGS_BASE_PATH"
+    value: ""
+    required: false
+    enabled:
+      - key: "archiveAuditLogs"
+        is: "true"
+      - key: "storageMode"
+        is: "local"
   # EXPO_ACCESS_TOKEN and EXPO_APP_ID follow the same rule as the key vars
   # above: required in stateless mode, still rendered (optional) in
   # control-plane mode. EXPO_APP_ID in particular is what backward
