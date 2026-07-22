@@ -189,7 +189,7 @@ func (s *AuditService) PurgeOlderThan(ctx context.Context, retention time.Durati
 // StartRetentionPurgeFromEnv reads AUDIT_LOG_RETENTION_DAYS (falling back to
 // 550, roughly eighteen months) and starts the daily purge. Not license
 // gated, so a lapsed license cannot make entries outlive the retention
-// promise; a stateless deployment declines inside StartRetentionPurge.
+// promise; a stateless deployment declines inside startRetentionPurge.
 func (s *AuditService) StartRetentionPurgeFromEnv(ctx context.Context) {
 	retentionDays, err := strconv.Atoi(config.GetEnv("AUDIT_LOG_RETENTION_DAYS"))
 	if err != nil || retentionDays < 1 {
@@ -199,7 +199,7 @@ func (s *AuditService) StartRetentionPurgeFromEnv(ctx context.Context) {
 	s.startRetentionPurge(ctx, time.Duration(retentionDays)*24*time.Hour)
 }
 
-// StartRetentionPurge purges once at boot then daily (see licensing.StartSync
+// startRetentionPurge purges once at boot then daily (see licensing.StartSync
 // for the pattern). Multiple replicas racing the same DELETE are harmless:
 // rows are only deleted once.
 func (s *AuditService) startRetentionPurge(ctx context.Context, retention time.Duration) {

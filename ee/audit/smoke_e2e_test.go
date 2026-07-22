@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,7 +34,9 @@ func TestEndToEndArchiveSmoke(t *testing.T) {
 	defer cancel()
 
 	service := NewAuditService(auditStore, func() bool { return true })
-	actorID := "smoke-" + filepath.Base(archiveDir)
+	// Unique like every other DB test here: the table and the export cursor
+	// are shared across runs, a fixed actor would collide with itself.
+	actorID := "smoke-" + uuid.NewString()
 	var lastID int64
 	for range 3 {
 		inserted, err := auditStore.Insert(ctx, Event{
