@@ -73,7 +73,7 @@ lint_ee_headers:
 
 test_app:
 ifeq ($(DOCKER_FLAG),docker)
-	docker-compose --profile test run --rm -e "" ota-server-test go test -v -coverprofile=coverage.out ./...
+	docker-compose --profile test run --rm -e "" ota-server-test go test -v -coverpkg=./... -coverprofile=coverage.out ./...
 else
 	$(MAKE_COVERAGE_CMD)
 endif
@@ -82,18 +82,30 @@ test_app_watch:
 	find . -name '*.go' | entr -n -c $(MAKE) test_app $(DOCKER_FLAG) $(HTML_FLAG)
 
 
+# -coverpkg=./... credits every package a test actually executes, so the
+# integration tests in ./test count toward the server code they traverse
+# instead of only their own helpers.
 define MAKE_COVERAGE_CMD
-	go test -v -coverprofile=coverage.out ./... && \
+	go test -v -coverpkg=./... -coverprofile=coverage.out ./... && \
 	$(call CLEAN_COVERAGE) && \
+	$(call PRINT_TOTAL) && \
 	$(call GENERATE_HTML)
 endef
 
+# Dropped from the report: test helpers, cmd entrypoints, and the sqlc
+# generated queries (pgdb) whose coverage is meaningless.
 define CLEAN_COVERAGE
 	if [ "$(shell uname -s)" = "Darwin" ]; then \
-		sed -i '' -e '/test/d' -e '/cmd/d' coverage.out; \
+		sed -i '' -e '/test/d' -e '/cmd/d' -e '/pgdb/d' coverage.out; \
 	else \
-		sed -i '/test/d;/cmd/d;' coverage.out; \
+		sed -i '/test/d;/cmd/d;/pgdb/d;' coverage.out; \
 	fi
+endef
+
+# The one number to watch: the real cross-package total. The per-package
+# "coverage:" lines above it only measure each package against its own tests.
+define PRINT_TOTAL
+	go tool cover -func=coverage.out | tail -1
 endef
 
 define GENERATE_HTML

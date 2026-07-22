@@ -69,11 +69,15 @@ func TestPendingProvisioningEmitsProvisionedOnly(t *testing.T) {
 	_, err := completeFlow(t, service, idp, nil)
 	require.ErrorIs(t, err, ErrSSOAccountPendingApproval)
 
-	// The disabled account was created: exactly the trail an admin approval
-	// workflow relies on. No sso_login, the sign-in itself was refused.
-	require.Len(t, recorder.events, 1)
+	// The disabled account was created (the trail an admin approval workflow
+	// relies on), and the refused sign-in itself is recorded as a failure.
+	require.Len(t, recorder.events, 2)
 	assert.Equal(t, auditlog.ActionUserSSOProvisioned, recorder.events[0].Action)
 	assert.Equal(t, true, recorder.events[0].Metadata["pending_approval"])
+	refusal := recorder.events[1]
+	assert.Equal(t, auditlog.ActionUserSSOLogin, refusal.Action)
+	assert.Equal(t, auditlog.OutcomeFailure, refusal.Outcome)
+	assert.Equal(t, "pending_approval", refusal.Metadata["reason"])
 }
 
 func TestLinkingExistingAccountEmitsAuditEvent(t *testing.T) {
@@ -137,7 +141,57 @@ func TestSSOConfigChangesEmitAuditEvents(t *testing.T) {
 	assert.Equal(t, auditlog.ActionSSOConfigDeleted, recorder.events[1].Action)
 }
 
-func TestCompleteLoginFailureEmitsNothing(t *testing.T) {
+func TestCompleteLoginRefusalsEmitFailureEvents(t *testing.T) {
+	// The SSO mirror of the password path's recordLoginFailure: a deliberate
+	// refusal must leave a trace, an attacker probing the restrictions is
+	// exactly what the audit log exists to show.
+	cases := []struct {
+		name   string
+		setup  func(cfg *SSOConfig)
+		mutate func(claims jwt.MapClaims)
+		reason string
+	}{
+		{
+			name:   "unverified email",
+			mutate: func(claims jwt.MapClaims) { claims["email_verified"] = false },
+			reason: "email_unverified",
+		},
+		{
+			name:   "domain restriction",
+			setup:  func(cfg *SSOConfig) { cfg.AllowedEmailDomains = []string{"other.com"} },
+			reason: "access_restricted",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			idp := newFakeIdP(t)
+			users := newFakeUserRepo()
+			cfg := testConfigFor(idp)
+			if c.setup != nil {
+				c.setup(cfg)
+			}
+			service, _ := newTestService(t, newFakeSSORepo(users, cfg), users)
+			recorder := &fakeAuditRecorder{}
+			service.SetOnAuditEvent(recorder.Record)
+
+			_, err := completeFlow(t, service, idp, c.mutate)
+			require.Error(t, err)
+
+			require.Len(t, recorder.events, 1)
+			refusal := recorder.events[0]
+			assert.Equal(t, auditlog.ActionUserSSOLogin, refusal.Action)
+			assert.Equal(t, auditlog.OutcomeFailure, refusal.Outcome)
+			assert.Equal(t, auditlog.ActorUser, refusal.ActorType)
+			// The account may not exist: the attempted email is the only
+			// identity the failure carries.
+			assert.Empty(t, refusal.ActorID)
+			assert.Equal(t, testEmail, refusal.ActorDisplay)
+			assert.Equal(t, c.reason, refusal.Metadata["reason"])
+		})
+	}
+}
+
+func TestCompleteLoginProtocolFailureEmitsNothing(t *testing.T) {
 	idp := newFakeIdP(t)
 	users := newFakeUserRepo()
 	repo := newFakeSSORepo(users, testConfigFor(idp))
@@ -145,10 +199,10 @@ func TestCompleteLoginFailureEmitsNothing(t *testing.T) {
 	recorder := &fakeAuditRecorder{}
 	service.SetOnAuditEvent(recorder.Record)
 
-	// A rejected sign-in (unverified email) mints no session and must leave
-	// no sso_login event.
+	// A protocol failure (forged nonce) is not a sign-in decision: no event,
+	// only deliberate policy refusals are recorded.
 	_, err := completeFlow(t, service, idp, func(claims jwt.MapClaims) {
-		claims["email_verified"] = false
+		claims["nonce"] = "forged"
 	})
 	require.Error(t, err)
 	require.Empty(t, recorder.events)

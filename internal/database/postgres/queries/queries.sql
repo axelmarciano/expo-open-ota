@@ -347,10 +347,12 @@ ORDER BY created_at ASC;
 
 -- name: RevokeApiKeyByID :one
 -- Returns the revoked key's name so the audit entry can carry it without a
--- separate read.
+-- separate read. Only a live key matches: re-revoking (double submit, retry)
+-- must not re-stamp the historical revoked_at nor emit a second audit entry,
+-- so it falls into the same no-rows not-found path as an unknown id.
 UPDATE api_keys
 SET revoked_at = CURRENT_TIMESTAMP
-WHERE id = $1 AND app_id = $2
+WHERE id = $1 AND app_id = $2 AND revoked_at IS NULL
 RETURNING name;
 
 -- name: GetApiKeyNameByID :one

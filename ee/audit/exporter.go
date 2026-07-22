@@ -162,12 +162,20 @@ func (s *AuditService) archiveNextBatch(ctx context.Context, putter ObjectPutter
 
 	var body bytes.Buffer
 	for _, event := range events {
-		line, err := json.Marshal(exportLineFrom(event))
+		exportable := exportLineFrom(event)
+		line, err := json.Marshal(exportable)
 		if err != nil {
-			// One unserializable event must not wedge the archive forever:
-			// skip the line, keep the batch.
-			log.Printf("audit: archive skipped unserializable event %d: %v", event.ID, err)
-			continue
+			// One unserializable value must not wedge the archive forever,
+			// but the cursor will advance past this event: dropping the whole
+			// line would delete it unarchived at the next purge. The facts
+			// always serialize, only the metadata annotation can fail, so the
+			// line is written without it.
+			log.Printf("audit: archive dropped unserializable metadata on event %d: %v", event.ID, err)
+			exportable.Metadata = nil
+			if line, err = json.Marshal(exportable); err != nil {
+				log.Printf("audit: archive skipped unserializable event %d: %v", event.ID, err)
+				continue
+			}
 		}
 		body.Write(line)
 		body.WriteByte('\n')

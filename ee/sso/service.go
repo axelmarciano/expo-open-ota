@@ -460,9 +460,12 @@ func (s *SSOService) CompleteLogin(ctx context.Context, flowToken string, state 
 	// so it must be one the provider vouches for, not one the user typed.
 	// Gate it before any of those uses.
 	if !emailVerified && !cfg.TrustUnverifiedEmail {
-		return nil, fmt.Errorf("%w: %q is not verified (enable trust for this provider if it does not emit email_verified)", ErrSSOEmailUnverified, email)
+		err := fmt.Errorf("%w: %q is not verified (enable trust for this provider if it does not emit email_verified)", ErrSSOEmailUnverified, email)
+		s.recordSSOLoginFailure(ctx, email, err)
+		return nil, err
 	}
 	if err := checkSignInRestrictions(cfg, email, claims); err != nil {
+		s.recordSSOLoginFailure(ctx, email, err)
 		return nil, err
 	}
 	user, err := s.resolveUser(ctx, cfg, idToken.Subject, email)
@@ -473,7 +476,9 @@ func (s *SSOService) CompleteLogin(ctx context.Context, flowToken string, state 
 	// path just needs its own error so the login page can explain that the
 	// account exists and is waiting, rather than showing a generic refusal.
 	if !user.Enabled {
-		return nil, fmt.Errorf("%w: %q is not approved yet", ErrSSOAccountPendingApproval, email)
+		err := fmt.Errorf("%w: %q is not approved yet", ErrSSOAccountPendingApproval, email)
+		s.recordSSOLoginFailure(ctx, email, err)
+		return nil, err
 	}
 	session, err := s.sessions.IssueSession(ctx, user)
 	if err != nil {
@@ -492,6 +497,40 @@ func (s *SSOService) CompleteLogin(ctx context.Context, flowToken string, state 
 		})
 	}
 	return session, nil
+}
+
+// recordSSOLoginFailure records the deliberate sign-in refusals, the probing
+// signal a security review asks for: unverified email, domain/group
+// restrictions, and accounts awaiting approval (the SSO mirror of
+// DashboardAuthService.recordLoginFailure). Protocol and infrastructure
+// failures (state mismatch, provider unreachable) are not sign-in decisions
+// and stay out of the log, hence the sentinel allowlist.
+func (s *SSOService) recordSSOLoginFailure(ctx context.Context, email string, err error) {
+	if s.onAuditEvent == nil {
+		return
+	}
+	var reason string
+	switch {
+	case errors.Is(err, ErrSSOEmailUnverified):
+		reason = "email_unverified"
+	case errors.Is(err, ErrSSOAccessRestricted):
+		reason = "access_restricted"
+	case errors.Is(err, ErrSSOAccountPendingApproval):
+		reason = "pending_approval"
+	default:
+		return
+	}
+	// The account may not exist yet (JIT provisioning): the attempted email
+	// is the only identity a failure can carry, so the actor id stays empty.
+	s.onAuditEvent(ctx, auditlog.Event{
+		ActorType:     auditlog.ActorUser,
+		ActorDisplay:  email,
+		Action:        auditlog.ActionUserSSOLogin,
+		TargetType:    "user",
+		TargetDisplay: email,
+		Outcome:       auditlog.OutcomeFailure,
+		Metadata:      map[string]any{"reason": reason},
+	})
 }
 
 // SetOnAuditEvent plugs the audit emission seam. Nil-safe: without it, SSO

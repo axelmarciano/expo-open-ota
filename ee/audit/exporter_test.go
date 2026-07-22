@@ -174,6 +174,9 @@ func TestArchivePutFailureLeavesTheCursorUntouched(t *testing.T) {
 func TestArchiveDeclinesToStartWithoutControlPlane(t *testing.T) {
 	service := NewAuditService(nil, func() bool { return true })
 	service.startArchive(context.Background(), time.Minute, &fakePutter{})
+	// Declining must not flip the purge into exported-only mode: a stateless
+	// service has no exporter to ever advance the cursor.
+	require.False(t, service.archiveEnabled)
 }
 
 func TestStartArchiveFromEnvStaysOffByDefault(t *testing.T) {
