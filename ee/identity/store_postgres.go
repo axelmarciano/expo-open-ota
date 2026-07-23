@@ -164,13 +164,41 @@ type statOp struct {
 	decrement bool
 }
 
-// ApplyIdentify runs one identify against the store: sanitize the raw wire
-// metadata against the allowlist, merge it into the device row (per-key merge,
-// incoming keys win), refresh geo when provided, and keep the per-value
-// device counts in sync. Everything happens in one transaction with the
-// device row locked, so concurrent identifies of the same install serialize
-// and the counts never drift from the merges that produced them.
-func (s *PostgresIdentityStore) ApplyIdentify(ctx context.Context, appID string, easClientID string, raw map[string]any, geo *Geo) (ApplyResult, error) {
+type mutationKind int
+
+const (
+	mutationSet mutationKind = iota
+	mutationSetOnce
+	mutationUnset
+)
+
+// ApplySet runs one $set against the store: sanitize the raw wire metadata
+// against the allowlist, merge it into the device row (per-key merge, incoming
+// keys win), refresh geo when provided, and keep the per-value device counts
+// in sync. Everything happens in one transaction with the device row locked,
+// so concurrent identifies of the same install serialize and the counts never
+// drift from the merges that produced them.
+func (s *PostgresIdentityStore) ApplySet(ctx context.Context, appID string, easClientID string, raw map[string]any, geo *Geo) (ApplyResult, error) {
+	return s.mutate(ctx, appID, easClientID, mutationSet, raw, nil, geo)
+}
+
+// ApplySetOnce is $set_once: a sanitized key is written only when the device
+// does not hold it yet; keys already present are silently left untouched
+// (same contract as PostHog/Mixpanel/Amplitude).
+func (s *PostgresIdentityStore) ApplySetOnce(ctx context.Context, appID string, easClientID string, raw map[string]any, geo *Geo) (ApplyResult, error) {
+	return s.mutate(ctx, appID, easClientID, mutationSetOnce, raw, nil, geo)
+}
+
+// ApplyUnset removes keys from the device and moves the stat counts down.
+// Keys the device does not hold are ignored, which also bounds the work to
+// the (schema-capped) size of the device's metadata no matter how many keys
+// a hostile payload lists. Unset works even for keys since removed from the
+// allowlist: it is the cleanup path.
+func (s *PostgresIdentityStore) ApplyUnset(ctx context.Context, appID string, easClientID string, keys []string, geo *Geo) (ApplyResult, error) {
+	return s.mutate(ctx, appID, easClientID, mutationUnset, nil, keys, geo)
+}
+
+func (s *PostgresIdentityStore) mutate(ctx context.Context, appID string, easClientID string, kind mutationKind, raw map[string]any, unsetKeys []string, geo *Geo) (ApplyResult, error) {
 	appUUID, err := toPgUUID(appID)
 	if err != nil {
 		return ApplyResult{}, err
@@ -182,13 +210,18 @@ func (s *PostgresIdentityStore) ApplyIdentify(ctx context.Context, appID string,
 
 	var result ApplyResult
 	err = s.engine.WithTx(ctx, func(q *pgdb.Queries) error {
-		// The schema read shares the transaction so a concurrent allowlist
-		// change cannot produce a merge mixing two versions of the schema.
-		schemaRows, err := q.ListIdentitySchemaKeys(ctx, appUUID)
-		if err != nil {
-			return fmt.Errorf("listing identity schema: %w", err)
+		var sanitized map[string]any
+		var dropped []string
+		if kind != mutationUnset {
+			// The schema read shares the transaction so a concurrent allowlist
+			// change cannot produce a merge mixing two versions of the schema.
+			// Unset skips it entirely: it bypasses the allowlist by design.
+			schemaRows, err := q.ListIdentitySchemaKeys(ctx, appUUID)
+			if err != nil {
+				return fmt.Errorf("listing identity schema: %w", err)
+			}
+			sanitized, dropped = schemaFromRows(schemaRows).Sanitize(raw)
 		}
-		sanitized, dropped := schemaFromRows(schemaRows).Sanitize(raw)
 
 		if err := q.EnsureDeviceIdentity(ctx, pgdb.EnsureDeviceIdentityParams{AppID: appUUID, EasClientID: clientUUID}); err != nil {
 			return fmt.Errorf("ensuring device row: %w", err)
@@ -209,17 +242,36 @@ func (s *PostgresIdentityStore) ApplyIdentify(ctx context.Context, appID string,
 			merged[key] = value
 		}
 		var ops []statOp
-		for key, value := range sanitized {
-			merged[key] = value
-			newRendered := RenderValue(value)
-			if oldValue, existed := previous[key]; existed {
-				oldRendered := RenderValue(oldValue)
-				if oldRendered == newRendered {
+		switch kind {
+		case mutationSet, mutationSetOnce:
+			for key, value := range sanitized {
+				oldValue, existed := previous[key]
+				if kind == mutationSetOnce && existed {
 					continue
 				}
-				ops = append(ops, statOp{key: key, value: oldRendered, decrement: true})
+				merged[key] = value
+				newRendered := RenderValue(value)
+				if existed {
+					oldRendered := RenderValue(oldValue)
+					if oldRendered == newRendered {
+						continue
+					}
+					ops = append(ops, statOp{key: key, value: oldRendered, decrement: true})
+				}
+				ops = append(ops, statOp{key: key, value: newRendered})
 			}
-			ops = append(ops, statOp{key: key, value: newRendered})
+		case mutationUnset:
+			for _, key := range unsetKeys {
+				oldValue, existed := previous[key]
+				if !existed {
+					continue
+				}
+				// Also remove from previous so a duplicated key in the payload
+				// cannot decrement the same stat row twice.
+				delete(previous, key)
+				delete(merged, key)
+				ops = append(ops, statOp{key: key, value: RenderValue(oldValue), decrement: true})
+			}
 		}
 		mergedJSON, err := json.Marshal(merged)
 		if err != nil {

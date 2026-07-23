@@ -108,7 +108,7 @@ func TestSchemaCRUD(t *testing.T) {
 	require.False(t, deleted)
 }
 
-func TestApplyIdentifyMergesAndCounts(t *testing.T) {
+func TestApplySetMergesAndCounts(t *testing.T) {
 	store, pool := setupIdentityStore(t)
 	appID := seedApp(t, pool)
 	ctx := context.Background()
@@ -116,7 +116,7 @@ func TestApplyIdentifyMergesAndCounts(t *testing.T) {
 	declareKey(t, store, appID, "tenant", ValueTypeString)
 
 	clientID := uuid.NewString()
-	result, err := store.ApplyIdentify(ctx, appID, clientID, map[string]any{
+	result, err := store.ApplySet(ctx, appID, clientID, map[string]any{
 		"userId": "user_1",
 		"junk":   "dropped by the allowlist",
 	}, nil)
@@ -125,20 +125,20 @@ func TestApplyIdentifyMergesAndCounts(t *testing.T) {
 	require.Equal(t, []string{"junk"}, result.DroppedKeys)
 
 	// Second identify adds a key and keeps the first one (per-key merge).
-	result, err = store.ApplyIdentify(ctx, appID, clientID, map[string]any{"tenant": "acme"}, nil)
+	result, err = store.ApplySet(ctx, appID, clientID, map[string]any{"tenant": "acme"}, nil)
 	require.NoError(t, err)
 	require.Equal(t, map[string]any{"userId": "user_1", "tenant": "acme"}, result.Device.Metadata)
 
 	// Changing a value moves the device count from the old value to the new
 	// one and prunes the emptied row.
-	_, err = store.ApplyIdentify(ctx, appID, clientID, map[string]any{"tenant": "globex"}, nil)
+	_, err = store.ApplySet(ctx, appID, clientID, map[string]any{"tenant": "globex"}, nil)
 	require.NoError(t, err)
 	values, err := store.SearchMetadataValues(ctx, appID, "tenant", "", 10)
 	require.NoError(t, err)
 	require.Equal(t, []ValueCount{{Value: "globex", DeviceCount: 1}}, values)
 
 	// Re-identifying the same value must not inflate the count.
-	_, err = store.ApplyIdentify(ctx, appID, clientID, map[string]any{"tenant": "globex"}, nil)
+	_, err = store.ApplySet(ctx, appID, clientID, map[string]any{"tenant": "globex"}, nil)
 	require.NoError(t, err)
 	values, err = store.SearchMetadataValues(ctx, appID, "tenant", "", 10)
 	require.NoError(t, err)
@@ -153,27 +153,27 @@ func TestApplyIdentifyMergesAndCounts(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, missing)
 
-	_, err = store.ApplyIdentify(ctx, appID, "not-a-uuid", map[string]any{}, nil)
+	_, err = store.ApplySet(ctx, appID, "not-a-uuid", map[string]any{}, nil)
 	require.Error(t, err)
 }
 
 func strPtr(s string) *string     { return &s }
 func floatPtr(f float64) *float64 { return &f }
 
-func TestApplyIdentifyGeoCoalesce(t *testing.T) {
+func TestApplySetGeoCoalesce(t *testing.T) {
 	store, pool := setupIdentityStore(t)
 	appID := seedApp(t, pool)
 	ctx := context.Background()
 	clientID := uuid.NewString()
 
 	fullGeo := &Geo{CountryCode: strPtr("FR"), City: strPtr("Paris"), Lat: floatPtr(48.85), Lng: floatPtr(2.35)}
-	result, err := store.ApplyIdentify(ctx, appID, clientID, nil, fullGeo)
+	result, err := store.ApplySet(ctx, appID, clientID, nil, fullGeo)
 	require.NoError(t, err)
 	require.NotNil(t, result.Device.CountryCode)
 	require.Equal(t, "FR", *result.Device.CountryCode)
 
 	// An identify that resolves no geo keeps the previously known location.
-	result, err = store.ApplyIdentify(ctx, appID, clientID, nil, nil)
+	result, err = store.ApplySet(ctx, appID, clientID, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, result.Device.CountryCode)
 	require.Equal(t, "FR", *result.Device.CountryCode)
@@ -182,7 +182,7 @@ func TestApplyIdentifyGeoCoalesce(t *testing.T) {
 
 	// A PARTIAL resolution (country-only is the common GeoLite2 case) updates
 	// what it knows and never blanks the rest with '' or 0/0.
-	result, err = store.ApplyIdentify(ctx, appID, clientID, nil, &Geo{CountryCode: strPtr("BE")})
+	result, err = store.ApplySet(ctx, appID, clientID, nil, &Geo{CountryCode: strPtr("BE")})
 	require.NoError(t, err)
 	require.Equal(t, "BE", *result.Device.CountryCode)
 	require.NotNil(t, result.Device.City)
@@ -200,7 +200,7 @@ func TestSearchMetadataValuesRankingAndFilter(t *testing.T) {
 	seed := map[string]int{"acme": 3, "acme-eu": 2, "globex": 1}
 	for tenant, devices := range seed {
 		for i := 0; i < devices; i++ {
-			_, err := store.ApplyIdentify(ctx, appID, uuid.NewString(), map[string]any{"tenant": tenant}, nil)
+			_, err := store.ApplySet(ctx, appID, uuid.NewString(), map[string]any{"tenant": tenant}, nil)
 			require.NoError(t, err)
 		}
 	}
@@ -233,7 +233,7 @@ func TestDeleteSchemaKeyWipesItsStats(t *testing.T) {
 	declareKey(t, store, appID, "tenant", ValueTypeString)
 	declareKey(t, store, appID, "plan", ValueTypeString)
 
-	_, err := store.ApplyIdentify(ctx, appID, uuid.NewString(), map[string]any{"tenant": "acme", "plan": "pro"}, nil)
+	_, err := store.ApplySet(ctx, appID, uuid.NewString(), map[string]any{"tenant": "acme", "plan": "pro"}, nil)
 	require.NoError(t, err)
 
 	deleted, err := store.DeleteSchemaKey(ctx, appID, "tenant")
@@ -249,7 +249,7 @@ func TestDeleteSchemaKeyWipesItsStats(t *testing.T) {
 	require.Equal(t, []ValueCount{{Value: "pro", DeviceCount: 1}}, values)
 
 	// And its values are no longer accepted on the next identify.
-	result, err := store.ApplyIdentify(ctx, appID, uuid.NewString(), map[string]any{"tenant": "acme"}, nil)
+	result, err := store.ApplySet(ctx, appID, uuid.NewString(), map[string]any{"tenant": "acme"}, nil)
 	require.NoError(t, err)
 	require.Empty(t, result.Device.Metadata)
 	require.Equal(t, []string{"tenant"}, result.DroppedKeys)
@@ -258,7 +258,7 @@ func TestDeleteSchemaKeyWipesItsStats(t *testing.T) {
 // Concurrent first identifies of the same install must both land: the
 // insert-then-lock sequence serializes the merges, so neither metadata write
 // nor stat increment is lost.
-func TestApplyIdentifyConcurrentFirstWrite(t *testing.T) {
+func TestApplySetConcurrentFirstWrite(t *testing.T) {
 	store, pool := setupIdentityStore(t)
 	appID := seedApp(t, pool)
 	ctx := context.Background()
@@ -271,11 +271,11 @@ func TestApplyIdentifyConcurrentFirstWrite(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, errs[0] = store.ApplyIdentify(ctx, appID, clientID, map[string]any{"userId": "user_1"}, nil)
+		_, errs[0] = store.ApplySet(ctx, appID, clientID, map[string]any{"userId": "user_1"}, nil)
 	}()
 	go func() {
 		defer wg.Done()
-		_, errs[1] = store.ApplyIdentify(ctx, appID, clientID, map[string]any{"tenant": "acme"}, nil)
+		_, errs[1] = store.ApplySet(ctx, appID, clientID, map[string]any{"tenant": "acme"}, nil)
 	}()
 	wg.Wait()
 	require.NoError(t, errs[0])
@@ -300,7 +300,7 @@ func TestApplyIdentifyConcurrentFirstWrite(t *testing.T) {
 // values) must not deadlock: the store orders its stat-row locks by
 // (key, value) precisely for this. Before that ordering, this test deadlocked
 // within a handful of iterations (40P01 after the 1s deadlock_timeout).
-func TestApplyIdentifyConcurrentSharedStatRowsNoDeadlock(t *testing.T) {
+func TestApplySetConcurrentSharedStatRowsNoDeadlock(t *testing.T) {
 	store, pool := setupIdentityStore(t)
 	appID := seedApp(t, pool)
 	ctx := context.Background()
@@ -325,7 +325,7 @@ func TestApplyIdentifyConcurrentSharedStatRowsNoDeadlock(t *testing.T) {
 			if i%2 == 1 {
 				p = alternate
 			}
-			if _, err := store.ApplyIdentify(ctx, appID, deviceA, p, nil); err != nil {
+			if _, err := store.ApplySet(ctx, appID, deviceA, p, nil); err != nil {
 				errsA[i] = err
 				return
 			}
@@ -338,7 +338,7 @@ func TestApplyIdentifyConcurrentSharedStatRowsNoDeadlock(t *testing.T) {
 			if i%2 == 1 {
 				p = payload
 			}
-			if _, err := store.ApplyIdentify(ctx, appID, deviceB, p, nil); err != nil {
+			if _, err := store.ApplySet(ctx, appID, deviceB, p, nil); err != nil {
 				errsB[i] = err
 				return
 			}
@@ -366,26 +366,105 @@ func TestApplyIdentifyConcurrentSharedStatRowsNoDeadlock(t *testing.T) {
 // A number-typed key must round-trip through JSONB without corrupting the
 // stat bookkeeping: 42 stored then re-read as float64 must compare equal to
 // an incoming 42 (no phantom dec/inc), and a real change must move the count.
-func TestApplyIdentifyNumberRoundtrip(t *testing.T) {
+func TestApplySetNumberRoundtrip(t *testing.T) {
 	store, pool := setupIdentityStore(t)
 	appID := seedApp(t, pool)
 	ctx := context.Background()
 	declareKey(t, store, appID, "seats", ValueTypeNumber)
 
 	clientID := uuid.NewString()
-	_, err := store.ApplyIdentify(ctx, appID, clientID, map[string]any{"seats": int64(42)}, nil)
+	_, err := store.ApplySet(ctx, appID, clientID, map[string]any{"seats": int64(42)}, nil)
 	require.NoError(t, err)
-	_, err = store.ApplyIdentify(ctx, appID, clientID, map[string]any{"seats": float64(42)}, nil)
+	_, err = store.ApplySet(ctx, appID, clientID, map[string]any{"seats": float64(42)}, nil)
 	require.NoError(t, err)
 	values, err := store.SearchMetadataValues(ctx, appID, "seats", "", 10)
 	require.NoError(t, err)
 	require.Equal(t, []ValueCount{{Value: "42", DeviceCount: 1}}, values)
 
-	_, err = store.ApplyIdentify(ctx, appID, clientID, map[string]any{"seats": 42.5}, nil)
+	_, err = store.ApplySet(ctx, appID, clientID, map[string]any{"seats": 42.5}, nil)
 	require.NoError(t, err)
 	values, err = store.SearchMetadataValues(ctx, appID, "seats", "", 10)
 	require.NoError(t, err)
 	require.Equal(t, []ValueCount{{Value: "42.5", DeviceCount: 1}}, values)
+}
+
+func TestApplySetOnce(t *testing.T) {
+	store, pool := setupIdentityStore(t)
+	appID := seedApp(t, pool)
+	ctx := context.Background()
+	declareKey(t, store, appID, "initialReferrer", ValueTypeString)
+	declareKey(t, store, appID, "plan", ValueTypeString)
+
+	clientID := uuid.NewString()
+	result, err := store.ApplySetOnce(ctx, appID, clientID, map[string]any{"initialReferrer": "organic"}, nil)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"initialReferrer": "organic"}, result.Device.Metadata)
+
+	// A second set_once on a held key is silently ignored; absent keys apply.
+	result, err = store.ApplySetOnce(ctx, appID, clientID, map[string]any{"initialReferrer": "paid", "plan": "pro"}, nil)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"initialReferrer": "organic", "plan": "pro"}, result.Device.Metadata)
+
+	// The ignored write must not have touched the stats either.
+	values, err := store.SearchMetadataValues(ctx, appID, "initialReferrer", "", 10)
+	require.NoError(t, err)
+	require.Equal(t, []ValueCount{{Value: "organic", DeviceCount: 1}}, values)
+
+	// $set still overwrites what $set_once pinned.
+	result, err = store.ApplySet(ctx, appID, clientID, map[string]any{"initialReferrer": "paid"}, nil)
+	require.NoError(t, err)
+	require.Equal(t, "paid", result.Device.Metadata["initialReferrer"])
+}
+
+func TestApplyUnset(t *testing.T) {
+	store, pool := setupIdentityStore(t)
+	appID := seedApp(t, pool)
+	ctx := context.Background()
+	declareKey(t, store, appID, "userId", ValueTypeString)
+	declareKey(t, store, appID, "tenant", ValueTypeString)
+
+	clientID := uuid.NewString()
+	_, err := store.ApplySet(ctx, appID, clientID, map[string]any{"userId": "user_1", "tenant": "acme"}, nil)
+	require.NoError(t, err)
+	// A second device holds the same userId value so the count sits at 2:
+	// without the payload dedupe, the duplicated key below would decrement
+	// twice, hit zero, and wrongly prune this survivor's count.
+	survivor := uuid.NewString()
+	_, err = store.ApplySet(ctx, appID, survivor, map[string]any{"userId": "user_1"}, nil)
+	require.NoError(t, err)
+
+	// Unset removes the key, decrements its stat once, and ignores
+	// duplicated and unknown keys in the payload.
+	result, err := store.ApplyUnset(ctx, appID, clientID, []string{"userId", "userId", "neverSeen"}, nil)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"tenant": "acme"}, result.Device.Metadata)
+	values, err := store.SearchMetadataValues(ctx, appID, "userId", "", 10)
+	require.NoError(t, err)
+	require.Equal(t, []ValueCount{{Value: "user_1", DeviceCount: 1}}, values)
+
+	// Unsetting the survivor takes the count to zero and prunes the row.
+	_, err = store.ApplyUnset(ctx, appID, survivor, []string{"userId"}, nil)
+	require.NoError(t, err)
+	values, err = store.SearchMetadataValues(ctx, appID, "userId", "", 10)
+	require.NoError(t, err)
+	require.Empty(t, values)
+	values, err = store.SearchMetadataValues(ctx, appID, "tenant", "", 10)
+	require.NoError(t, err)
+	require.Equal(t, []ValueCount{{Value: "acme", DeviceCount: 1}}, values)
+
+	// Unset still works for a key removed from the allowlist: cleanup path.
+	deleted, err := store.DeleteSchemaKey(ctx, appID, "tenant")
+	require.NoError(t, err)
+	require.True(t, deleted)
+	result, err = store.ApplyUnset(ctx, appID, clientID, []string{"tenant"}, nil)
+	require.NoError(t, err)
+	require.Empty(t, result.Device.Metadata)
+
+	// Unsetting on a never-seen device just creates the empty row, no error.
+	fresh := uuid.NewString()
+	result, err = store.ApplyUnset(ctx, appID, fresh, []string{"userId"}, nil)
+	require.NoError(t, err)
+	require.Empty(t, result.Device.Metadata)
 }
 
 func TestUpsertSchemaKeyCap(t *testing.T) {
