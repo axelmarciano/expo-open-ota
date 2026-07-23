@@ -2,6 +2,7 @@ package infrastructure
 
 import (
 	"expo-open-ota/config"
+	"expo-open-ota/ee/observe"
 	"expo-open-ota/ee/rbac"
 	dashutils "expo-open-ota/internal/dashboard"
 	"expo-open-ota/internal/metrics"
@@ -64,6 +65,21 @@ func NewRouter(container *AppContainer) *mux.Router {
 	appSubrouter.HandleFunc("/markUpdateAsUploaded/{BRANCH}", container.UploadHandler.MarkUpdateAsUploadedHandler).Methods(http.MethodPost)
 	appSubrouter.HandleFunc("/rollback/{BRANCH}", container.RollbackHandler.HandleRollback).Methods(http.MethodPost)
 	appSubrouter.HandleFunc("/republish/{BRANCH}", container.RepublishHandler.HandleRepublish).Methods(http.MethodPost)
+
+	// expo-observe ingestion (ee/observe), all under one /observe prefix. The
+	// operator sets extra.eas.observe.endpointUrl to
+	// https://<host>/observe/{APP_ID}; the SDK appends /{projectId}/v1/logs
+	// with the app's REAL EAS project id (used by EAS builds, never equal to
+	// our APP_ID), so the PROJECT_ID segment is deliberately ignored, exactly
+	// as the SDK itself never validates it. Exact paths, no trailing-slash
+	// variant: a gorilla 301 would turn the POST into a bodyless GET.
+	observeSubrouter := r.PathPrefix("/observe/{APP_ID}").Subrouter()
+	// The app check is memoized so telemetry (which fires on every
+	// app-background of every device) does not issue an uncached primary-key
+	// query per request.
+	observeSubrouter.Use(observe.CachedAppResolverMiddleware(container.AppRepo))
+	observeSubrouter.HandleFunc("/{PROJECT_ID}/v1/logs", container.ObserveIngestHandler.HandleLogs).Methods(http.MethodPost)
+	observeSubrouter.HandleFunc("/{PROJECT_ID}/v1/metrics", container.ObserveIngestHandler.HandleMetrics).Methods(http.MethodPost)
 
 	r.HandleFunc("/manifest", container.ExpoProtocolHandler.HandleManifest).Methods(http.MethodGet)
 	r.HandleFunc("/assets", container.ExpoProtocolHandler.HandleAssets).Methods(http.MethodGet)

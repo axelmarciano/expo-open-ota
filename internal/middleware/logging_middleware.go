@@ -26,6 +26,12 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// Telemetry ingestion fires on every app-background of every device;
+		// logging each batch would drown the request log.
+		if strings.HasSuffix(r.URL.Path, "/v1/logs") || strings.HasSuffix(r.URL.Path, "/v1/metrics") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		start := time.Now()
 
 		safeHeaders := redactHeaders(r.Header)
