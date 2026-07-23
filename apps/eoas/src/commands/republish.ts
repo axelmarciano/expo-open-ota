@@ -14,6 +14,23 @@ import { isExpoInstalled } from '../lib/package';
 import { promptAsync } from '../lib/prompts';
 import { resolveVcsClient } from '../lib/vcs';
 
+type RepublishableUpdate = {
+  updateUUID: string;
+  createdAt: string;
+  updateId: string;
+  platform: string;
+  commitHash: string;
+};
+
+type UpdatesPage = {
+  items: RepublishableUpdate[];
+  nextCursor: string | null;
+};
+
+type UpdateSelection = { kind: 'update'; update: RepublishableUpdate } | { kind: 'loadMore' };
+
+const UPDATES_PAGE_SIZE = 20;
+
 export default class Publish extends Command {
   static override args = {};
   static override description = 'Republish a previous update to a branch';
@@ -120,52 +137,85 @@ export default class Publish extends Command {
       })),
     });
     Log.log(`Selected runtime version: ${selectedRuntimeVersion.runtimeVersion}`);
-    const updatesEndpoint = `${baseUrl}/api/apps/${appId}/branch/${branch}/runtimeVersion/${selectedRuntimeVersion.runtimeVersion}/updates`;
-    const updatesResponse = await fetchWithRetries(updatesEndpoint, {
-      headers: {
-        ...getAuthHeaders(credentials),
-        'use-cli-auth': 'true',
-      },
-    });
-    if (!updatesResponse.ok) {
-      Log.error(`Failed to fetch updates: ${await updatesResponse.text()}`);
-      process.exit(1);
+    const updatesEndpoint = `${baseUrl}/api/apps/${appId}/branch/${encodeURIComponent(
+      branch
+    )}/runtimeVersion/${encodeURIComponent(selectedRuntimeVersion.runtimeVersion)}/updates`;
+    const updates: RepublishableUpdate[] = [];
+    let nextCursor: string | null | undefined;
+    const loadNextPage = async (): Promise<void> => {
+      const previousCount = updates.length;
+      do {
+        const url = new URL(updatesEndpoint);
+        url.searchParams.set('limit', String(UPDATES_PAGE_SIZE));
+        if (nextCursor) {
+          url.searchParams.set('cursor', nextCursor);
+        }
+        const updatesResponse = await fetchWithRetries(url.toString(), {
+          headers: {
+            ...getAuthHeaders(credentials),
+            'use-cli-auth': 'true',
+          },
+        });
+        if (!updatesResponse.ok) {
+          Log.error(`Failed to fetch updates: ${await updatesResponse.text()}`);
+          process.exit(1);
+        }
+        const page = (await updatesResponse.json()) as UpdatesPage;
+        updates.push(
+          ...page.items.filter(
+            update =>
+              update.updateUUID !== 'Rollback to embedded' &&
+              (platform === 'all' || update.platform === platform)
+          )
+        );
+        nextCursor = page.nextCursor;
+      } while (updates.length === previousCount && nextCursor);
+    };
+
+    await loadNextPage();
+    let selectedUpdate: RepublishableUpdate | undefined;
+    let initialChoiceIndex = 0;
+    while (!selectedUpdate) {
+      if (updates.length === 0 && !nextCursor) {
+        Log.error(
+          `No republishable updates found for runtime version ${selectedRuntimeVersion.runtimeVersion} on platform ${platform}.`
+        );
+        process.exit(1);
+      }
+      const choices: { title: string; value: UpdateSelection; description?: string }[] =
+        updates.map(update => ({
+          title: update.updateUUID,
+          value: { kind: 'update', update },
+          description: `Created at: ${update.createdAt}, Platform: ${update.platform}, Commit hash: ${update.commitHash}`,
+        }));
+      if (nextCursor) {
+        choices.push({
+          title: 'Load more updates',
+          value: { kind: 'loadMore' },
+        });
+      }
+      const answer = await promptAsync({
+        type: 'select',
+        name: 'selection',
+        message: 'Select an update to republish',
+        choices,
+        initial: initialChoiceIndex,
+      });
+      const selection = answer.selection as UpdateSelection;
+      if (selection.kind === 'loadMore') {
+        const firstNewUpdateIndex = updates.length;
+        await loadNextPage();
+        initialChoiceIndex = Math.min(firstNewUpdateIndex, Math.max(0, updates.length - 1));
+      } else {
+        selectedUpdate = selection.update;
+      }
     }
-    const updates = (
-      (await updatesResponse.json()) as {
-        updateUUID: string;
-        createdAt: string;
-        updateId: string;
-        platform: string;
-        commitHash: string;
-      }[]
-    ).filter(u => {
-      return (
-        u.updateUUID !== 'Rollback to embedded' && (platform === 'all' || u.platform === platform)
-      );
-    });
-    if (updates.length === 0) {
-      Log.error(
-        `No republishable updates found for runtime version ${selectedRuntimeVersion.runtimeVersion} on platform ${platform}.`
-      );
-      process.exit(1);
-    }
-    const selectedUpdated = await promptAsync({
-      type: 'select',
-      name: 'update',
-      message: 'Select an update to republish',
-      choices: updates.map(update => ({
-        title: update.updateUUID,
-        value: update,
-        description: `Created at: ${update.createdAt}, Platform: ${update.platform}, Commit hash: ${update.commitHash}`,
-      })),
-    });
-    Log.log(`Re-publishing update: ${selectedUpdated.update.updateUUID}`);
+    Log.log(`Re-publishing update: ${selectedUpdate.updateUUID}`);
     const republishUrl = new URL(`${baseUrl}/${appId}/republish/${branch}`);
-    republishUrl.searchParams.set('platform', selectedUpdated.update.platform);
+    republishUrl.searchParams.set('platform', selectedUpdate.platform);
     republishUrl.searchParams.set('runtimeVersion', selectedRuntimeVersion.runtimeVersion);
-    republishUrl.searchParams.set('updateId', selectedUpdated.update.updateId);
-    republishUrl.searchParams.set('commitHash', selectedUpdated.update.commitHash);
+    republishUrl.searchParams.set('updateId', selectedUpdate.updateId);
+    republishUrl.searchParams.set('commitHash', selectedUpdate.commitHash);
     const republishSpinner = ora('🔄 Republishing update...').start();
     const republishResponse = await fetchWithRetries(republishUrl.toString(), {
       method: 'POST',
