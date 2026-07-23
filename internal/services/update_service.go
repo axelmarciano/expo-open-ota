@@ -28,7 +28,7 @@ type UpdateRepository interface {
 	CreateUpdateWithRollout(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string, rolloutPercentage int) (*types.Update, error)
 	CreateRollback(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string) (*types.Update, error)
 	GetUpdateByBranchNameAndRuntime(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string) (pgdb.GetUpdateByBranchNameAndRuntimeRow, error)
-	GetUpdatesByRunTimeVersionAndBranchName(ctx context.Context, appId string, runtimeVersion string, branchName string) ([]types.UpdateItem, error)
+	GetUpdatesByRunTimeVersionAndBranchName(ctx context.Context, appId string, runtimeVersion string, branchName string, cursor *int64, limit int) (types.UpdatesPage, error)
 	RetrieveUpdateStoredMetadata(ctx context.Context, update types.Update) (*types.UpdateStoredMetadata, error)
 	StoreUpdateUUIDInMetadata(ctx context.Context, update types.Update, updateUUID string) error
 }
@@ -132,12 +132,12 @@ func (s *UpdateService) GetUpdateDetails(ctx context.Context, appId string, bran
 	return s.updateRepo.GetUpdateDetails(ctx, appId, branchName, runtimeVersion, updateId)
 }
 
-func (s *UpdateService) GetUpdatesByRunTimeVersionAndBranchName(ctx context.Context, appId string, runtimeVersion string, branchName string) ([]types.UpdateItem, error) {
+func (s *UpdateService) GetUpdatesByRunTimeVersionAndBranchName(ctx context.Context, appId string, runtimeVersion string, branchName string, cursor *int64, limit int) (types.UpdatesPage, error) {
 	if err := validation.Name("branchName", branchName); err != nil {
-		return nil, err
+		return types.UpdatesPage{}, err
 	}
 	if err := validation.Name("runtimeVersion", runtimeVersion); err != nil {
-		return nil, err
+		return types.UpdatesPage{}, err
 	}
-	return s.updateRepo.GetUpdatesByRunTimeVersionAndBranchName(ctx, appId, runtimeVersion, branchName)
+	return s.updateRepo.GetUpdatesByRunTimeVersionAndBranchName(ctx, appId, runtimeVersion, branchName, cursor, limit)
 }

@@ -47,6 +47,11 @@ type UpdateItem struct {
 	ControlUpdateId   *string `json:"controlUpdateId,omitempty"`
 }
 
+type UpdatesPage struct {
+	Items      []UpdateItem `json:"items"`
+	NextCursor *string      `json:"nextCursor"`
+}
+
 type UpdateStoredMetadata struct {
 	Platform   string `json:"platform"`
 	CommitHash string `json:"commitHash"`
