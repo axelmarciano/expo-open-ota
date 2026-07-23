@@ -476,10 +476,114 @@ func TestUpsertSchemaKeyCap(t *testing.T) {
 		_, err := store.UpsertSchemaKey(ctx, appID, KeySpec{Key: fmt.Sprintf("key%d", i), Type: ValueTypeString})
 		require.NoError(t, err)
 	}
-	// The 101st key is rejected...
+	// The 101st key is rejected with the typed sentinel...
 	_, err := store.UpsertSchemaKey(ctx, appID, KeySpec{Key: "overflow", Type: ValueTypeString})
-	require.ErrorContains(t, err, "limited to")
+	require.ErrorIs(t, err, ErrTooManySchemaKeys)
 	// ...but re-declaring an existing key at the cap still works.
 	_, err = store.UpsertSchemaKey(ctx, appID, KeySpec{Key: "key0", Type: ValueTypeNumber})
 	require.NoError(t, err)
+}
+
+func TestListDevicesPaginationAndFilter(t *testing.T) {
+	store, pool := setupIdentityStore(t)
+	appID := seedApp(t, pool)
+	ctx := context.Background()
+	declareKey(t, store, appID, "tenant", ValueTypeString)
+
+	// Seed devices with staggered last_seen_at (later ApplySet = more recent).
+	var ids []string
+	for i := 0; i < 5; i++ {
+		id := uuid.NewString()
+		ids = append(ids, id)
+		tenant := "acme"
+		if i%2 == 1 {
+			tenant = "globex"
+		}
+		_, err := store.ApplySet(ctx, appID, id, map[string]any{"tenant": tenant}, nil)
+		require.NoError(t, err)
+	}
+
+	// Full unfiltered listing, newest-first, paginated 2 at a time.
+	var seen []string
+	var cursor *DeviceCursor
+	for {
+		devices, next, err := store.ListDevices(ctx, appID, nil, 2, cursor)
+		require.NoError(t, err)
+		for _, d := range devices {
+			seen = append(seen, d.EASClientID)
+		}
+		if next == nil {
+			break
+		}
+		cursor = next
+		require.LessOrEqual(t, len(seen), 5, "pagination must terminate")
+	}
+	require.Len(t, seen, 5)
+	// Newest-first: the last-seeded device comes first.
+	require.Equal(t, ids[4], seen[0])
+	// No duplicates across pages.
+	require.Len(t, uniqueStrings(seen), 5)
+
+	// Filter to tenant=globex (devices 1 and 3): 2 of them.
+	filtered, next, err := store.ListDevices(ctx, appID, &MetadataFilter{Key: "tenant", Value: "globex"}, 10, nil)
+	require.NoError(t, err)
+	require.Nil(t, next)
+	require.Len(t, filtered, 2)
+	for _, d := range filtered {
+		require.Equal(t, "globex", d.Metadata["tenant"])
+	}
+
+	// A filter matching nothing returns an empty page.
+	none, _, err := store.ListDevices(ctx, appID, &MetadataFilter{Key: "tenant", Value: "nope"}, 10, nil)
+	require.NoError(t, err)
+	require.Empty(t, none)
+}
+
+// When many devices share the exact same last_seen_at (the likely case: a
+// burst of identifies), pagination must fall back on the eas_client_id
+// tiebreaker and still return every row once. Sequential ApplySet calls get
+// distinct timestamps, so force a tie with a direct UPDATE.
+func TestListDevicesKeysetUnderTies(t *testing.T) {
+	store, pool := setupIdentityStore(t)
+	appID := seedApp(t, pool)
+	ctx := context.Background()
+
+	for i := 0; i < 6; i++ {
+		_, err := store.ApplySet(ctx, appID, uuid.NewString(), map[string]any{}, nil)
+		require.NoError(t, err)
+	}
+	// Pin all six rows to the same instant.
+	_, err := pool.Exec(ctx,
+		"UPDATE device_identity SET last_seen_at = '2026-07-23T10:00:00Z' WHERE app_id = $1", appID)
+	require.NoError(t, err)
+
+	var seen []string
+	var cursor *DeviceCursor
+	for {
+		devices, next, err := store.ListDevices(ctx, appID, nil, 2, cursor)
+		require.NoError(t, err)
+		for _, d := range devices {
+			seen = append(seen, d.EASClientID)
+		}
+		if next == nil {
+			break
+		}
+		cursor = next
+		require.LessOrEqual(t, len(seen), 6, "pagination must terminate under ties")
+	}
+	// All six, each exactly once, despite identical last_seen_at.
+	require.Len(t, seen, 6)
+	require.Len(t, uniqueStrings(seen), 6)
+}
+
+func uniqueStrings(in []string) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, s := range in {
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			out = append(out, s)
+		}
+	}
+	return out
 }

@@ -40,6 +40,10 @@ func serveIngest(handler *IngestHandler, method, path string, body []byte) *http
 }
 
 type recordingMutator struct {
+	// The embedded Store supplies the dashboard query methods (never called on
+	// the ingest path) so the fake satisfies identity.Store; only the three
+	// write methods below are exercised.
+	identity.Store
 	sets   []map[string]any
 	unsets [][]string
 	fail   bool

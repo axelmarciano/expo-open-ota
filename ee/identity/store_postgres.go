@@ -104,7 +104,7 @@ func (s *PostgresIdentityStore) UpsertSchemaKey(ctx context.Context, appID strin
 			return fmt.Errorf("listing identity schema: %w", err)
 		}
 		if _, declared := schemaFromRows(existing)[spec.Key]; !declared && len(existing) >= MaxSchemaKeys {
-			return fmt.Errorf("identity schema is limited to %d keys per app", MaxSchemaKeys)
+			return ErrTooManySchemaKeys
 		}
 		row, err := q.UpsertIdentitySchemaKey(ctx, pgdb.UpsertIdentitySchemaKeyParams{
 			AppID:     appUUID,
@@ -358,6 +358,68 @@ func (s *PostgresIdentityStore) GetDevice(ctx context.Context, appID string, eas
 		return nil, err
 	}
 	return &device, nil
+}
+
+// ListDevices returns one page of the device inventory, newest-seen first,
+// keyset-paginated. A nil cursor starts at the first page; the returned cursor
+// is nil on the last page. An optional filter narrows to installs whose
+// metadata contains the key/value (served by the GIN index).
+func (s *PostgresIdentityStore) ListDevices(ctx context.Context, appID string, filter *MetadataFilter, limit int, cursor *DeviceCursor) ([]Device, *DeviceCursor, error) {
+	appUUID, err := toPgUUID(appID)
+	if err != nil {
+		return nil, nil, err
+	}
+	switch {
+	case limit < 1:
+		limit = DefaultDevicesPageSize
+	case limit > MaxDevicesPageSize:
+		limit = MaxDevicesPageSize
+	}
+
+	params := pgdb.ListDevicesParams{
+		AppID: appUUID,
+		// One extra row detects whether a next page exists.
+		Lim: int32(limit + 1),
+	}
+	if filter != nil {
+		filterJSON, err := json.Marshal(map[string]string{filter.Key: filter.Value})
+		if err != nil {
+			return nil, nil, fmt.Errorf("marshalling device filter: %w", err)
+		}
+		params.Filter = filterJSON
+	}
+	if cursor != nil {
+		params.BeforeLastSeen = pgtype.Timestamptz{Time: cursor.LastSeenAt, Valid: true}
+		cursorUUID, err := toPgUUID(cursor.EASClientID)
+		if err != nil {
+			return nil, nil, err
+		}
+		params.BeforeClientID = cursorUUID
+	}
+
+	rows, err := s.engine.Queries.ListDevices(ctx, params)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listing devices: %w", err)
+	}
+
+	var next *DeviceCursor
+	if len(rows) > limit {
+		rows = rows[:limit]
+		last := rows[len(rows)-1]
+		next = &DeviceCursor{
+			LastSeenAt:  last.LastSeenAt.Time,
+			EASClientID: uuid.UUID(last.EasClientID.Bytes).String(),
+		}
+	}
+	devices := make([]Device, 0, len(rows))
+	for _, row := range rows {
+		device, err := deviceFromRow(row)
+		if err != nil {
+			return nil, nil, err
+		}
+		devices = append(devices, device)
+	}
+	return devices, next, nil
 }
 
 // SearchMetadataValues is the autocomplete behind searchMetadata: top values

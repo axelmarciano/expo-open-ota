@@ -1070,3 +1070,20 @@ WHERE app_id = $1 AND key = $2
   AND value ILIKE '%' || sqlc.arg(search)::TEXT || '%'
 ORDER BY device_count DESC, value ASC
 LIMIT sqlc.arg(max_results)::INT;
+
+-- Device inventory for the dashboard: newest-seen first, keyset-paginated on
+-- (last_seen_at DESC, eas_client_id DESC) so deep pages stay cheap. The
+-- optional jsonb filter (metadata @> $filter, served by the GIN index) powers
+-- "devices for a userId / tenant". Fetch one extra row to detect the next page.
+-- name: ListDevices :many
+SELECT * FROM device_identity
+WHERE app_id = $1
+  AND (sqlc.narg('filter')::jsonb IS NULL OR metadata @> sqlc.narg('filter')::jsonb)
+  AND (
+    sqlc.narg('before_last_seen')::timestamptz IS NULL
+    OR last_seen_at < sqlc.narg('before_last_seen')::timestamptz
+    OR (last_seen_at = sqlc.narg('before_last_seen')::timestamptz
+        AND eas_client_id < sqlc.narg('before_client_id')::uuid)
+  )
+ORDER BY last_seen_at DESC, eas_client_id DESC
+LIMIT sqlc.arg('lim')::int;

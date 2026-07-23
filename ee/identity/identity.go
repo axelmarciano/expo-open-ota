@@ -14,6 +14,7 @@ package identity
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"regexp"
@@ -21,6 +22,10 @@ import (
 	"time"
 	"unicode/utf8"
 )
+
+// ErrTooManySchemaKeys is returned when declaring a new allowlist key would
+// exceed MaxSchemaKeys. The dashboard surfaces it as a 409.
+var ErrTooManySchemaKeys = errors.New("identity schema key limit reached")
 
 type ValueType string
 
@@ -181,6 +186,28 @@ type Device struct {
 	FirstSeenAt time.Time
 	LastSeenAt  time.Time
 }
+
+// DeviceCursor is the keyset position for paginating the device inventory:
+// the (last_seen_at, eas_client_id) of the last row returned. Newest-first.
+type DeviceCursor struct {
+	LastSeenAt  time.Time
+	EASClientID string
+}
+
+// MetadataFilter narrows the device inventory to installs whose metadata
+// contains an exact key/value. String values only for now (userId, tenant,
+// plan — the dominant filter targets); typed number/bool filtering is not
+// wired into the dashboard yet.
+type MetadataFilter struct {
+	Key   string
+	Value string
+}
+
+const (
+	// DefaultDevicesPageSize and MaxDevicesPageSize bound the inventory page.
+	DefaultDevicesPageSize = 50
+	MaxDevicesPageSize     = 200
+)
 
 // Geo is an optional enrichment resolved from the request IP (GeoLite2,
 // city-level accuracy: lat/lng is a city centroid, not a device position).

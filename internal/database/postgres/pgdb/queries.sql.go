@@ -2374,6 +2374,68 @@ func (q *Queries) ListAuditLogEventsAfter(ctx context.Context, arg ListAuditLogE
 	return items, nil
 }
 
+const listDevices = `-- name: ListDevices :many
+SELECT app_id, eas_client_id, metadata, country_code, city, lat, lng, first_seen_at, last_seen_at FROM device_identity
+WHERE app_id = $1
+  AND ($2::jsonb IS NULL OR metadata @> $2::jsonb)
+  AND (
+    $3::timestamptz IS NULL
+    OR last_seen_at < $3::timestamptz
+    OR (last_seen_at = $3::timestamptz
+        AND eas_client_id < $4::uuid)
+  )
+ORDER BY last_seen_at DESC, eas_client_id DESC
+LIMIT $5::int
+`
+
+type ListDevicesParams struct {
+	AppID          pgtype.UUID        `json:"app_id"`
+	Filter         []byte             `json:"filter"`
+	BeforeLastSeen pgtype.Timestamptz `json:"before_last_seen"`
+	BeforeClientID pgtype.UUID        `json:"before_client_id"`
+	Lim            int32              `json:"lim"`
+}
+
+// Device inventory for the dashboard: newest-seen first, keyset-paginated on
+// (last_seen_at DESC, eas_client_id DESC) so deep pages stay cheap. The
+// optional jsonb filter (metadata @> $filter, served by the GIN index) powers
+// "devices for a userId / tenant". Fetch one extra row to detect the next page.
+func (q *Queries) ListDevices(ctx context.Context, arg ListDevicesParams) ([]DeviceIdentity, error) {
+	rows, err := q.db.Query(ctx, listDevices,
+		arg.AppID,
+		arg.Filter,
+		arg.BeforeLastSeen,
+		arg.BeforeClientID,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeviceIdentity
+	for rows.Next() {
+		var i DeviceIdentity
+		if err := rows.Scan(
+			&i.AppID,
+			&i.EasClientID,
+			&i.Metadata,
+			&i.CountryCode,
+			&i.City,
+			&i.Lat,
+			&i.Lng,
+			&i.FirstSeenAt,
+			&i.LastSeenAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listIdentitySchemaKeys = `-- name: ListIdentitySchemaKeys :many
 
 SELECT app_id, key, value_type, max_length, created_at FROM identity_schema

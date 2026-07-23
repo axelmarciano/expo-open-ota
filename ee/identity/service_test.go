@@ -13,7 +13,10 @@ import (
 )
 
 // fakeMutator records the exact call the service dispatched, geo included.
+// The embedded Store supplies the dashboard query methods (unused here) so the
+// fake satisfies identity.Store.
 type fakeMutator struct {
+	Store
 	calledOp Op
 	raw      map[string]any
 	keys     []string

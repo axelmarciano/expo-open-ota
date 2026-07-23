@@ -47,6 +47,7 @@ type AppContainer struct {
 	AuditHandler             *audit.AuditHandler
 	UserRepo                 services.UserRepository
 	ObserveIngestHandler     *observe.IngestHandler
+	IdentityHandler          *identity.IdentityHandler
 }
 
 // logLegacyAppIdFallback states, once at boot, which app receives manifest and
@@ -91,8 +92,9 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// stateless deployments never collect an event.
 	var auditRepo audit.AuditRepository
 	// Device identity (ee/identity) lives in the database; nil makes the
-	// observe ingestion acknowledge-and-drop, so stateless deployments never
-	// block a device's telemetry queue. EE-licensed code, NOT license-gated.
+	// observe ingestion acknowledge-and-drop and the dashboard handler answer
+	// 400, so stateless deployments never block on it. The service owns the
+	// store; the ingest route and the dashboard handler both go through it.
 	var identityService *identity.Service
 
 	cleanup := func() {}
@@ -249,5 +251,6 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		UsersHandler:             dashhandlers.NewUsersHandler(userService),
 		UserRepo:                 userRepo,
 		ObserveIngestHandler:     observe.NewIngestHandler(identityService),
+		IdentityHandler:          identity.NewIdentityHandler(identityService),
 	}, cleanup
 }
