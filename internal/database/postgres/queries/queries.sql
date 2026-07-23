@@ -1008,10 +1008,30 @@ WHERE app_id = $1 AND key = $2;
 -- purpose: FOR UPDATE cannot lock a row that does not exist yet, so two
 -- concurrent first identifies of the same install would both merge against
 -- an empty map and one would silently win. Insert-then-lock serializes them.
--- name: EnsureDeviceIdentity :exec
+-- Returns the number of rows inserted: 1 when this install is brand new, 0
+-- when it already existed. The free-tier device cap only needs to run on a
+-- genuine new-device insert, so the caller keys the count/eviction off this.
+-- name: EnsureDeviceIdentity :execrows
 INSERT INTO device_identity (app_id, eas_client_id)
 VALUES ($1, $2)
 ON CONFLICT (app_id, eas_client_id) DO NOTHING;
+
+-- name: CountDevices :one
+SELECT COUNT(*) FROM device_identity WHERE app_id = $1;
+
+-- The oldest devices of an app by last activity, excluding one (the install
+-- being written, which is the most recent and must never be evicted). Feeds
+-- the free-tier eviction: their metadata is read so the per-value stats can be
+-- decremented before the rows are deleted.
+-- name: OldestDevicesExcluding :many
+SELECT eas_client_id, metadata FROM device_identity
+WHERE app_id = $1 AND eas_client_id <> $2
+ORDER BY last_seen_at ASC, eas_client_id ASC
+LIMIT sqlc.arg('lim')::int;
+
+-- name: DeleteDevices :exec
+DELETE FROM device_identity
+WHERE app_id = $1 AND eas_client_id = ANY(sqlc.arg('client_ids')::uuid[]);
 
 -- name: GetDeviceIdentityForUpdate :one
 SELECT * FROM device_identity

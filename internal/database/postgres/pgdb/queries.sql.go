@@ -93,6 +93,17 @@ func (q *Queries) CountAuditLogEvents(ctx context.Context, arg CountAuditLogEven
 	return count, err
 }
 
+const countDevices = `-- name: CountDevices :one
+SELECT COUNT(*) FROM device_identity WHERE app_id = $1
+`
+
+func (q *Queries) CountDevices(ctx context.Context, appID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countDevices, appID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countGrantsByRole = `-- name: CountGrantsByRole :one
 SELECT COUNT(*) FROM user_app_grants
 WHERE role_id = $1
@@ -214,6 +225,21 @@ func (q *Queries) DeleteChannelRollout(ctx context.Context, arg DeleteChannelRol
 	return result.RowsAffected(), nil
 }
 
+const deleteDevices = `-- name: DeleteDevices :exec
+DELETE FROM device_identity
+WHERE app_id = $1 AND eas_client_id = ANY($2::uuid[])
+`
+
+type DeleteDevicesParams struct {
+	AppID     pgtype.UUID   `json:"app_id"`
+	ClientIds []pgtype.UUID `json:"client_ids"`
+}
+
+func (q *Queries) DeleteDevices(ctx context.Context, arg DeleteDevicesParams) error {
+	_, err := q.db.Exec(ctx, deleteDevices, arg.AppID, arg.ClientIds)
+	return err
+}
+
 const deleteEnterpriseLicense = `-- name: DeleteEnterpriseLicense :exec
 DELETE FROM enterprise_license
 `
@@ -320,7 +346,7 @@ func (q *Queries) DeleteZeroIdentityValueStats(ctx context.Context, arg DeleteZe
 	return err
 }
 
-const ensureDeviceIdentity = `-- name: EnsureDeviceIdentity :exec
+const ensureDeviceIdentity = `-- name: EnsureDeviceIdentity :execrows
 INSERT INTO device_identity (app_id, eas_client_id)
 VALUES ($1, $2)
 ON CONFLICT (app_id, eas_client_id) DO NOTHING
@@ -335,9 +361,15 @@ type EnsureDeviceIdentityParams struct {
 // purpose: FOR UPDATE cannot lock a row that does not exist yet, so two
 // concurrent first identifies of the same install would both merge against
 // an empty map and one would silently win. Insert-then-lock serializes them.
-func (q *Queries) EnsureDeviceIdentity(ctx context.Context, arg EnsureDeviceIdentityParams) error {
-	_, err := q.db.Exec(ctx, ensureDeviceIdentity, arg.AppID, arg.EasClientID)
-	return err
+// Returns the number of rows inserted: 1 when this install is brand new, 0
+// when it already existed. The free-tier device cap only needs to run on a
+// genuine new-device insert, so the caller keys the count/eviction off this.
+func (q *Queries) EnsureDeviceIdentity(ctx context.Context, arg EnsureDeviceIdentityParams) (int64, error) {
+	result, err := q.db.Exec(ctx, ensureDeviceIdentity, arg.AppID, arg.EasClientID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getActiveRolloutUpdates = `-- name: GetActiveRolloutUpdates :many
@@ -2824,6 +2856,48 @@ func (q *Queries) MigrateLegacyUpdate(ctx context.Context, arg MigrateLegacyUpda
 		arg.CreatedAt,
 	)
 	return err
+}
+
+const oldestDevicesExcluding = `-- name: OldestDevicesExcluding :many
+SELECT eas_client_id, metadata FROM device_identity
+WHERE app_id = $1 AND eas_client_id <> $2
+ORDER BY last_seen_at ASC, eas_client_id ASC
+LIMIT $3::int
+`
+
+type OldestDevicesExcludingParams struct {
+	AppID       pgtype.UUID `json:"app_id"`
+	EasClientID pgtype.UUID `json:"eas_client_id"`
+	Lim         int32       `json:"lim"`
+}
+
+type OldestDevicesExcludingRow struct {
+	EasClientID pgtype.UUID `json:"eas_client_id"`
+	Metadata    []byte      `json:"metadata"`
+}
+
+// The oldest devices of an app by last activity, excluding one (the install
+// being written, which is the most recent and must never be evicted). Feeds
+// the free-tier eviction: their metadata is read so the per-value stats can be
+// decremented before the rows are deleted.
+func (q *Queries) OldestDevicesExcluding(ctx context.Context, arg OldestDevicesExcludingParams) ([]OldestDevicesExcludingRow, error) {
+	rows, err := q.db.Query(ctx, oldestDevicesExcluding, arg.AppID, arg.EasClientID, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OldestDevicesExcludingRow
+	for rows.Next() {
+		var i OldestDevicesExcludingRow
+		if err := rows.Scan(&i.EasClientID, &i.Metadata); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const purgeAuditLogEventsBefore = `-- name: PurgeAuditLogEventsBefore :execresult

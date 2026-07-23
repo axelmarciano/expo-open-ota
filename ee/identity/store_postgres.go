@@ -7,6 +7,7 @@ package identity
 import (
 	"context"
 	"encoding/json"
+	"expo-open-ota/ee/licensing"
 	"expo-open-ota/internal/database"
 	"expo-open-ota/internal/database/postgres/pgdb"
 	"fmt"
@@ -16,12 +17,40 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const (
+	// FreeDeviceLimit is how many devices an app may keep WITHOUT a valid
+	// enterprise license. Beyond it, the oldest-by-last_seen device is evicted
+	// when a new one is registered, so an unlicensed app tracks its 1000 most
+	// recently active installs. A valid license lifts the cap entirely.
+	FreeDeviceLimit = 1000
+	// maxEvictPerWrite bounds how many devices a single write evicts, so a
+	// large app that just lost its license shrinks toward the cap over many
+	// registrations instead of in one giant transaction.
+	maxEvictPerWrite = 50
+)
+
 type PostgresIdentityStore struct {
 	engine *database.Engine
+	// licenseValid reports whether a valid enterprise license is active. Nil
+	// or true means no cap; false activates the device-limit eviction. It
+	// defaults to licensing.IsEnterprise, imported directly ON PURPOSE: the gate
+	// must live in EE code so bypassing the cap means editing an EE-licensed
+	// file, not swapping a func handed in from the MIT composition root. A field
+	// so same-package tests flip it without a signed key.
+	licenseValid func() bool
+	// deviceLimit is the free-tier cap, defaulting to FreeDeviceLimit; a field
+	// so tests can shrink it instead of seeding a thousand rows.
+	deviceLimit int
 }
 
 func NewPostgresIdentityStore(engine *database.Engine) *PostgresIdentityStore {
-	return &PostgresIdentityStore{engine: engine}
+	return &PostgresIdentityStore{engine: engine, licenseValid: licensing.IsEnterprise, deviceLimit: FreeDeviceLimit}
+}
+
+// capActive reports whether the free-tier device cap should be enforced: only
+// when a license check is configured and it says unlicensed.
+func (s *PostgresIdentityStore) capActive() bool {
+	return s.licenseValid != nil && !s.licenseValid()
 }
 
 // toPgUUID differs from store.ToPgUUID on purpose: identity ids come from the
@@ -223,7 +252,8 @@ func (s *PostgresIdentityStore) mutate(ctx context.Context, appID string, easCli
 			sanitized, dropped = schemaFromRows(schemaRows).Sanitize(raw)
 		}
 
-		if err := q.EnsureDeviceIdentity(ctx, pgdb.EnsureDeviceIdentityParams{AppID: appUUID, EasClientID: clientUUID}); err != nil {
+		inserted, err := q.EnsureDeviceIdentity(ctx, pgdb.EnsureDeviceIdentityParams{AppID: appUUID, EasClientID: clientUUID})
+		if err != nil {
 			return fmt.Errorf("ensuring device row: %w", err)
 		}
 		current, err := q.GetDeviceIdentityForUpdate(ctx, pgdb.GetDeviceIdentityForUpdateParams{AppID: appUUID, EasClientID: clientUUID})
@@ -294,6 +324,43 @@ func (s *PostgresIdentityStore) mutate(ctx context.Context, appID string, easCli
 			return fmt.Errorf("updating device row: %w", err)
 		}
 
+		// Free-tier cap: only a genuine new-device insert can push an app over
+		// the limit, so the count + eviction run solely on that path. Evicted
+		// devices' stat decrements fold into the same sorted op sequence below,
+		// keeping the deadlock-free (key,value) ordering; their rows are
+		// deleted after the stats settle.
+		var evictIDs []pgtype.UUID
+		if inserted == 1 && s.capActive() {
+			count, err := q.CountDevices(ctx, appUUID)
+			if err != nil {
+				return fmt.Errorf("counting devices: %w", err)
+			}
+			if overflow := count - int64(s.deviceLimit); overflow > 0 {
+				limit := overflow
+				if limit > maxEvictPerWrite {
+					limit = maxEvictPerWrite
+				}
+				oldest, err := q.OldestDevicesExcluding(ctx, pgdb.OldestDevicesExcludingParams{
+					AppID: appUUID, EasClientID: clientUUID, Lim: int32(limit),
+				})
+				if err != nil {
+					return fmt.Errorf("selecting devices to evict: %w", err)
+				}
+				for _, row := range oldest {
+					evictIDs = append(evictIDs, row.EasClientID)
+					evictedMeta := map[string]any{}
+					if len(row.Metadata) > 0 {
+						if err := json.Unmarshal(row.Metadata, &evictedMeta); err != nil {
+							return fmt.Errorf("corrupt evicted device metadata: %w", err)
+						}
+					}
+					for key, value := range evictedMeta {
+						ops = append(ops, statOp{key: key, value: RenderValue(value), decrement: true})
+					}
+				}
+			}
+		}
+
 		sort.Slice(ops, func(i, j int) bool {
 			if ops[i].key != ops[j].key {
 				return ops[i].key < ops[j].key
@@ -320,6 +387,13 @@ func (s *PostgresIdentityStore) mutate(ctx context.Context, appID string, easCli
 			incParams := pgdb.IncrementIdentityValueStatParams{AppID: appUUID, Key: op.key, Value: op.value}
 			if err := q.IncrementIdentityValueStat(ctx, incParams); err != nil {
 				return fmt.Errorf("incrementing value stat: %w", err)
+			}
+		}
+
+		// Delete the evicted device rows now that their stats are decremented.
+		if len(evictIDs) > 0 {
+			if err := q.DeleteDevices(ctx, pgdb.DeleteDevicesParams{AppID: appUUID, ClientIds: evictIDs}); err != nil {
+				return fmt.Errorf("deleting evicted devices: %w", err)
 			}
 		}
 

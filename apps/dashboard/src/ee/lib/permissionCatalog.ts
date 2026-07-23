@@ -102,5 +102,15 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
         description: 'Create and revoke publishing tokens and edit their restrictions.',
       },
     ],
-  }
+  },
+  {
+    label: 'Identity',
+    permissions: [
+      {
+        value: 'identity:manage',
+        label: 'Manage the identity allowlist',
+        description: 'Choose which device metadata keys are accepted and their types. Reading identity and browsing devices stays open to any member.',
+      },
+    ],
+  },
 ];

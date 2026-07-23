@@ -178,7 +178,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// The audit recorder is handed to every emitting surface below; it
 	// no-ops without a control plane and a currently valid license, so the
 	// call sites stay unconditional.
-	auditService := audit.NewAuditService(auditRepo, licensing.IsEnterprise)
+	auditService := audit.NewAuditService(auditRepo)
 	// The archive and the retention purge read their own configuration: that
 	// knowledge is the feature's, not the wiring's. The archive starts first
 	// so the purge spares unarchived rows, and an enabled-but-misconfigured

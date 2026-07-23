@@ -23,6 +23,7 @@ export type Permission =
   | 'channel-rollout:manage'
   | 'update-rollout:manage'
   | 'apikeys:manage'
+  | 'identity:manage'
 
 type PermissionsContextValue = {
   // enabled reports whether fine-grained roles are enforced right now

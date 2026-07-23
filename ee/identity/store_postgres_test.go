@@ -26,6 +26,7 @@ import (
 	"expo-open-ota/internal/database/postgres/pgdb"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 )
@@ -48,8 +49,14 @@ func setupIdentityStore(t *testing.T) (*PostgresIdentityStore, *pgxpool.Pool) {
 	pool, err := pgxpool.New(context.Background(), dbURL)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	return NewPostgresIdentityStore(&database.Engine{Queries: pgdb.New(pool), DB: pool}), pool
+	// Licensed by default so the free-tier cap is inert; the cap test builds
+	// its own unlicensed store.
+	store := NewPostgresIdentityStore(&database.Engine{Queries: pgdb.New(pool), DB: pool})
+	store.licenseValid = alwaysLicensed
+	return store, pool
 }
+
+func alwaysLicensed() bool { return true }
 
 func seedApp(t *testing.T, pool *pgxpool.Pool) string {
 	t.Helper()
@@ -586,4 +593,111 @@ func uniqueStrings(in []string) []string {
 		}
 	}
 	return out
+}
+
+// unlicensedStore builds a store with the free-tier cap active at a small
+// limit so the eviction path is testable without seeding a thousand rows.
+func unlicensedStore(pool *pgxpool.Pool, limit int) *PostgresIdentityStore {
+	s := NewPostgresIdentityStore(&database.Engine{Queries: pgdb.New(pool), DB: pool})
+	s.licenseValid = func() bool { return false }
+	s.deviceLimit = limit
+	return s
+}
+
+func TestFreeTierCapEvictsOldest(t *testing.T) {
+	_, pool := setupIdentityStore(t)
+	appID := seedApp(t, pool)
+	ctx := context.Background()
+	store := unlicensedStore(pool, 3)
+	declareKey(t, store, appID, "tenant", ValueTypeString)
+
+	// Register 3 devices (at the cap). Stagger last_seen via distinct txns.
+	ids := make([]string, 4)
+	for i := 0; i < 3; i++ {
+		ids[i] = uuid.NewString()
+		_, err := store.ApplySet(ctx, appID, ids[i], map[string]any{"tenant": "acme"}, nil)
+		require.NoError(t, err)
+	}
+	count, err := store.engine.Queries.CountDevices(ctx, mustPgUUID(t, appID))
+	require.NoError(t, err)
+	require.Equal(t, int64(3), count)
+
+	// A 4th device evicts the oldest (ids[0]); count stays at the cap.
+	ids[3] = uuid.NewString()
+	_, err = store.ApplySet(ctx, appID, ids[3], map[string]any{"tenant": "globex"}, nil)
+	require.NoError(t, err)
+
+	count, err = store.engine.Queries.CountDevices(ctx, mustPgUUID(t, appID))
+	require.NoError(t, err)
+	require.Equal(t, int64(3), count, "cap holds the app at the limit")
+
+	// The oldest is gone, the newest is present.
+	evicted, err := store.GetDevice(ctx, appID, ids[0])
+	require.NoError(t, err)
+	require.Nil(t, evicted, "the oldest device was evicted")
+	newest, err := store.GetDevice(ctx, appID, ids[3])
+	require.NoError(t, err)
+	require.NotNil(t, newest)
+
+	// Value stats followed the eviction: acme went 3 -> 2 (one evicted),
+	// globex is 1. No ghost counts from the evicted device.
+	values, err := store.SearchMetadataValues(ctx, appID, "tenant", "", 10)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []ValueCount{{Value: "acme", DeviceCount: 2}, {Value: "globex", DeviceCount: 1}}, values)
+}
+
+func TestLicensedStoreHasNoCap(t *testing.T) {
+	baseline, pool := setupIdentityStore(t) // alwaysLicensed
+	appID := seedApp(t, pool)
+	ctx := context.Background()
+	// Same tiny limit, but licensed → cap inert.
+	licensed := NewPostgresIdentityStore(&database.Engine{Queries: pgdb.New(pool), DB: pool})
+	licensed.licenseValid = func() bool { return true }
+	licensed.deviceLimit = 3
+	_ = baseline
+
+	for i := 0; i < 6; i++ {
+		_, err := licensed.ApplySet(ctx, appID, uuid.NewString(), map[string]any{}, nil)
+		require.NoError(t, err)
+	}
+	count, err := licensed.engine.Queries.CountDevices(ctx, mustPgUUID(t, appID))
+	require.NoError(t, err)
+	require.Equal(t, int64(6), count, "a valid license lifts the cap")
+}
+
+// Updates to existing devices must not trigger eviction (only new inserts do).
+func TestFreeTierCapIgnoresUpdates(t *testing.T) {
+	_, pool := setupIdentityStore(t)
+	appID := seedApp(t, pool)
+	ctx := context.Background()
+	store := unlicensedStore(pool, 3)
+	declareKey(t, store, appID, "tenant", ValueTypeString)
+
+	ids := make([]string, 3)
+	for i := 0; i < 3; i++ {
+		ids[i] = uuid.NewString()
+		_, err := store.ApplySet(ctx, appID, ids[i], map[string]any{"tenant": "acme"}, nil)
+		require.NoError(t, err)
+	}
+	// Re-identify the OLDEST many times: it stays (updates don't evict), and
+	// no device is dropped.
+	for i := 0; i < 5; i++ {
+		_, err := store.ApplySet(ctx, appID, ids[0], map[string]any{"tenant": "acme"}, nil)
+		require.NoError(t, err)
+	}
+	count, err := store.engine.Queries.CountDevices(ctx, mustPgUUID(t, appID))
+	require.NoError(t, err)
+	require.Equal(t, int64(3), count)
+	for _, id := range ids {
+		d, err := store.GetDevice(ctx, appID, id)
+		require.NoError(t, err)
+		require.NotNil(t, d, "no device evicted on updates")
+	}
+}
+
+func mustPgUUID(t *testing.T, id string) pgtype.UUID {
+	t.Helper()
+	u, err := toPgUUID(id)
+	require.NoError(t, err)
+	return u
 }
