@@ -5,6 +5,7 @@
 package identity
 
 import (
+	"encoding/json"
 	"math"
 	"strings"
 	"testing"
@@ -81,6 +82,16 @@ func TestSanitize(t *testing.T) {
 		sanitized, dropped := schema.Sanitize(map[string]any{"userId": "éèêëàâüö"})
 		require.Empty(t, dropped)
 		require.Equal(t, "éèêëàâüö", sanitized["userId"])
+	})
+
+	t.Run("json.Number and unsigned ints coerce like numbers", func(t *testing.T) {
+		sanitized, dropped := schema.Sanitize(map[string]any{"seats": json.Number("42")})
+		require.Empty(t, dropped)
+		require.Equal(t, float64(42), sanitized["seats"])
+		sanitized, _ = schema.Sanitize(map[string]any{"seats": uint64(7)})
+		require.Equal(t, float64(7), sanitized["seats"])
+		_, dropped = schema.Sanitize(map[string]any{"seats": json.Number("not-a-number")})
+		require.Equal(t, []string{"seats"}, dropped)
 	})
 
 	t.Run("non-finite numbers are dropped", func(t *testing.T) {

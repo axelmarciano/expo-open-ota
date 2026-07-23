@@ -16,6 +16,7 @@ package identity
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -156,13 +157,17 @@ func TestApplyIdentifyMergesAndCounts(t *testing.T) {
 	require.Error(t, err)
 }
 
+func strPtr(s string) *string     { return &s }
+func floatPtr(f float64) *float64 { return &f }
+
 func TestApplyIdentifyGeoCoalesce(t *testing.T) {
 	store, pool := setupIdentityStore(t)
 	appID := seedApp(t, pool)
 	ctx := context.Background()
 	clientID := uuid.NewString()
 
-	result, err := store.ApplyIdentify(ctx, appID, clientID, nil, &Geo{CountryCode: "FR", City: "Paris", Lat: 48.85, Lng: 2.35})
+	fullGeo := &Geo{CountryCode: strPtr("FR"), City: strPtr("Paris"), Lat: floatPtr(48.85), Lng: floatPtr(2.35)}
+	result, err := store.ApplyIdentify(ctx, appID, clientID, nil, fullGeo)
 	require.NoError(t, err)
 	require.NotNil(t, result.Device.CountryCode)
 	require.Equal(t, "FR", *result.Device.CountryCode)
@@ -172,6 +177,16 @@ func TestApplyIdentifyGeoCoalesce(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result.Device.CountryCode)
 	require.Equal(t, "FR", *result.Device.CountryCode)
+	require.NotNil(t, result.Device.Lat)
+	require.InDelta(t, 48.85, *result.Device.Lat, 0.001)
+
+	// A PARTIAL resolution (country-only is the common GeoLite2 case) updates
+	// what it knows and never blanks the rest with '' or 0/0.
+	result, err = store.ApplyIdentify(ctx, appID, clientID, nil, &Geo{CountryCode: strPtr("BE")})
+	require.NoError(t, err)
+	require.Equal(t, "BE", *result.Device.CountryCode)
+	require.NotNil(t, result.Device.City)
+	require.Equal(t, "Paris", *result.Device.City)
 	require.NotNil(t, result.Device.Lat)
 	require.InDelta(t, 48.85, *result.Device.Lat, 0.001)
 }
@@ -270,4 +285,122 @@ func TestApplyIdentifyConcurrentFirstWrite(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, device)
 	require.Equal(t, map[string]any{"userId": "user_1", "tenant": "acme"}, device.Metadata)
+
+	// The stat increments must survive the serialization too: a lost or
+	// double-counted increment would pass a metadata-only assertion.
+	values, err := store.SearchMetadataValues(ctx, appID, "userId", "", 10)
+	require.NoError(t, err)
+	require.Equal(t, []ValueCount{{Value: "user_1", DeviceCount: 1}}, values)
+	values, err = store.SearchMetadataValues(ctx, appID, "tenant", "", 10)
+	require.NoError(t, err)
+	require.Equal(t, []ValueCount{{Value: "acme", DeviceCount: 1}}, values)
+}
+
+// Two identifies of DIFFERENT devices sharing stat rows (same tenant/plan
+// values) must not deadlock: the store orders its stat-row locks by
+// (key, value) precisely for this. Before that ordering, this test deadlocked
+// within a handful of iterations (40P01 after the 1s deadlock_timeout).
+func TestApplyIdentifyConcurrentSharedStatRowsNoDeadlock(t *testing.T) {
+	store, pool := setupIdentityStore(t)
+	appID := seedApp(t, pool)
+	ctx := context.Background()
+	declareKey(t, store, appID, "tenant", ValueTypeString)
+	declareKey(t, store, appID, "plan", ValueTypeString)
+	declareKey(t, store, appID, "region", ValueTypeString)
+
+	deviceA, deviceB := uuid.NewString(), uuid.NewString()
+	payload := map[string]any{"tenant": "acme", "plan": "pro", "region": "eu"}
+	// Alternating payload so decrements and increments cross between rounds.
+	alternate := map[string]any{"tenant": "globex", "plan": "free", "region": "us"}
+
+	const rounds = 40
+	var wg sync.WaitGroup
+	errsA := make([]error, rounds)
+	errsB := make([]error, rounds)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < rounds; i++ {
+			p := payload
+			if i%2 == 1 {
+				p = alternate
+			}
+			if _, err := store.ApplyIdentify(ctx, appID, deviceA, p, nil); err != nil {
+				errsA[i] = err
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < rounds; i++ {
+			p := alternate
+			if i%2 == 1 {
+				p = payload
+			}
+			if _, err := store.ApplyIdentify(ctx, appID, deviceB, p, nil); err != nil {
+				errsB[i] = err
+				return
+			}
+		}
+	}()
+	wg.Wait()
+	for i := 0; i < rounds; i++ {
+		require.NoError(t, errsA[i], "device A round %d", i)
+		require.NoError(t, errsB[i], "device B round %d", i)
+	}
+
+	// Both devices ran an even number of rounds, so A ends on `alternate` and
+	// B ends on `payload`: every value should count exactly one device.
+	for key, want := range map[string][]ValueCount{
+		"tenant": {{Value: "acme", DeviceCount: 1}, {Value: "globex", DeviceCount: 1}},
+		"plan":   {{Value: "free", DeviceCount: 1}, {Value: "pro", DeviceCount: 1}},
+		"region": {{Value: "eu", DeviceCount: 1}, {Value: "us", DeviceCount: 1}},
+	} {
+		values, err := store.SearchMetadataValues(ctx, appID, key, "", 10)
+		require.NoError(t, err)
+		require.ElementsMatch(t, want, values, "key %s", key)
+	}
+}
+
+// A number-typed key must round-trip through JSONB without corrupting the
+// stat bookkeeping: 42 stored then re-read as float64 must compare equal to
+// an incoming 42 (no phantom dec/inc), and a real change must move the count.
+func TestApplyIdentifyNumberRoundtrip(t *testing.T) {
+	store, pool := setupIdentityStore(t)
+	appID := seedApp(t, pool)
+	ctx := context.Background()
+	declareKey(t, store, appID, "seats", ValueTypeNumber)
+
+	clientID := uuid.NewString()
+	_, err := store.ApplyIdentify(ctx, appID, clientID, map[string]any{"seats": int64(42)}, nil)
+	require.NoError(t, err)
+	_, err = store.ApplyIdentify(ctx, appID, clientID, map[string]any{"seats": float64(42)}, nil)
+	require.NoError(t, err)
+	values, err := store.SearchMetadataValues(ctx, appID, "seats", "", 10)
+	require.NoError(t, err)
+	require.Equal(t, []ValueCount{{Value: "42", DeviceCount: 1}}, values)
+
+	_, err = store.ApplyIdentify(ctx, appID, clientID, map[string]any{"seats": 42.5}, nil)
+	require.NoError(t, err)
+	values, err = store.SearchMetadataValues(ctx, appID, "seats", "", 10)
+	require.NoError(t, err)
+	require.Equal(t, []ValueCount{{Value: "42.5", DeviceCount: 1}}, values)
+}
+
+func TestUpsertSchemaKeyCap(t *testing.T) {
+	store, pool := setupIdentityStore(t)
+	appID := seedApp(t, pool)
+	ctx := context.Background()
+
+	for i := 0; i < MaxSchemaKeys; i++ {
+		_, err := store.UpsertSchemaKey(ctx, appID, KeySpec{Key: fmt.Sprintf("key%d", i), Type: ValueTypeString})
+		require.NoError(t, err)
+	}
+	// The 101st key is rejected...
+	_, err := store.UpsertSchemaKey(ctx, appID, KeySpec{Key: "overflow", Type: ValueTypeString})
+	require.ErrorContains(t, err, "limited to")
+	// ...but re-declaring an existing key at the cap still works.
+	_, err = store.UpsertSchemaKey(ctx, appID, KeySpec{Key: "key0", Type: ValueTypeNumber})
+	require.NoError(t, err)
 }

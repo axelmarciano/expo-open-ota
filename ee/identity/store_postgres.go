@@ -10,6 +10,7 @@ import (
 	"expo-open-ota/internal/database"
 	"expo-open-ota/internal/database/postgres/pgdb"
 	"fmt"
+	"sort"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -23,6 +24,9 @@ func NewPostgresIdentityStore(engine *database.Engine) *PostgresIdentityStore {
 	return &PostgresIdentityStore{engine: engine}
 }
 
+// toPgUUID differs from store.ToPgUUID on purpose: identity ids come from the
+// unauthenticated wire, so a parse failure must surface as an error the caller
+// can act on, not as a zero UUID silently written to the database.
 func toPgUUID(id string) (pgtype.UUID, error) {
 	parsed, err := uuid.Parse(id)
 	if err != nil {
@@ -33,6 +37,14 @@ func toPgUUID(id string) (pgtype.UUID, error) {
 
 func specFromRow(row pgdb.IdentitySchema) KeySpec {
 	return KeySpec{Key: row.Key, Type: ValueType(row.ValueType), MaxLength: int(row.MaxLength)}
+}
+
+func schemaFromRows(rows []pgdb.IdentitySchema) Schema {
+	schema := make(Schema, len(rows))
+	for _, row := range rows {
+		schema[row.Key] = specFromRow(row)
+	}
+	return schema
 }
 
 func deviceFromRow(row pgdb.DeviceIdentity) (Device, error) {
@@ -50,8 +62,8 @@ func deviceFromRow(row pgdb.DeviceIdentity) (Device, error) {
 		City:        row.City,
 		Lat:         row.Lat,
 		Lng:         row.Lng,
-		FirstSeenAt: row.FirstSeenAt.Time.UTC().Format("2006-01-02T15:04:05.000Z"),
-		LastSeenAt:  row.LastSeenAt.Time.UTC().Format("2006-01-02T15:04:05.000Z"),
+		FirstSeenAt: row.FirstSeenAt.Time,
+		LastSeenAt:  row.LastSeenAt.Time,
 	}, nil
 }
 
@@ -67,11 +79,7 @@ func (s *PostgresIdentityStore) GetSchema(ctx context.Context, appID string) (Sc
 	if err != nil {
 		return nil, fmt.Errorf("listing identity schema: %w", err)
 	}
-	schema := make(Schema, len(rows))
-	for _, row := range rows {
-		schema[row.Key] = specFromRow(row)
-	}
-	return schema, nil
+	return schemaFromRows(rows), nil
 }
 
 func (s *PostgresIdentityStore) UpsertSchemaKey(ctx context.Context, appID string, spec KeySpec) (KeySpec, error) {
@@ -85,16 +93,35 @@ func (s *PostgresIdentityStore) UpsertSchemaKey(ctx context.Context, appID strin
 	if err != nil {
 		return KeySpec{}, err
 	}
-	row, err := s.engine.Queries.UpsertIdentitySchemaKey(ctx, pgdb.UpsertIdentitySchemaKeyParams{
-		AppID:     appUUID,
-		Key:       spec.Key,
-		ValueType: string(spec.Type),
-		MaxLength: int32(spec.MaxLength),
+
+	var saved KeySpec
+	err = s.engine.WithTx(ctx, func(q *pgdb.Queries) error {
+		// The key-count cap runs in the same transaction as the insert so two
+		// concurrent declarations cannot both slip under the limit. Updating
+		// an already-declared key is always allowed, even at the cap.
+		existing, err := q.ListIdentitySchemaKeys(ctx, appUUID)
+		if err != nil {
+			return fmt.Errorf("listing identity schema: %w", err)
+		}
+		if _, declared := schemaFromRows(existing)[spec.Key]; !declared && len(existing) >= MaxSchemaKeys {
+			return fmt.Errorf("identity schema is limited to %d keys per app", MaxSchemaKeys)
+		}
+		row, err := q.UpsertIdentitySchemaKey(ctx, pgdb.UpsertIdentitySchemaKeyParams{
+			AppID:     appUUID,
+			Key:       spec.Key,
+			ValueType: string(spec.Type),
+			MaxLength: int32(spec.MaxLength),
+		})
+		if err != nil {
+			return fmt.Errorf("upserting identity schema key: %w", err)
+		}
+		saved = specFromRow(row)
+		return nil
 	})
 	if err != nil {
-		return KeySpec{}, fmt.Errorf("upserting identity schema key: %w", err)
+		return KeySpec{}, err
 	}
-	return specFromRow(row), nil
+	return saved, nil
 }
 
 // DeleteSchemaKey removes a key from the allowlist and wipes its autocomplete
@@ -106,24 +133,35 @@ func (s *PostgresIdentityStore) DeleteSchemaKey(ctx context.Context, appID strin
 	if err != nil {
 		return false, err
 	}
-	tx, err := s.engine.DB.Begin(ctx)
+	var deleted bool
+	err = s.engine.WithTx(ctx, func(q *pgdb.Queries) error {
+		tag, err := q.DeleteIdentitySchemaKey(ctx, pgdb.DeleteIdentitySchemaKeyParams{AppID: appUUID, Key: key})
+		if err != nil {
+			return fmt.Errorf("deleting identity schema key: %w", err)
+		}
+		if err := q.DeleteIdentityValueStatsForKey(ctx, pgdb.DeleteIdentityValueStatsForKeyParams{AppID: appUUID, Key: key}); err != nil {
+			return fmt.Errorf("deleting identity value stats: %w", err)
+		}
+		deleted = tag.RowsAffected() > 0
+		return nil
+	})
 	if err != nil {
-		return false, fmt.Errorf("beginning delete schema key tx: %w", err)
+		return false, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.engine.Queries.WithTx(tx)
+	return deleted, nil
+}
 
-	tag, err := qtx.DeleteIdentitySchemaKey(ctx, pgdb.DeleteIdentitySchemaKeyParams{AppID: appUUID, Key: key})
-	if err != nil {
-		return false, fmt.Errorf("deleting identity schema key: %w", err)
-	}
-	if err := qtx.DeleteIdentityValueStatsForKey(ctx, pgdb.DeleteIdentityValueStatsForKeyParams{AppID: appUUID, Key: key}); err != nil {
-		return false, fmt.Errorf("deleting identity value stats: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return false, fmt.Errorf("committing delete schema key tx: %w", err)
-	}
-	return tag.RowsAffected() > 0, nil
+// statOp is one pending change to identity_value_stats. Ops are executed in
+// deterministic (key, value) order across the whole transaction: increments
+// and decrements both take row locks held until commit, and Go map iteration
+// order is random, so unordered execution lets two identifies of DIFFERENT
+// devices that share stat rows (same tenant, same plan...) acquire those locks
+// in opposite orders and deadlock. Sorting by key alone is not enough: A
+// moving tenant acme->globex and B moving globex->acme would still cross.
+type statOp struct {
+	key       string
+	value     string
+	decrement bool
 }
 
 // ApplyIdentify runs one identify against the store: sanitize the raw wire
@@ -142,101 +180,108 @@ func (s *PostgresIdentityStore) ApplyIdentify(ctx context.Context, appID string,
 		return ApplyResult{}, err
 	}
 
-	tx, err := s.engine.DB.Begin(ctx)
-	if err != nil {
-		return ApplyResult{}, fmt.Errorf("beginning identify tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.engine.Queries.WithTx(tx)
-
-	// The schema read shares the transaction so a concurrent allowlist change
-	// cannot produce a merge that mixes two versions of the schema.
-	schemaRows, err := qtx.ListIdentitySchemaKeys(ctx, appUUID)
-	if err != nil {
-		return ApplyResult{}, fmt.Errorf("listing identity schema: %w", err)
-	}
-	schema := make(Schema, len(schemaRows))
-	for _, row := range schemaRows {
-		schema[row.Key] = specFromRow(row)
-	}
-	sanitized, dropped := schema.Sanitize(raw)
-
-	if err := qtx.EnsureDeviceIdentity(ctx, pgdb.EnsureDeviceIdentityParams{AppID: appUUID, EasClientID: clientUUID}); err != nil {
-		return ApplyResult{}, fmt.Errorf("ensuring device row: %w", err)
-	}
-	current, err := qtx.GetDeviceIdentityForUpdate(ctx, pgdb.GetDeviceIdentityForUpdateParams{AppID: appUUID, EasClientID: clientUUID})
-	if err != nil {
-		return ApplyResult{}, fmt.Errorf("locking device row: %w", err)
-	}
-	previous := map[string]any{}
-	if len(current.Metadata) > 0 {
-		if err := json.Unmarshal(current.Metadata, &previous); err != nil {
-			return ApplyResult{}, fmt.Errorf("corrupt device metadata: %w", err)
+	var result ApplyResult
+	err = s.engine.WithTx(ctx, func(q *pgdb.Queries) error {
+		// The schema read shares the transaction so a concurrent allowlist
+		// change cannot produce a merge mixing two versions of the schema.
+		schemaRows, err := q.ListIdentitySchemaKeys(ctx, appUUID)
+		if err != nil {
+			return fmt.Errorf("listing identity schema: %w", err)
 		}
-	}
+		sanitized, dropped := schemaFromRows(schemaRows).Sanitize(raw)
 
-	merged := make(map[string]any, len(previous)+len(sanitized))
-	for key, value := range previous {
-		merged[key] = value
-	}
-	for key, value := range sanitized {
-		merged[key] = value
-	}
-	mergedJSON, err := json.Marshal(merged)
-	if err != nil {
-		return ApplyResult{}, fmt.Errorf("marshalling merged metadata: %w", err)
-	}
+		if err := q.EnsureDeviceIdentity(ctx, pgdb.EnsureDeviceIdentityParams{AppID: appUUID, EasClientID: clientUUID}); err != nil {
+			return fmt.Errorf("ensuring device row: %w", err)
+		}
+		current, err := q.GetDeviceIdentityForUpdate(ctx, pgdb.GetDeviceIdentityForUpdateParams{AppID: appUUID, EasClientID: clientUUID})
+		if err != nil {
+			return fmt.Errorf("locking device row: %w", err)
+		}
+		previous := map[string]any{}
+		if len(current.Metadata) > 0 {
+			if err := json.Unmarshal(current.Metadata, &previous); err != nil {
+				return fmt.Errorf("corrupt device metadata: %w", err)
+			}
+		}
 
-	params := pgdb.UpdateDeviceIdentityParams{
-		AppID:       appUUID,
-		EasClientID: clientUUID,
-		Metadata:    mergedJSON,
-	}
-	if geo != nil {
-		params.CountryCode = &geo.CountryCode
-		params.City = &geo.City
-		params.Lat = &geo.Lat
-		params.Lng = &geo.Lng
-	}
-	updated, err := qtx.UpdateDeviceIdentity(ctx, params)
-	if err != nil {
-		return ApplyResult{}, fmt.Errorf("updating device row: %w", err)
-	}
+		merged := make(map[string]any, len(previous)+len(sanitized))
+		for key, value := range previous {
+			merged[key] = value
+		}
+		var ops []statOp
+		for key, value := range sanitized {
+			merged[key] = value
+			newRendered := RenderValue(value)
+			if oldValue, existed := previous[key]; existed {
+				oldRendered := RenderValue(oldValue)
+				if oldRendered == newRendered {
+					continue
+				}
+				ops = append(ops, statOp{key: key, value: oldRendered, decrement: true})
+			}
+			ops = append(ops, statOp{key: key, value: newRendered})
+		}
+		mergedJSON, err := json.Marshal(merged)
+		if err != nil {
+			return fmt.Errorf("marshalling merged metadata: %w", err)
+		}
 
-	// Value stats: a key newly set counts its value in; a changed value moves
-	// the device from the old value's count to the new one. Comparison happens
-	// on the rendered form, the same normalization the stats table stores.
-	for key, value := range sanitized {
-		newRendered := RenderValue(value)
-		oldValue, existed := previous[key]
-		if existed {
-			oldRendered := RenderValue(oldValue)
-			if oldRendered == newRendered {
+		params := pgdb.UpdateDeviceIdentityParams{
+			AppID:       appUUID,
+			EasClientID: clientUUID,
+			Metadata:    mergedJSON,
+		}
+		if geo != nil {
+			params.CountryCode = geo.CountryCode
+			params.City = geo.City
+			params.Lat = geo.Lat
+			params.Lng = geo.Lng
+		}
+		updated, err := q.UpdateDeviceIdentity(ctx, params)
+		if err != nil {
+			return fmt.Errorf("updating device row: %w", err)
+		}
+
+		sort.Slice(ops, func(i, j int) bool {
+			if ops[i].key != ops[j].key {
+				return ops[i].key < ops[j].key
+			}
+			if ops[i].value != ops[j].value {
+				return ops[i].value < ops[j].value
+			}
+			return ops[i].decrement
+		})
+		for _, op := range ops {
+			if op.decrement {
+				decParams := pgdb.DecrementIdentityValueStatParams{AppID: appUUID, Key: op.key, Value: op.value}
+				if err := q.DecrementIdentityValueStat(ctx, decParams); err != nil {
+					return fmt.Errorf("decrementing value stat: %w", err)
+				}
+				// Prune immediately: same row, already locked by the
+				// decrement, so this cannot introduce a new lock ordering.
+				delParams := pgdb.DeleteZeroIdentityValueStatsParams{AppID: appUUID, Key: op.key, Value: op.value}
+				if err := q.DeleteZeroIdentityValueStats(ctx, delParams); err != nil {
+					return fmt.Errorf("pruning zero value stat: %w", err)
+				}
 				continue
 			}
-			decParams := pgdb.DecrementIdentityValueStatParams{AppID: appUUID, Key: key, Value: oldRendered}
-			if err := qtx.DecrementIdentityValueStat(ctx, decParams); err != nil {
-				return ApplyResult{}, fmt.Errorf("decrementing value stat: %w", err)
-			}
-			delParams := pgdb.DeleteZeroIdentityValueStatsParams{AppID: appUUID, Key: key, Value: oldRendered}
-			if err := qtx.DeleteZeroIdentityValueStats(ctx, delParams); err != nil {
-				return ApplyResult{}, fmt.Errorf("pruning zero value stat: %w", err)
+			incParams := pgdb.IncrementIdentityValueStatParams{AppID: appUUID, Key: op.key, Value: op.value}
+			if err := q.IncrementIdentityValueStat(ctx, incParams); err != nil {
+				return fmt.Errorf("incrementing value stat: %w", err)
 			}
 		}
-		incParams := pgdb.IncrementIdentityValueStatParams{AppID: appUUID, Key: key, Value: newRendered}
-		if err := qtx.IncrementIdentityValueStat(ctx, incParams); err != nil {
-			return ApplyResult{}, fmt.Errorf("incrementing value stat: %w", err)
-		}
-	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return ApplyResult{}, fmt.Errorf("committing identify tx: %w", err)
-	}
-	device, err := deviceFromRow(updated)
+		device, err := deviceFromRow(updated)
+		if err != nil {
+			return err
+		}
+		result = ApplyResult{Device: device, DroppedKeys: dropped}
+		return nil
+	})
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	return ApplyResult{Device: device, DroppedKeys: dropped}, nil
+	return result, nil
 }
 
 // GetDevice returns nil when the install was never seen.
@@ -264,15 +309,36 @@ func (s *PostgresIdentityStore) GetDevice(ctx context.Context, appID string, eas
 }
 
 // SearchMetadataValues is the autocomplete behind searchMetadata: top values
-// of one key ranked by device count, optionally narrowed by a substring.
+// of one key ranked by device count, optionally narrowed by a substring. The
+// two arms are separate prepared statements on purpose (see queries.sql).
 func (s *PostgresIdentityStore) SearchMetadataValues(ctx context.Context, appID string, key string, search string, limit int) ([]ValueCount, error) {
 	appUUID, err := toPgUUID(appID)
 	if err != nil {
 		return nil, err
 	}
-	if limit < 1 || limit > 100 {
+	switch {
+	case limit < 1:
 		limit = 20
+	case limit > 100:
+		limit = 100
 	}
+
+	if search == "" {
+		rows, err := s.engine.Queries.TopIdentityValues(ctx, pgdb.TopIdentityValuesParams{
+			AppID:      appUUID,
+			Key:        key,
+			MaxResults: int32(limit),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("listing top identity values: %w", err)
+		}
+		values := make([]ValueCount, 0, len(rows))
+		for _, row := range rows {
+			values = append(values, ValueCount{Value: row.Value, DeviceCount: row.DeviceCount})
+		}
+		return values, nil
+	}
+
 	rows, err := s.engine.Queries.SearchIdentityValues(ctx, pgdb.SearchIdentityValuesParams{
 		AppID:      appUUID,
 		Key:        key,
