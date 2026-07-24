@@ -69,7 +69,7 @@ export const PercentInput = ({
             onClick={() => handleChange(String(p))}
             className={cn(
               value === p &&
-                'border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-700'
+                'border-emerald-400/40 bg-emerald-400/10 text-emerald-700 hover:bg-emerald-400/15 hover:text-emerald-800 dark:text-emerald-300 dark:hover:text-emerald-200'
             )}>
             {p}%
           </Button>

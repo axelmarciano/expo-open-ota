@@ -35,6 +35,14 @@ func ToPgUUID(id string) pgtype.UUID {
 	}
 }
 
+// ToPgUUIDPtr maps a nil pointer to the SQL NULL uuid.
+func ToPgUUIDPtr(id *string) pgtype.UUID {
+	if id == nil {
+		return pgtype.UUID{}
+	}
+	return ToPgUUID(*id)
+}
+
 type InsertAppParameters struct {
 	ID                 string
 	Name               string

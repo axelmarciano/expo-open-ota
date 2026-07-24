@@ -38,19 +38,19 @@ export const EnterpriseExplainerDialog = ({
   <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent>
       <DialogHeader>
-        <div className="mb-1 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-sm">
-          <Lock className="h-5 w-5 text-white" strokeWidth={2.2} />
+        <div className="mb-1 flex h-11 w-11 items-center justify-center rounded-lg border border-emerald-400/25 bg-emerald-400/10 shadow-card">
+          <Lock className="h-5 w-5 text-emerald-700 dark:text-white" strokeWidth={2.2} />
         </div>
         <DialogTitle>{feature ? feature.name : 'Unlock Enterprise features'}</DialogTitle>
         <DialogDescription>
-          This feature is part of the Enterprise edition of Expo Open OTA. Your deployment
-          currently runs the community edition, so it stays visible here but locked.
+          This feature is part of the Enterprise edition of Expo Open OTA. Your deployment currently
+          runs the community edition, so it stays visible here but locked.
         </DialogDescription>
       </DialogHeader>
       <div className="space-y-3 text-sm text-muted-foreground">
         {feature && (
-          <div className="flex gap-2.5 rounded-lg border border-emerald-100 bg-emerald-50/60 p-3 text-foreground">
-            <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+          <div className="flex gap-2.5 rounded-lg border border-emerald-400/25 bg-emerald-400/[0.07] p-3 text-foreground">
+            <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-300" />
             <p className="text-xs leading-relaxed">{feature.description}</p>
           </div>
         )}
@@ -78,9 +78,7 @@ export const EnterpriseExplainerDialog = ({
         <Button variant="outline" onClick={() => onOpenChange(false)}>
           Close
         </Button>
-        <Button
-          asChild
-          className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-700 hover:to-teal-700">
+        <Button asChild>
           <a href={`mailto:${ENTERPRISE_CONTACT_EMAIL}?subject=Expo%20Open%20OTA%20Enterprise`}>
             <Mail className="h-4 w-4" />
             Contact us

@@ -87,6 +87,18 @@ func (s *PostgresChannelStore) GetChannels(ctx context.Context, appId string) ([
 			BranchName:         channel.BranchName,
 			BranchId:           branchIdPtr,
 			CreatedAt:          createdAtStr,
+			BranchCurrentUpdate: branchUpdateState(
+				channel.BranchCurrentRuntimeVersion,
+				channel.BranchCurrentCommitHash,
+				channel.BranchCurrentUpdateCreatedAt,
+				channel.BranchCurrentRolloutPercentage,
+			),
+			RolloutBranchCurrentUpdate: branchUpdateState(
+				channel.RolloutBranchCurrentRuntimeVersion,
+				channel.RolloutBranchCurrentCommitHash,
+				channel.RolloutBranchCurrentUpdateCreatedAt,
+				channel.RolloutBranchCurrentRolloutPercentage,
+			),
 		}
 		if channel.RolloutID.Valid && channel.BranchName != nil && channel.RolloutBranchName != nil && channel.RolloutPercentage != nil {
 			mapping.Rollout = &types.ChannelRollout{

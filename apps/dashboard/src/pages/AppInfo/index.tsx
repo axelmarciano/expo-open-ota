@@ -231,10 +231,7 @@ export const AppInfo = () => {
                   This cannot be undone.
                 </p>
               </div>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => setShowDeleteAppDialog(true)}>
+              <Button variant="destructive" size="sm" onClick={() => setShowDeleteAppDialog(true)}>
                 <Trash2 className="h-3.5 w-3.5" /> Delete app
               </Button>
             </div>

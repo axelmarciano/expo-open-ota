@@ -389,6 +389,6 @@ func (s *RolloutService) revertSingleRolloutUpdate(ctx context.Context, appId st
 		_, err = s.deploymentService.createRollbackInternal(ctx, appId, activeRollout.Platform, "", runtimeVersion, branchName)
 		return err
 	}
-	_, err = s.deploymentService.republishUpdateInternal(ctx, controlUpdate, activeRollout.Platform, "")
+	_, err = s.deploymentService.republishUpdateInternal(ctx, controlUpdate, activeRollout.Platform, "", nil)
 	return err
 }

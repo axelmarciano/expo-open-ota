@@ -81,6 +81,9 @@ func (h *RolloutHandler) invalidateUpdateRolloutCaches(appId string, branchName 
 		update2.ComputeLastUpdateCacheKey(appId, branchName, runtimeVersion, "ios"),
 		update2.ComputeLastUpdateCacheKey(appId, branchName, runtimeVersion, "android"),
 		dashboard.ComputeGetUpdatesCacheKey(appId, branchName, runtimeVersion),
+		dashboard.ComputeGetRuntimeVersionsCacheKey(appId, branchName),
+		dashboard.ComputeGetBranchesCacheKey(appId),
+		dashboard.ComputeGetChannelsCacheKey(appId),
 	}
 	for _, affectedRollout := range affectedRollouts {
 		cacheKeys = append(cacheKeys, dashboard.ComputeGetUpdateDetailsCacheKey(appId, branchName, runtimeVersion, affectedRollout.UpdateId))

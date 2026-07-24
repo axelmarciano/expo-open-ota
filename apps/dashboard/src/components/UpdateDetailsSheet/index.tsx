@@ -24,6 +24,8 @@ interface Update {
   updateId: string;
   platform: string;
   commitHash: string;
+  branch?: string;
+  runtimeVersion?: string;
 }
 
 export type UpdateDetailsRef = {
@@ -49,7 +51,7 @@ const CopyButton = ({ value, label }: { value: string; label: string }) => {
         }
       }}>
       {copied ? (
-        <Check className="h-3.5 w-3.5 text-emerald-600" />
+        <Check className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-300" />
       ) : (
         <Copy className="h-3.5 w-3.5" />
       )}
@@ -92,8 +94,11 @@ const UpdateDetailsBody = ({
 }) => {
   const { selectedAppId } = useSelectedApp();
   const [showRawConfig, setShowRawConfig] = useState(false);
+  // Keyed on what the fetch actually uses. Never updateUUID: every rollback
+  // row shares the literal "Rollback to embedded", so two rollbacks from
+  // different branches would collide in the cache and show mixed data.
   const { data, isLoading, error } = useQuery({
-    queryKey: ['update-details', selectedAppId, update.updateUUID],
+    queryKey: ['update-details', selectedAppId, branch, runtimeVersion, update.updateId],
     enabled: !!update.updateId && !!selectedAppId,
     queryFn: () => api.getUpdateDetails(branch, runtimeVersion, update.updateId),
   });
@@ -156,14 +161,18 @@ const UpdateDetailsBody = ({
         <div className="flex flex-wrap items-center gap-1.5 pt-1">
           <Badge variant="outline">{platformLabel(data.platform)}</Badge>
           {isRollback ? (
-            <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+            <Badge
+              variant="outline"
+              className="border-amber-400/25 bg-amber-400/10 text-amber-700 dark:text-amber-300">
               Rollback
             </Badge>
           ) : (
             <Badge variant="outline">Normal update</Badge>
           )}
           {rolloutActive && (
-            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+            <Badge
+              variant="outline"
+              className="border-emerald-400/25 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300">
               <Split className="mr-1 h-3 w-3" />
               Rollout in progress
             </Badge>
@@ -173,9 +182,11 @@ const UpdateDetailsBody = ({
 
       <div className="space-y-5 py-4">
         {rolloutActive && (
-          <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
+          <div className="space-y-2 rounded-lg border border-emerald-400/25 bg-emerald-400/[0.07] p-4">
             <div className="flex items-center justify-between gap-4">
-              <span className="text-sm font-medium text-emerald-800">Progressive rollout</span>
+              <span className="text-sm font-medium text-emerald-800 dark:text-emerald-200">
+                Progressive rollout
+              </span>
               <RolloutBar value={data.rolloutPercentage as number} />
             </div>
             {data.controlUpdateId && (
@@ -261,8 +272,8 @@ const UpdateDetailsBody = ({
 };
 
 type Props = {
-  branch: string;
-  runtimeVersion: string;
+  branch?: string;
+  runtimeVersion?: string;
 };
 
 export const UpdateDetailsSheet = forwardRef<UpdateDetailsRef, Props>(
@@ -288,10 +299,10 @@ export const UpdateDetailsSheet = forwardRef<UpdateDetailsRef, Props>(
         <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
           {currentUpdate ? (
             <UpdateDetailsBody
-              key={currentUpdate.updateUUID}
+              key={`${currentUpdate.branch ?? branch ?? ''}:${currentUpdate.runtimeVersion ?? runtimeVersion ?? ''}:${currentUpdate.updateId}`}
               update={currentUpdate}
-              branch={branch}
-              runtimeVersion={runtimeVersion}
+              branch={currentUpdate.branch ?? branch ?? ''}
+              runtimeVersion={currentUpdate.runtimeVersion ?? runtimeVersion ?? ''}
             />
           ) : (
             <SheetHeader>

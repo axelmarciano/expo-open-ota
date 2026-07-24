@@ -54,7 +54,9 @@ export const ApiTokens = () => {
       parts.push('Protected access');
     }
     if (restrictions?.allowedIps.length) {
-      parts.push(`${restrictions.allowedIps.length} IP${restrictions.allowedIps.length > 1 ? 's' : ''}`);
+      parts.push(
+        `${restrictions.allowedIps.length} IP${restrictions.allowedIps.length > 1 ? 's' : ''}`
+      );
     }
     return parts.join(' · ');
   };
@@ -88,7 +90,10 @@ export const ApiTokens = () => {
     try {
       await api.revokeApiKey(keyToRevoke.id);
       queryClient.invalidateQueries({ queryKey: ['apiKeys', selectedAppId] });
-      toast({ title: 'Token revoked', description: `"${keyToRevoke.name}" can no longer be used.` });
+      toast({
+        title: 'Token revoked',
+        description: `"${keyToRevoke.name}" can no longer be used.`,
+      });
       setKeyToRevoke(null);
     } catch (error) {
       let errorTitle = 'Revocation failed';
@@ -219,7 +224,7 @@ export const ApiTokens = () => {
               cell: ({ row }: { row: { original: ApiKeyRecord } }) => {
                 const summary = describeRestrictions(row.original.id);
                 const state = summary ? (
-                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700">
+                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-300">
                     <ShieldCheck className="h-3.5 w-3.5" />
                     {summary}
                   </span>

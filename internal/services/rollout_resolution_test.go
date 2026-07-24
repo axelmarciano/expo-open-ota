@@ -57,6 +57,7 @@ type fakeStoredUpdate struct {
 	rolloutPercentage *int
 	controlUpdateId   *string
 	updateUUID        string
+	publishGroup      *string
 }
 
 type fakeUpdateRepo struct {
@@ -225,10 +226,11 @@ func (r *fakeUpdateRepo) IsUpdateValid(_ context.Context, update types.Update) (
 	return row != nil && row.checked, nil
 }
 
-func (r *fakeUpdateRepo) CreateUpdate(_ context.Context, appId string, updateId int64, branchName, runtimeVersion, platform, _, _ string) (*types.Update, error) {
+func (r *fakeUpdateRepo) CreateUpdate(_ context.Context, appId string, updateId int64, branchName, runtimeVersion, platform, _, _ string, publishGroup *string) (*types.Update, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	row := r.appendRowLocked(appId, updateId, branchName, runtimeVersion, platform, types.NormalUpdate)
+	row.publishGroup = publishGroup
 	if r.events != nil {
 		r.events.add("createUpdate:" + row.update.UpdateId)
 	}
@@ -236,7 +238,7 @@ func (r *fakeUpdateRepo) CreateUpdate(_ context.Context, appId string, updateId 
 	return &updateCopy, nil
 }
 
-func (r *fakeUpdateRepo) CreateUpdateWithRollout(_ context.Context, appId string, updateId int64, branchName, runtimeVersion, platform, _, _ string, rolloutPercentage int) (*types.Update, error) {
+func (r *fakeUpdateRepo) CreateUpdateWithRollout(_ context.Context, appId string, updateId int64, branchName, runtimeVersion, platform, _, _ string, rolloutPercentage int, publishGroup *string) (*types.Update, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	// The control resolves at insert time to the latest checked update of the same
@@ -249,6 +251,7 @@ func (r *fakeUpdateRepo) CreateUpdateWithRollout(_ context.Context, appId string
 	row := r.appendRowLocked(appId, updateId, branchName, runtimeVersion, platform, types.NormalUpdate)
 	row.rolloutPercentage = &rolloutPercentage
 	row.controlUpdateId = controlId
+	row.publishGroup = publishGroup
 	if r.events != nil {
 		r.events.add("createUpdateWithRollout:" + row.update.UpdateId)
 	}
@@ -273,6 +276,36 @@ func (r *fakeUpdateRepo) GetUpdateByBranchNameAndRuntime(_ context.Context, _ st
 
 func (r *fakeUpdateRepo) GetUpdatesByRunTimeVersionAndBranchName(_ context.Context, _, _, _ string) ([]types.UpdateItem, error) {
 	return nil, nil
+}
+
+func (r *fakeUpdateRepo) GetUpdateFeed(_ context.Context, _ string, _ types.UpdateFeedQuery) ([]types.UpdateFeedItem, error) {
+	return nil, nil
+}
+
+// GetUpdatesByPublishGroup mirrors the SQL: checked members of the group on
+// (branch, rtv), ordered by numeric id.
+func (r *fakeUpdateRepo) GetUpdatesByPublishGroup(_ context.Context, appId, branchName, runtimeVersion, publishGroup string) ([]types.PublishGroupMember, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var members []types.PublishGroupMember
+	for _, row := range r.rows {
+		if row.update.AppId != appId || row.update.Branch != branchName ||
+			row.update.RuntimeVersion != runtimeVersion || !row.checked ||
+			row.publishGroup == nil || *row.publishGroup != publishGroup {
+			continue
+		}
+		members = append(members, types.PublishGroupMember{
+			UpdateId:   row.update.UpdateId,
+			Platform:   row.platform,
+			CommitHash: "abc123",
+		})
+	}
+	sort.Slice(members, func(i, j int) bool {
+		a, _ := strconv.ParseInt(members[i].UpdateId, 10, 64)
+		b, _ := strconv.ParseInt(members[j].UpdateId, 10, 64)
+		return a < b
+	})
+	return members, nil
 }
 
 func (r *fakeUpdateRepo) RetrieveUpdateStoredMetadata(_ context.Context, update types.Update) (*types.UpdateStoredMetadata, error) {
@@ -798,7 +831,7 @@ func TestPublishRepublishRollbackBlockedDuringActiveRollout(t *testing.T) {
 	_, err = h.deploymentService.CreateRollback(ctx, h.appId, "ios", "", "1", "main")
 	assert.ErrorIs(t, err, ErrActiveRolloutBlocksPublish)
 
-	_, err = h.deploymentService.RepublishUpdate(ctx, &control, "ios", "")
+	_, err = h.deploymentService.RepublishUpdate(ctx, &control, "ios", "", nil)
 	assert.ErrorIs(t, err, ErrActiveRolloutBlocksPublish)
 
 	// A branch without an active rollout is not affected by the guard.
@@ -814,7 +847,7 @@ func TestUncheckedRolloutRowIsInert(t *testing.T) {
 	h := newRolloutTestHarness(t)
 	control := h.seed(seedRow{branch: "main", rtv: "1", platform: "ios", id: 100, checked: true})
 
-	_, err := h.updateRepo.CreateUpdateWithRollout(ctx, h.appId, 200, "main", "1", "ios", "abc123", "", 25)
+	_, err := h.updateRepo.CreateUpdateWithRollout(ctx, h.appId, 200, "main", "1", "ios", "abc123", "", 25, nil)
 	require.NoError(t, err)
 
 	salt := rollout.UpdateSalt(h.appId, "main", "1", "200")
@@ -826,7 +859,7 @@ func TestUncheckedRolloutRowIsInert(t *testing.T) {
 	}
 
 	// The publish guard stays open: the abandoned row has no active rollout.
-	_, err = h.deploymentService.RepublishUpdate(ctx, &control, "ios", "")
+	_, err = h.deploymentService.RepublishUpdate(ctx, &control, "ios", "", nil)
 	assert.NoError(t, err)
 }
 
@@ -839,7 +872,7 @@ func TestMarkUpdateAsCheckedMapsUniqueViolationToRolloutConflict(t *testing.T) {
 	h.seed(seedRow{branch: "main", rtv: "1", platform: "ios", id: 100, checked: true})
 	h.seed(seedRow{branch: "main", rtv: "1", platform: "ios", id: 200, checked: true, percentage: 20, controlId: 100})
 
-	racingUpdate, err := h.updateRepo.CreateUpdateWithRollout(ctx, h.appId, 300, "main", "1", "ios", "abc123", "", 30)
+	racingUpdate, err := h.updateRepo.CreateUpdateWithRollout(ctx, h.appId, 300, "main", "1", "ios", "abc123", "", 30, nil)
 	require.NoError(t, err)
 
 	err = h.deploymentService.MarkUpdateAsChecked(ctx, *racingUpdate, types.NormalUpdate)

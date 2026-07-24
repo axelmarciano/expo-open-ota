@@ -6,7 +6,7 @@ import { useSelectedApp } from '@/lib/SelectedAppContext';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { PercentInput } from '@/components/rollout/PercentInput';
 import {
   Dialog,
   DialogContent,
@@ -51,15 +51,16 @@ export const UpdateRolloutCard = ({
 
   const [confirm, setConfirm] = useState<'finish' | 'revert' | null>(null);
 
-  const invalidate = (endsRollout: boolean) => {
+  const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['updates', selectedAppId, branch, runtimeVersion] });
     queryClient.invalidateQueries({
       queryKey: ['update-rollout', selectedAppId, branch, runtimeVersion],
     });
+    queryClient.invalidateQueries({ queryKey: ['update-feed', selectedAppId] });
+    queryClient.invalidateQueries({ queryKey: ['runtimeVersions', selectedAppId, branch] });
     queryClient.invalidateQueries({ queryKey: ['update-details', selectedAppId] });
-    if (endsRollout) {
-      queryClient.invalidateQueries({ queryKey: ['runtimeVersions', selectedAppId, branch] });
-    }
+    queryClient.invalidateQueries({ queryKey: ['branches', selectedAppId] });
+    queryClient.invalidateQueries({ queryKey: ['channels', selectedAppId] });
   };
 
   const isValidNextPercentage =
@@ -77,7 +78,7 @@ export const UpdateRolloutCard = ({
         title: 'Rollout updated',
         description: `Update ${updateId} now rolls out to ${nextPercentage}% of devices.`,
       });
-      invalidate(false);
+      invalidate();
     } catch (error) {
       const { title, description } = describeApiError(error, 'Could not update the rollout');
       toast({ title, description, variant: 'destructive' });
@@ -97,7 +98,7 @@ export const UpdateRolloutCard = ({
         title: 'Rollout finished',
         description: `Update ${updateId} is now delivered to all devices.`,
       });
-      invalidate(true);
+      invalidate();
       setConfirm(null);
     } catch (error) {
       const { title, description } = describeApiError(error, 'Could not finish the rollout');
@@ -116,7 +117,7 @@ export const UpdateRolloutCard = ({
         description:
           'The previous update was republished. Devices return to it after their next update check.',
       });
-      invalidate(true);
+      invalidate();
       setConfirm(null);
     } catch (error) {
       const { title, description } = describeApiError(error, 'Could not revert the rollout');
@@ -130,10 +131,10 @@ export const UpdateRolloutCard = ({
 
   return (
     <>
-      <Card className="mb-4 border-emerald-200 bg-emerald-50/40">
-        <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
+      <Card className="mb-4 border-emerald-400/25 bg-emerald-400/[0.07]">
+        <CardContent className="space-y-5 p-4">
           <div className="space-y-1.5">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
               <Split className="h-3.5 w-3.5" />
               Rollout in progress
             </span>
@@ -145,45 +146,48 @@ export const UpdateRolloutCard = ({
           </div>
 
           {canManageRollout && (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="space-y-4 border-t pt-4">
               {canIncrease && (
-                <div className="flex items-center gap-1.5">
-                  <Input
-                    type="number"
-                    min={percentage + 1}
-                    max={99}
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Increase rollout</p>
+                    <p className="text-xs text-muted-foreground">
+                      Choose a larger audience. Rollouts cannot be decreased.
+                    </p>
+                  </div>
+                  <PercentInput
                     value={nextPercentage}
                     disabled={isBusy}
-                    onChange={e => setNextPercentage(Number(e.target.value))}
-                    className="h-8 w-16"
+                    min={percentage + 1}
+                    max={99}
+                    onChange={setNextPercentage}
                   />
                   <Button
                     type="button"
-                    size="sm"
-                    variant="outline"
+                    className="w-full"
                     disabled={isBusy || !isValidNextPercentage}
                     onClick={handleIncrease}>
-                    Increase
+                    Increase to {nextPercentage}%
                   </Button>
                 </div>
               )}
-              <Button
-                type="button"
-                size="sm"
-                disabled={isBusy}
-                onClick={() => setConfirm('finish')}
-                className="bg-emerald-600 text-white hover:bg-emerald-700">
-                Finish rollout
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={isBusy}
-                onClick={() => setConfirm('revert')}
-                className="text-destructive hover:bg-destructive/10 hover:text-destructive">
-                Revert
-              </Button>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isBusy}
+                  onClick={() => setConfirm('finish')}>
+                  Finish rollout
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={isBusy}
+                  onClick={() => setConfirm('revert')}
+                  className="text-destructive hover:bg-destructive/10 hover:text-destructive">
+                  Revert
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>
@@ -194,7 +198,7 @@ export const UpdateRolloutCard = ({
         onOpenChange={open => !open && !isBusy && setConfirm(null)}>
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader className="flex flex-col items-start gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-400/25 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300">
               <CheckCircle2 className="h-5 w-5" />
             </div>
             <DialogTitle className="mt-2 text-lg font-semibold tracking-tight">
@@ -213,11 +217,7 @@ export const UpdateRolloutCard = ({
               disabled={isBusy}>
               Cancel
             </Button>
-            <Button
-              type="button"
-              onClick={handleFinish}
-              disabled={isBusy}
-              className="bg-emerald-600 text-white hover:bg-emerald-700">
+            <Button type="button" onClick={handleFinish} disabled={isBusy}>
               {isBusy ? 'Finishing…' : 'Finish rollout'}
             </Button>
           </DialogFooter>

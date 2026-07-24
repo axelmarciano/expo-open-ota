@@ -16,19 +16,18 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
 
   useEffect(() => {
     async function fetchSettings() {
-        try {
-            const data = await api.getSettings();
-            setSettings(data);
-        } 
-        catch (error) {
-            let errorMessage = 'An unexpected server error occurred.';
-            if (error instanceof ApiProblemError) {
-                errorMessage = error.detail;
-            }
-            setError(errorMessage);
-        } finally {
-            setLoading(false);
+      try {
+        const data = await api.getSettings();
+        setSettings(data);
+      } catch (error) {
+        let errorMessage = 'An unexpected server error occurred.';
+        if (error instanceof ApiProblemError) {
+          errorMessage = error.detail;
         }
+        setError(errorMessage);
+      } finally {
+        setLoading(false);
+      }
     }
     fetchSettings();
   }, []);
@@ -52,11 +51,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     );
   }
 
-  return (
-    <SettingsContext.Provider value={settings}>
-      {children}
-    </SettingsContext.Provider>
-  );
+  return <SettingsContext.Provider value={settings}>{children}</SettingsContext.Provider>;
 }
 
 export function useSettings(): Settings {

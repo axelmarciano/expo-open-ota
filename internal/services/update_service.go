@@ -24,11 +24,21 @@ type UpdateRepository interface {
 	HasActiveRolloutUpdate(ctx context.Context, appId string, branchName string, runtimeVersion string) (bool, error)
 	GetUpdateType(ctx context.Context, update types.Update) (types.UpdateType, error)
 	IsUpdateValid(ctx context.Context, update types.Update) (bool, error)
-	CreateUpdate(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string) (*types.Update, error)
-	CreateUpdateWithRollout(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string, rolloutPercentage int) (*types.Update, error)
+	// publishGroup, when non-nil, is the UUID shared by every per-platform
+	// update row of one eoas run (CLI-minted on publish, server-minted on
+	// group republish) so consumers can treat them as a single publish. Nil
+	// (older CLIs, rollbacks, internal callers) leaves the rows ungrouped;
+	// the bucket store ignores it entirely (no grouping in stateless mode).
+	CreateUpdate(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string, publishGroup *string) (*types.Update, error)
+	CreateUpdateWithRollout(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string, rolloutPercentage int, publishGroup *string) (*types.Update, error)
 	CreateRollback(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string) (*types.Update, error)
+	// GetUpdatesByPublishGroup resolves the checked members of one publish
+	// group on (branch, runtime version), for the group republish.
+	// Control-plane only: the bucket store answers ErrNotSupportedInStatelessMode.
+	GetUpdatesByPublishGroup(ctx context.Context, appId string, branchName string, runtimeVersion string, publishGroup string) ([]types.PublishGroupMember, error)
 	GetUpdateByBranchNameAndRuntime(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string) (pgdb.GetUpdateByBranchNameAndRuntimeRow, error)
 	GetUpdatesByRunTimeVersionAndBranchName(ctx context.Context, appId string, runtimeVersion string, branchName string) ([]types.UpdateItem, error)
+	GetUpdateFeed(ctx context.Context, appId string, query types.UpdateFeedQuery) ([]types.UpdateFeedItem, error)
 	RetrieveUpdateStoredMetadata(ctx context.Context, update types.Update) (*types.UpdateStoredMetadata, error)
 	StoreUpdateUUIDInMetadata(ctx context.Context, update types.Update, updateUUID string) error
 }
@@ -140,4 +150,8 @@ func (s *UpdateService) GetUpdatesByRunTimeVersionAndBranchName(ctx context.Cont
 		return nil, err
 	}
 	return s.updateRepo.GetUpdatesByRunTimeVersionAndBranchName(ctx, appId, runtimeVersion, branchName)
+}
+
+func (s *UpdateService) GetUpdateFeed(ctx context.Context, appId string, query types.UpdateFeedQuery) ([]types.UpdateFeedItem, error) {
+	return s.updateRepo.GetUpdateFeed(ctx, appId, query)
 }

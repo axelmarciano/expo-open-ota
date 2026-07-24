@@ -45,6 +45,51 @@ type UpdateItem struct {
 	// mode and for non-rollout updates, so listings there serialize byte-identically.
 	RolloutPercentage *int    `json:"rolloutPercentage,omitempty"`
 	ControlUpdateId   *string `json:"controlUpdateId,omitempty"`
+	// CLI-minted UUID shared by the per-platform rows of one eoas run
+	// (control-plane mode only); nil for rows created by older CLIs and in
+	// stateless mode, which consumers display ungrouped.
+	PublishGroup *string `json:"publishGroup,omitempty"`
+}
+
+// UpdateFeedItem is the control-plane read model for the dashboard's global
+// update feed. Stateless storage cannot produce this efficiently because its
+// branch and runtime hierarchy lives in bucket folders.
+type UpdateFeedItem struct {
+	UpdateItem
+	Branch         string    `json:"branch"`
+	RuntimeVersion string    `json:"runtimeVersion"`
+	BranchID       int64     `json:"-"`
+	FeedCreatedAt  time.Time `json:"-"`
+}
+
+type UpdateFeedQuery struct {
+	Branch          string
+	RuntimeVersion  string
+	Platform        string
+	UpdateUUID      string
+	PublishGroup    string
+	CommitHash      string
+	From            *time.Time
+	To              *time.Time
+	CursorCreatedAt *time.Time
+	CursorBranchID  int64
+	CursorUpdateID  int64
+	Limit           int
+}
+
+type UpdateFeedPage struct {
+	Items      []UpdateFeedItem `json:"items"`
+	NextCursor string           `json:"nextCursor,omitempty"`
+}
+
+// PublishGroupMember is one update row of a publish group, as needed to fan
+// the group republish out to its per-platform members. No update type here:
+// republishing validates the member (normal, valid, right platform) through
+// the same path as a single republish.
+type PublishGroupMember struct {
+	UpdateId   string
+	Platform   string
+	CommitHash string
 }
 
 type UpdateStoredMetadata struct {
@@ -160,12 +205,23 @@ type RolloutUpdate struct {
 	CreatedAt       string  `json:"createdAt"`
 }
 
+type BranchUpdateState struct {
+	RuntimeVersion    string `json:"runtimeVersion"`
+	CommitHash        string `json:"commitHash"`
+	CreatedAt         string `json:"createdAt"`
+	RolloutPercentage *int   `json:"rolloutPercentage,omitempty"`
+}
+
 type ChannelMapping struct {
 	ReleaseChannelName string  `json:"releaseChannelName"`
 	ReleaseChannelId   string  `json:"releaseChannelId"`
 	BranchName         *string `json:"branchName"`
 	BranchId           *string `json:"branchId"`
 	CreatedAt          *string `json:"createdAt"`
+	// Current update state for the default branch and, during a channel rollout,
+	// its rollout branch. Populated in control-plane mode only.
+	BranchCurrentUpdate        *BranchUpdateState `json:"branchCurrentUpdate,omitempty"`
+	RolloutBranchCurrentUpdate *BranchUpdateState `json:"rolloutBranchCurrentUpdate,omitempty"`
 	// Active channel rollout, if any (control-plane mode only); nil otherwise.
 	Rollout *ChannelRollout `json:"rollout,omitempty"`
 }
@@ -177,13 +233,18 @@ type BranchMapping struct {
 	CreatedAt      *string `json:"createdAt"`
 	// Enterprise branch protection; always false in stateless mode.
 	Protected bool `json:"protected"`
+	// Latest runtime's active rollout update, or its latest checked update.
+	// Populated in control-plane mode only.
+	CurrentUpdate *BranchUpdateState `json:"currentUpdate,omitempty"`
 }
 
 type RuntimeVersionWithStats struct {
-	RuntimeVersion  string `json:"runtimeVersion"`
-	LastUpdatedAt   string `json:"lastUpdatedAt"`
-	CreatedAt       string `json:"createdAt"`
-	NumberOfUpdates int    `json:"numberOfUpdates"`
+	RuntimeVersion    string `json:"runtimeVersion"`
+	LastUpdatedAt     string `json:"lastUpdatedAt"`
+	CreatedAt         string `json:"createdAt"`
+	NumberOfUpdates   int    `json:"numberOfUpdates"`
+	ActiveRollout     bool   `json:"activeRollout,omitempty"`
+	RolloutPercentage *int   `json:"rolloutPercentage,omitempty"`
 }
 
 type BucketFile struct {

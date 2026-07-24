@@ -50,7 +50,7 @@ export function DataTable<TData, TValue>({
   });
 
   return (
-    <div className="w-full overflow-hidden rounded-xl border shadow-card">
+    <div className="w-full overflow-hidden rounded-lg border bg-card shadow-card">
       <Table className="w-full">
         <TableHeader className="w-full">
           {table.getHeaderGroups().map(headerGroup => (
@@ -85,8 +85,8 @@ export function DataTable<TData, TValue>({
         </TableHeader>
         <TableBody className="w-full">
           {loading &&
-            Array.from({ length: 5 }).map(() => (
-              <TableRow key={Math.random()}>
+            Array.from({ length: 5 }).map((_, rowIndex) => (
+              <TableRow key={rowIndex}>
                 {columns.map((_, i) => (
                   <TableCell key={i}>
                     <Skeleton className="h-4 w-full" />
@@ -100,8 +100,7 @@ export function DataTable<TData, TValue>({
                   key={row.id}
                   data-state={row.getIsSelected() && 'selected'}
                   className={onRowClick ? 'cursor-pointer' : undefined}
-                  onClick={() => onRowClick?.(row.original)}
-                >
+                  onClick={() => onRowClick?.(row.original)}>
                   {row.getVisibleCells().map(cell => (
                     <TableCell key={cell.id}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}

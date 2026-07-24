@@ -110,9 +110,7 @@ export const Settings = () => {
 
         {!settings.CONTROL_PLANE_ENABLED && (
           <Section icon={UserRound} title="Expo account">
-            <Row
-              label="Account"
-              hint="Resolved from the configured Expo access token.">
+            <Row label="Account" hint="Resolved from the configured Expo access token.">
               {settings.EXPO_ACCOUNT_USERNAME ? (
                 <span className="font-medium">@{settings.EXPO_ACCOUNT_USERNAME}</span>
               ) : (
@@ -227,7 +225,9 @@ export const Settings = () => {
           )}
           {settings.CDN_TYPE === 'gcs-direct' && (
             <>
-              <Row label="Provider" hint="Assets are served through signed Google Cloud Storage URLs.">
+              <Row
+                label="Provider"
+                hint="Assets are served through signed Google Cloud Storage URLs.">
                 <span className="font-medium">Google Cloud Storage</span>
               </Row>
               <Row label="Bucket">
@@ -237,7 +237,9 @@ export const Settings = () => {
           )}
           {settings.CDN_TYPE === 'azure-direct' && (
             <>
-              <Row label="Provider" hint="Assets are served through signed Azure Blob Storage URLs.">
+              <Row
+                label="Provider"
+                hint="Assets are served through signed Azure Blob Storage URLs.">
                 <span className="font-medium">Azure Blob Storage</span>
               </Row>
               <Row label="Container">
@@ -247,7 +249,9 @@ export const Settings = () => {
           )}
           {settings.CDN_TYPE === 'generic' && (
             <>
-              <Row label="Provider" hint="Assets are redirected to a CDN in front of the storage bucket.">
+              <Row
+                label="Provider"
+                hint="Assets are redirected to a CDN in front of the storage bucket.">
                 <span className="font-medium">Custom CDN</span>
               </Row>
               <Row label="Base URL">

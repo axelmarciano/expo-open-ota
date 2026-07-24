@@ -626,21 +626,60 @@ func (q *Queries) GetBranchByName(ctx context.Context, arg GetBranchByNameParams
 }
 
 const getBranchesByAppID = `-- name: GetBranchesByAppID :many
+WITH latest_runtime AS (
+    SELECT DISTINCT ON (u.branch_id)
+        u.branch_id,
+        u.runtime_version_id,
+        rv.version
+    FROM updates u
+    JOIN branches b ON b.id = u.branch_id
+    JOIN runtime_versions rv ON rv.id = u.runtime_version_id
+    WHERE b.app_id = $1 AND u.checked_at IS NOT NULL
+    ORDER BY u.branch_id, rv.created_at DESC, rv.id DESC
+),
+current_updates AS (
+    SELECT DISTINCT ON (u.branch_id)
+        u.branch_id,
+        lr.version AS runtime_version,
+        u.commit_hash,
+        u.created_at,
+        u.rollout_percentage
+    FROM latest_runtime lr
+    JOIN updates u
+      ON u.branch_id = lr.branch_id
+     AND u.runtime_version_id = lr.runtime_version_id
+    WHERE u.checked_at IS NOT NULL
+    ORDER BY
+        u.branch_id,
+        (u.rollout_percentage IS NOT NULL) DESC,
+        u.created_at DESC,
+        u.id DESC
+)
 SELECT DISTINCT ON (branches.id) 
     branches.id, branches.app_id, branches.name, branches.created_at, branches.protected, 
-    channels.name AS channel_name 
+    channels.name AS channel_name,
+    cu.runtime_version AS current_runtime_version,
+    cu.commit_hash AS current_commit_hash,
+    cu.created_at AS current_update_created_at,
+    cu.rollout_percentage AS current_rollout_percentage
 FROM branches
 LEFT JOIN channels ON branches.id = channels.branch_id AND channels.app_id = branches.app_id
+LEFT JOIN current_updates cu ON cu.branch_id = branches.id
 WHERE branches.app_id = $1
+ORDER BY branches.id, channels.created_at ASC NULLS LAST
 `
 
 type GetBranchesByAppIDRow struct {
-	ID          int64              `json:"id"`
-	AppID       pgtype.UUID        `json:"app_id"`
-	Name        string             `json:"name"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	Protected   bool               `json:"protected"`
-	ChannelName *string            `json:"channel_name"`
+	ID                       int64              `json:"id"`
+	AppID                    pgtype.UUID        `json:"app_id"`
+	Name                     string             `json:"name"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	Protected                bool               `json:"protected"`
+	ChannelName              *string            `json:"channel_name"`
+	CurrentRuntimeVersion    *string            `json:"current_runtime_version"`
+	CurrentCommitHash        *string            `json:"current_commit_hash"`
+	CurrentUpdateCreatedAt   pgtype.Timestamptz `json:"current_update_created_at"`
+	CurrentRolloutPercentage *int32             `json:"current_rollout_percentage"`
 }
 
 func (q *Queries) GetBranchesByAppID(ctx context.Context, appID pgtype.UUID) ([]GetBranchesByAppIDRow, error) {
@@ -659,6 +698,10 @@ func (q *Queries) GetBranchesByAppID(ctx context.Context, appID pgtype.UUID) ([]
 			&i.CreatedAt,
 			&i.Protected,
 			&i.ChannelName,
+			&i.CurrentRuntimeVersion,
+			&i.CurrentCommitHash,
+			&i.CurrentUpdateCreatedAt,
+			&i.CurrentRolloutPercentage,
 		); err != nil {
 			return nil, err
 		}
@@ -822,32 +865,79 @@ func (q *Queries) GetChannelRolloutsByBranch(ctx context.Context, arg GetChannel
 }
 
 const getChannelsByAppID = `-- name: GetChannelsByAppID :many
+WITH latest_runtime AS (
+    SELECT DISTINCT ON (u.branch_id)
+        u.branch_id,
+        u.runtime_version_id,
+        rv.version
+    FROM updates u
+    JOIN branches b ON b.id = u.branch_id
+    JOIN runtime_versions rv ON rv.id = u.runtime_version_id
+    WHERE b.app_id = $1 AND u.checked_at IS NOT NULL
+    ORDER BY u.branch_id, rv.created_at DESC, rv.id DESC
+),
+current_updates AS (
+    SELECT DISTINCT ON (u.branch_id)
+        u.branch_id,
+        lr.version AS runtime_version,
+        u.commit_hash,
+        u.created_at,
+        u.rollout_percentage
+    FROM latest_runtime lr
+    JOIN updates u
+      ON u.branch_id = lr.branch_id
+     AND u.runtime_version_id = lr.runtime_version_id
+    WHERE u.checked_at IS NOT NULL
+    ORDER BY
+        u.branch_id,
+        (u.rollout_percentage IS NOT NULL) DESC,
+        u.created_at DESC,
+        u.id DESC
+)
 SELECT channels.id, channels.app_id, channels.branch_id, channels.name, channels.created_at, branches.name as branch_name,
     cr.id AS rollout_id,
     rb.name AS rollout_branch_name,
     cr.percentage AS rollout_percentage,
     cr.created_at AS rollout_created_at,
-    cr.updated_at AS rollout_updated_at
+    cr.updated_at AS rollout_updated_at,
+    bcu.runtime_version AS branch_current_runtime_version,
+    bcu.commit_hash AS branch_current_commit_hash,
+    bcu.created_at AS branch_current_update_created_at,
+    bcu.rollout_percentage AS branch_current_rollout_percentage,
+    rcu.runtime_version AS rollout_branch_current_runtime_version,
+    rcu.commit_hash AS rollout_branch_current_commit_hash,
+    rcu.created_at AS rollout_branch_current_update_created_at,
+    rcu.rollout_percentage AS rollout_branch_current_rollout_percentage
 FROM channels
 LEFT JOIN branches ON channels.branch_id = branches.id AND branches.app_id = channels.app_id
 LEFT JOIN channel_rollouts cr ON cr.channel_id = channels.id
 LEFT JOIN branches rb ON cr.rollout_branch_id = rb.id
+LEFT JOIN current_updates bcu ON bcu.branch_id = channels.branch_id
+LEFT JOIN current_updates rcu ON rcu.branch_id = cr.rollout_branch_id
 WHERE channels.app_id = $1
 ORDER BY channels.created_at ASC
 `
 
 type GetChannelsByAppIDRow struct {
-	ID                int64              `json:"id"`
-	AppID             pgtype.UUID        `json:"app_id"`
-	BranchID          *int64             `json:"branch_id"`
-	Name              string             `json:"name"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	BranchName        *string            `json:"branch_name"`
-	RolloutID         pgtype.UUID        `json:"rollout_id"`
-	RolloutBranchName *string            `json:"rollout_branch_name"`
-	RolloutPercentage *int32             `json:"rollout_percentage"`
-	RolloutCreatedAt  pgtype.Timestamptz `json:"rollout_created_at"`
-	RolloutUpdatedAt  pgtype.Timestamptz `json:"rollout_updated_at"`
+	ID                                    int64              `json:"id"`
+	AppID                                 pgtype.UUID        `json:"app_id"`
+	BranchID                              *int64             `json:"branch_id"`
+	Name                                  string             `json:"name"`
+	CreatedAt                             pgtype.Timestamptz `json:"created_at"`
+	BranchName                            *string            `json:"branch_name"`
+	RolloutID                             pgtype.UUID        `json:"rollout_id"`
+	RolloutBranchName                     *string            `json:"rollout_branch_name"`
+	RolloutPercentage                     *int32             `json:"rollout_percentage"`
+	RolloutCreatedAt                      pgtype.Timestamptz `json:"rollout_created_at"`
+	RolloutUpdatedAt                      pgtype.Timestamptz `json:"rollout_updated_at"`
+	BranchCurrentRuntimeVersion           *string            `json:"branch_current_runtime_version"`
+	BranchCurrentCommitHash               *string            `json:"branch_current_commit_hash"`
+	BranchCurrentUpdateCreatedAt          pgtype.Timestamptz `json:"branch_current_update_created_at"`
+	BranchCurrentRolloutPercentage        *int32             `json:"branch_current_rollout_percentage"`
+	RolloutBranchCurrentRuntimeVersion    *string            `json:"rollout_branch_current_runtime_version"`
+	RolloutBranchCurrentCommitHash        *string            `json:"rollout_branch_current_commit_hash"`
+	RolloutBranchCurrentUpdateCreatedAt   pgtype.Timestamptz `json:"rollout_branch_current_update_created_at"`
+	RolloutBranchCurrentRolloutPercentage *int32             `json:"rollout_branch_current_rollout_percentage"`
 }
 
 func (q *Queries) GetChannelsByAppID(ctx context.Context, appID pgtype.UUID) ([]GetChannelsByAppIDRow, error) {
@@ -871,6 +961,14 @@ func (q *Queries) GetChannelsByAppID(ctx context.Context, appID pgtype.UUID) ([]
 			&i.RolloutPercentage,
 			&i.RolloutCreatedAt,
 			&i.RolloutUpdatedAt,
+			&i.BranchCurrentRuntimeVersion,
+			&i.BranchCurrentCommitHash,
+			&i.BranchCurrentUpdateCreatedAt,
+			&i.BranchCurrentRolloutPercentage,
+			&i.RolloutBranchCurrentRuntimeVersion,
+			&i.RolloutBranchCurrentCommitHash,
+			&i.RolloutBranchCurrentUpdateCreatedAt,
+			&i.RolloutBranchCurrentRolloutPercentage,
 		); err != nil {
 			return nil, err
 		}
@@ -1131,7 +1229,16 @@ SELECT
         JOIN branches b ON u.branch_id = b.id
         WHERE u.runtime_version_id = rv.id 
           AND b.name = $2 AND u.checked_at IS NOT NULL
-    ) AS update_count
+    ) AS update_count,
+    (
+        SELECT MAX(u.rollout_percentage)
+        FROM updates u
+        JOIN branches b ON u.branch_id = b.id
+        WHERE u.runtime_version_id = rv.id
+          AND b.name = $2
+          AND u.checked_at IS NOT NULL
+          AND u.rollout_percentage IS NOT NULL
+    ) AS rollout_percentage
 FROM runtime_versions rv
 WHERE rv.app_id = $1
   -- Only allow rows where at least one matching update exists
@@ -1152,11 +1259,12 @@ type GetRuntimeVersionsWithUpdateCountParams struct {
 }
 
 type GetRuntimeVersionsWithUpdateCountRow struct {
-	ID          int64              `json:"id"`
-	Version     string             `json:"version"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	UpdateCount int64              `json:"update_count"`
+	ID                int64              `json:"id"`
+	Version           string             `json:"version"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	UpdateCount       int64              `json:"update_count"`
+	RolloutPercentage interface{}        `json:"rollout_percentage"`
 }
 
 func (q *Queries) GetRuntimeVersionsWithUpdateCount(ctx context.Context, arg GetRuntimeVersionsWithUpdateCountParams) ([]GetRuntimeVersionsWithUpdateCountRow, error) {
@@ -1174,6 +1282,7 @@ func (q *Queries) GetRuntimeVersionsWithUpdateCount(ctx context.Context, arg Get
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.UpdateCount,
+			&i.RolloutPercentage,
 		); err != nil {
 			return nil, err
 		}
@@ -1353,6 +1462,114 @@ func (q *Queries) GetUpdateCheckedAt(ctx context.Context, arg GetUpdateCheckedAt
 	return checked_at, err
 }
 
+const getUpdateFeed = `-- name: GetUpdateFeed :many
+SELECT u.id, u.update_uuid, u.update_type, u.created_at, u.commit_hash,
+       u.platform, u.message, u.rollout_percentage, u.control_update_id,
+       u.publish_group, u.branch_id, b.name AS branch_name,
+       rv.version AS runtime_version
+FROM updates u
+JOIN branches b ON u.branch_id = b.id
+JOIN runtime_versions rv ON u.runtime_version_id = rv.id
+WHERE b.app_id = $1
+  AND u.checked_at IS NOT NULL
+  AND ($2::text = '' OR b.name = $2)
+  AND ($3::text = '' OR rv.version = $3)
+  AND ($4::text = '' OR u.platform = $4)
+  AND ($5::text = '' OR u.update_uuid::text ILIKE '%' || $5 || '%')
+  AND ($6::text = '' OR u.publish_group::text ILIKE '%' || $6 || '%')
+  AND ($7::text = '' OR u.commit_hash ILIKE '%' || $7 || '%')
+  AND ($8::timestamptz IS NULL OR u.created_at >= $8)
+  AND ($9::timestamptz IS NULL OR u.created_at <= $9)
+  AND (
+    NOT $10::boolean
+    OR (u.created_at, u.branch_id, u.id) < ($11::timestamptz, $12::bigint, $13::bigint)
+  )
+ORDER BY u.created_at DESC, u.branch_id DESC, u.id DESC
+LIMIT $14::int
+`
+
+type GetUpdateFeedParams struct {
+	AppID           pgtype.UUID        `json:"app_id"`
+	Branch          string             `json:"branch"`
+	RuntimeVersion  string             `json:"runtime_version"`
+	Platform        string             `json:"platform"`
+	UpdateUuid      string             `json:"update_uuid"`
+	PublishGroup    string             `json:"publish_group"`
+	CommitHash      string             `json:"commit_hash"`
+	CreatedFrom     pgtype.Timestamptz `json:"created_from"`
+	CreatedTo       pgtype.Timestamptz `json:"created_to"`
+	HasCursor       bool               `json:"has_cursor"`
+	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
+	CursorBranchID  int64              `json:"cursor_branch_id"`
+	CursorUpdateID  int64              `json:"cursor_update_id"`
+	RowLimit        int32              `json:"row_limit"`
+}
+
+type GetUpdateFeedRow struct {
+	ID                int64              `json:"id"`
+	UpdateUuid        pgtype.UUID        `json:"update_uuid"`
+	UpdateType        int32              `json:"update_type"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	CommitHash        string             `json:"commit_hash"`
+	Platform          string             `json:"platform"`
+	Message           *string            `json:"message"`
+	RolloutPercentage *int32             `json:"rollout_percentage"`
+	ControlUpdateID   *int64             `json:"control_update_id"`
+	PublishGroup      pgtype.UUID        `json:"publish_group"`
+	BranchID          int64              `json:"branch_id"`
+	BranchName        string             `json:"branch_name"`
+	RuntimeVersion    string             `json:"runtime_version"`
+}
+
+func (q *Queries) GetUpdateFeed(ctx context.Context, arg GetUpdateFeedParams) ([]GetUpdateFeedRow, error) {
+	rows, err := q.db.Query(ctx, getUpdateFeed,
+		arg.AppID,
+		arg.Branch,
+		arg.RuntimeVersion,
+		arg.Platform,
+		arg.UpdateUuid,
+		arg.PublishGroup,
+		arg.CommitHash,
+		arg.CreatedFrom,
+		arg.CreatedTo,
+		arg.HasCursor,
+		arg.CursorCreatedAt,
+		arg.CursorBranchID,
+		arg.CursorUpdateID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetUpdateFeedRow
+	for rows.Next() {
+		var i GetUpdateFeedRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UpdateUuid,
+			&i.UpdateType,
+			&i.CreatedAt,
+			&i.CommitHash,
+			&i.Platform,
+			&i.Message,
+			&i.RolloutPercentage,
+			&i.ControlUpdateID,
+			&i.PublishGroup,
+			&i.BranchID,
+			&i.BranchName,
+			&i.RuntimeVersion,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getUpdateMetadata = `-- name: GetUpdateMetadata :one
 SELECT updates.id, update_uuid, platform, commit_hash, message
 FROM updates
@@ -1412,7 +1629,7 @@ func (q *Queries) GetUpdateType(ctx context.Context, arg GetUpdateTypeParams) (i
 }
 
 const getUpdatesByByBranchNameAndRuntimeVersion = `-- name: GetUpdatesByByBranchNameAndRuntimeVersion :many
-SELECT u.id, u.update_uuid, u.update_type, u.created_at, u.commit_hash, u.platform, u.message, u.checked_at, u.rollout_percentage, u.control_update_id
+SELECT u.id, u.update_uuid, u.update_type, u.created_at, u.commit_hash, u.platform, u.message, u.checked_at, u.rollout_percentage, u.control_update_id, u.publish_group
 FROM updates u
 JOIN runtime_versions rv ON u.runtime_version_id = rv.id
 JOIN branches b ON u.branch_id = b.id
@@ -1441,6 +1658,7 @@ type GetUpdatesByByBranchNameAndRuntimeVersionRow struct {
 	CheckedAt         pgtype.Timestamptz `json:"checked_at"`
 	RolloutPercentage *int32             `json:"rollout_percentage"`
 	ControlUpdateID   *int64             `json:"control_update_id"`
+	PublishGroup      pgtype.UUID        `json:"publish_group"`
 }
 
 func (q *Queries) GetUpdatesByByBranchNameAndRuntimeVersion(ctx context.Context, arg GetUpdatesByByBranchNameAndRuntimeVersionParams) ([]GetUpdatesByByBranchNameAndRuntimeVersionRow, error) {
@@ -1463,7 +1681,62 @@ func (q *Queries) GetUpdatesByByBranchNameAndRuntimeVersion(ctx context.Context,
 			&i.CheckedAt,
 			&i.RolloutPercentage,
 			&i.ControlUpdateID,
+			&i.PublishGroup,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getUpdatesByPublishGroup = `-- name: GetUpdatesByPublishGroup :many
+SELECT u.id, u.platform, u.commit_hash
+FROM updates u
+JOIN branches b ON u.branch_id = b.id
+JOIN runtime_versions rv ON u.runtime_version_id = rv.id
+WHERE b.app_id = $1
+  AND b.name = $2
+  AND rv.version = $3
+  AND u.publish_group = $4
+  AND u.checked_at IS NOT NULL
+ORDER BY u.id
+`
+
+type GetUpdatesByPublishGroupParams struct {
+	AppID        pgtype.UUID `json:"app_id"`
+	Name         string      `json:"name"`
+	Version      string      `json:"version"`
+	PublishGroup pgtype.UUID `json:"publish_group"`
+}
+
+type GetUpdatesByPublishGroupRow struct {
+	ID         int64  `json:"id"`
+	Platform   string `json:"platform"`
+	CommitHash string `json:"commit_hash"`
+}
+
+// The members of one publish group on a branch and runtime version, for the
+// group republish (republish every platform of one eoas publish). Only
+// checked rows: an unchecked row is an unfinished upload, not a served update.
+func (q *Queries) GetUpdatesByPublishGroup(ctx context.Context, arg GetUpdatesByPublishGroupParams) ([]GetUpdatesByPublishGroupRow, error) {
+	rows, err := q.db.Query(ctx, getUpdatesByPublishGroup,
+		arg.AppID,
+		arg.Name,
+		arg.Version,
+		arg.PublishGroup,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetUpdatesByPublishGroupRow
+	for rows.Next() {
+		var i GetUpdatesByPublishGroupRow
+		if err := rows.Scan(&i.ID, &i.Platform, &i.CommitHash); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1987,13 +2260,14 @@ WITH resolved_names AS (
       AND b.app_id = $3
 )
 INSERT INTO updates (
-    id, 
-    branch_id, 
-    runtime_version_id, 
-    update_type, 
-    platform, 
-    commit_hash, 
-    message
+    id,
+    branch_id,
+    runtime_version_id,
+    update_type,
+    platform,
+    commit_hash,
+    message,
+    publish_group
 ) VALUES (
     $1,
     (SELECT resolved_branch_id FROM resolved_names),
@@ -2001,13 +2275,14 @@ INSERT INTO updates (
     $5,
     $6,
     $7,
-    $8
+    $8,
+    $9
 )
-RETURNING 
-    id, 
-    platform, 
-    commit_hash, 
-    message, 
+RETURNING
+    id,
+    platform,
+    commit_hash,
+    message,
     created_at,
     (SELECT app_id FROM resolved_names) AS app_id,
     (SELECT branch_name FROM resolved_names) AS branch_name,
@@ -2015,14 +2290,15 @@ RETURNING
 `
 
 type InsertUpdateParams struct {
-	ID         int64       `json:"id"`
-	Name       string      `json:"name"`
-	AppID      pgtype.UUID `json:"app_id"`
-	Version    string      `json:"version"`
-	UpdateType int32       `json:"update_type"`
-	Platform   string      `json:"platform"`
-	CommitHash string      `json:"commit_hash"`
-	Message    *string     `json:"message"`
+	ID           int64       `json:"id"`
+	Name         string      `json:"name"`
+	AppID        pgtype.UUID `json:"app_id"`
+	Version      string      `json:"version"`
+	UpdateType   int32       `json:"update_type"`
+	Platform     string      `json:"platform"`
+	CommitHash   string      `json:"commit_hash"`
+	Message      *string     `json:"message"`
+	PublishGroup pgtype.UUID `json:"publish_group"`
 }
 
 type InsertUpdateRow struct {
@@ -2046,6 +2322,7 @@ func (q *Queries) InsertUpdate(ctx context.Context, arg InsertUpdateParams) (Ins
 		arg.Platform,
 		arg.CommitHash,
 		arg.Message,
+		arg.PublishGroup,
 	)
 	var i InsertUpdateRow
 	err := row.Scan(
@@ -2094,7 +2371,8 @@ INSERT INTO updates (
     commit_hash,
     message,
     rollout_percentage,
-    control_update_id
+    control_update_id,
+    publish_group
 ) VALUES (
     $1,
     (SELECT resolved_branch_id FROM resolved_names),
@@ -2104,7 +2382,8 @@ INSERT INTO updates (
     $7,
     $8,
     $9,
-    (SELECT control_id FROM resolved_control)
+    (SELECT control_id FROM resolved_control),
+    $10
 )
 RETURNING
     id,
@@ -2129,6 +2408,7 @@ type InsertUpdateWithRolloutParams struct {
 	CommitHash        string      `json:"commit_hash"`
 	Message           *string     `json:"message"`
 	RolloutPercentage *int32      `json:"rollout_percentage"`
+	PublishGroup      pgtype.UUID `json:"publish_group"`
 }
 
 type InsertUpdateWithRolloutRow struct {
@@ -2158,6 +2438,7 @@ func (q *Queries) InsertUpdateWithRollout(ctx context.Context, arg InsertUpdateW
 		arg.CommitHash,
 		arg.Message,
 		arg.RolloutPercentage,
+		arg.PublishGroup,
 	)
 	var i InsertUpdateWithRolloutRow
 	err := row.Scan(

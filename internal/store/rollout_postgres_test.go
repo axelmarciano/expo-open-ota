@@ -107,7 +107,7 @@ func (f *rolloutFixture) startChannelRollout(t *testing.T, percentage int) strin
 
 func (f *rolloutFixture) createUpdate(t *testing.T, branch string, updateId int64, platform string, checked bool) types.Update {
 	t.Helper()
-	created, err := f.updates.CreateUpdate(context.Background(), f.appId, updateId, branch, rolloutTestRuntime, platform, "abc123", "")
+	created, err := f.updates.CreateUpdate(context.Background(), f.appId, updateId, branch, rolloutTestRuntime, platform, "abc123", "", nil)
 	require.NoError(t, err)
 	if checked {
 		require.NoError(t, f.updates.MarkUpdateAsChecked(context.Background(), *created))
@@ -117,7 +117,7 @@ func (f *rolloutFixture) createUpdate(t *testing.T, branch string, updateId int6
 
 func (f *rolloutFixture) createRolloutUpdate(t *testing.T, branch string, updateId int64, platform string, percentage int) types.Update {
 	t.Helper()
-	created, err := f.updates.CreateUpdateWithRollout(context.Background(), f.appId, updateId, branch, rolloutTestRuntime, platform, "abc123", "", percentage)
+	created, err := f.updates.CreateUpdateWithRollout(context.Background(), f.appId, updateId, branch, rolloutTestRuntime, platform, "abc123", "", percentage, nil)
 	require.NoError(t, err)
 	return *created
 }
@@ -174,7 +174,20 @@ func TestChannelRolloutLifecyclePostgres(t *testing.T) {
 	fixture := newRolloutFixture(t)
 	ctx := context.Background()
 
+	fixture.createUpdate(t, rolloutTestDefaultBranch, 900, "ios", true)
+	fixture.createUpdate(t, rolloutTestRolloutBranch, 901, "ios", true)
 	fixture.startChannelRollout(t, 10)
+
+	channels, err := fixture.channels.GetChannels(ctx, fixture.appId)
+	require.NoError(t, err)
+	require.Len(t, channels, 1)
+	require.NotNil(t, channels[0].BranchCurrentUpdate)
+	assert.Equal(t, rolloutTestRuntime, channels[0].BranchCurrentUpdate.RuntimeVersion)
+	assert.Equal(t, "abc123", channels[0].BranchCurrentUpdate.CommitHash)
+	require.NotNil(t, channels[0].RolloutBranchCurrentUpdate)
+	assert.Equal(t, rolloutTestRuntime, channels[0].RolloutBranchCurrentUpdate.RuntimeVersion)
+	assert.Equal(t, "abc123", channels[0].RolloutBranchCurrentUpdate.CommitHash)
+
 	rows, err := fixture.rollouts.UpdateChannelRolloutPercentage(ctx, fixture.appId, rolloutTestChannel, 50)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, rows)
@@ -335,6 +348,36 @@ func TestPerUpdateRolloutRowsAndCountsPostgres(t *testing.T) {
 	require.NoError(t, fixture.updates.MarkUpdateAsChecked(ctx, iosRollout))
 	require.NoError(t, fixture.updates.MarkUpdateAsChecked(ctx, androidRollout))
 
+	runtimeVersions, err := fixture.branches.GetRuntimeVersionsWithUpdateStats(ctx, fixture.appId, rolloutTestDefaultBranch)
+	require.NoError(t, err)
+	require.Len(t, runtimeVersions, 1)
+	assert.True(t, runtimeVersions[0].ActiveRollout)
+	require.NotNil(t, runtimeVersions[0].RolloutPercentage)
+	assert.Equal(t, 20, *runtimeVersions[0].RolloutPercentage)
+
+	branches, err := fixture.branches.GetBranches(ctx, fixture.appId)
+	require.NoError(t, err)
+	var defaultBranch *types.BranchMapping
+	for i := range branches {
+		if branches[i].BranchName == rolloutTestDefaultBranch {
+			defaultBranch = &branches[i]
+			break
+		}
+	}
+	require.NotNil(t, defaultBranch)
+	require.NotNil(t, defaultBranch.CurrentUpdate)
+	assert.Equal(t, rolloutTestRuntime, defaultBranch.CurrentUpdate.RuntimeVersion)
+	assert.Equal(t, "abc123", defaultBranch.CurrentUpdate.CommitHash)
+	require.NotNil(t, defaultBranch.CurrentUpdate.RolloutPercentage)
+	assert.Equal(t, 20, *defaultBranch.CurrentUpdate.RolloutPercentage)
+
+	channels, err := fixture.channels.GetChannels(ctx, fixture.appId)
+	require.NoError(t, err)
+	require.Len(t, channels, 1)
+	require.NotNil(t, channels[0].BranchCurrentUpdate)
+	require.NotNil(t, channels[0].BranchCurrentUpdate.RolloutPercentage)
+	assert.Equal(t, 20, *channels[0].BranchCurrentUpdate.RolloutPercentage)
+
 	activeRollouts, err := fixture.rollouts.GetActiveRolloutUpdates(ctx, fixture.appId, rolloutTestDefaultBranch, rolloutTestRuntime)
 	require.NoError(t, err)
 	require.Len(t, activeRollouts, 2)
@@ -356,6 +399,10 @@ func TestPerUpdateRolloutRowsAndCountsPostgres(t *testing.T) {
 	require.Len(t, activeRollouts, 2)
 	assert.Equal(t, 55, activeRollouts[0].Percentage)
 	assert.Equal(t, 55, activeRollouts[1].Percentage)
+	runtimeVersions, err = fixture.branches.GetRuntimeVersionsWithUpdateStats(ctx, fixture.appId, rolloutTestDefaultBranch)
+	require.NoError(t, err)
+	require.NotNil(t, runtimeVersions[0].RolloutPercentage)
+	assert.Equal(t, 55, *runtimeVersions[0].RolloutPercentage)
 
 	rows, err = fixture.rollouts.ClearUpdateRollout(ctx, fixture.appId, rolloutTestDefaultBranch, rolloutTestRuntime)
 	require.NoError(t, err)
@@ -366,6 +413,19 @@ func TestPerUpdateRolloutRowsAndCountsPostgres(t *testing.T) {
 	hasActive, err := fixture.updates.HasActiveRolloutUpdate(ctx, fixture.appId, rolloutTestDefaultBranch, rolloutTestRuntime)
 	require.NoError(t, err)
 	assert.False(t, hasActive)
+	runtimeVersions, err = fixture.branches.GetRuntimeVersionsWithUpdateStats(ctx, fixture.appId, rolloutTestDefaultBranch)
+	require.NoError(t, err)
+	assert.False(t, runtimeVersions[0].ActiveRollout)
+	assert.Nil(t, runtimeVersions[0].RolloutPercentage)
+	branches, err = fixture.branches.GetBranches(ctx, fixture.appId)
+	require.NoError(t, err)
+	for i := range branches {
+		if branches[i].BranchName != rolloutTestDefaultBranch {
+			continue
+		}
+		require.NotNil(t, branches[i].CurrentUpdate)
+		assert.Nil(t, branches[i].CurrentUpdate.RolloutPercentage)
+	}
 
 	// Once cleared, the guarded mutations report 0 rows (the concurrent-end race).
 	rows, err = fixture.rollouts.SetUpdateRolloutPercentage(ctx, fixture.appId, rolloutTestDefaultBranch, rolloutTestRuntime, 60)
