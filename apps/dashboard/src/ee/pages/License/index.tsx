@@ -94,10 +94,7 @@ export const License = () => {
   if (!CONTROL_PLANE_ENABLED) {
     return (
       <div className="w-full">
-        <PageHeader
-          title="License"
-          description="Enterprise Edition license for this deployment."
-        />
+        <PageHeader title="License" description="Enterprise Edition license for this deployment." />
         <div className="rounded-xl border border-dashed bg-muted/30 p-8 text-center text-sm text-muted-foreground">
           Enterprise licenses are stored in the database and require control-plane (DB) mode.
           Stateless deployments run the community edition.
@@ -112,7 +109,7 @@ export const License = () => {
     <div className="space-y-3">
       <textarea
         value={keyInput}
-        onChange={(event) => setKeyInput(event.target.value)}
+        onChange={event => setKeyInput(event.target.value)}
         placeholder="key/…"
         rows={4}
         spellCheck={false}
@@ -131,7 +128,7 @@ export const License = () => {
           type="file"
           accept=".txt,.key,.lic,text/plain"
           className="hidden"
-          onChange={(event) => handleImportFile(event.target.files?.[0])}
+          onChange={event => handleImportFile(event.target.files?.[0])}
         />
       </div>
     </div>
@@ -163,7 +160,7 @@ export const License = () => {
               <CardTitle className="flex items-center gap-2">
                 {license?.valid ? (
                   <>
-                    <BadgeCheck className="h-5 w-5 text-emerald-600" />
+                    <BadgeCheck className="h-5 w-5 text-emerald-700 dark:text-emerald-300" />
                     Enterprise edition
                     <Badge>Active</Badge>
                   </>
@@ -185,7 +182,9 @@ export const License = () => {
               <CardContent>
                 <div className="divide-y">
                   <StatusRow label="License ID">
-                    <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{license.licenseId}</code>
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
+                      {license.licenseId}
+                    </code>
                   </StatusRow>
                   <StatusRow label="Issued">
                     <TimestampCell dateString={license.issuedAt ?? null} />
@@ -215,7 +214,9 @@ export const License = () => {
           {isAdmin ? (
             <Card>
               <CardHeader>
-                <CardTitle>{license?.valid ? 'Replace license key' : 'Activate a license key'}</CardTitle>
+                <CardTitle>
+                  {license?.valid ? 'Replace license key' : 'Activate a license key'}
+                </CardTitle>
                 <CardDescription>
                   Paste the license key you received with your Enterprise subscription, or import
                   the file it was delivered in. The key is verified before anything is stored.

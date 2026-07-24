@@ -220,6 +220,7 @@ func getUpdateUUIDFromMetadata(update types.Update) string {
 func (s *DeploymentService) MarkUpdateAsChecked(ctx context.Context, update types.Update, updateType types.UpdateType) error {
 	cache := cache.GetCache()
 	branchesCacheKey := dashboard.ComputeGetBranchesCacheKey(update.AppId)
+	channelsCacheKey := dashboard.ComputeGetChannelsCacheKey(update.AppId)
 	runTimeVersionsCacheKey := dashboard.ComputeGetRuntimeVersionsCacheKey(update.AppId, update.Branch)
 	updatesCacheKey := dashboard.ComputeGetUpdatesCacheKey(update.AppId, update.Branch, update.RuntimeVersion)
 	storedMetadata, err := s.updateRepo.RetrieveUpdateStoredMetadata(ctx, update)
@@ -260,7 +261,13 @@ func (s *DeploymentService) MarkUpdateAsChecked(ctx context.Context, update type
 		}
 		return err
 	}
-	cacheKeys := []string{update2.ComputeLastUpdateCacheKey(update.AppId, update.Branch, update.RuntimeVersion, storedMetadata.Platform), branchesCacheKey, runTimeVersionsCacheKey, updatesCacheKey}
+	cacheKeys := []string{
+		update2.ComputeLastUpdateCacheKey(update.AppId, update.Branch, update.RuntimeVersion, storedMetadata.Platform),
+		branchesCacheKey,
+		channelsCacheKey,
+		runTimeVersionsCacheKey,
+		updatesCacheKey,
+	}
 	for _, cacheKey := range cacheKeys {
 		cache.Delete(cacheKey)
 	}

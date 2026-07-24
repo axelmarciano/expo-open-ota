@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	cache2 "expo-open-ota/internal/cache"
@@ -10,9 +11,68 @@ import (
 	"expo-open-ota/internal/types"
 	"expo-open-ota/internal/validation"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 )
+
+const (
+	defaultUpdateFeedLimit = 50
+	maxUpdateFeedLimit     = 100
+)
+
+type updateFeedCursor struct {
+	CreatedAt time.Time `json:"createdAt"`
+	BranchID  int64     `json:"branchId"`
+	UpdateID  int64     `json:"updateId"`
+}
+
+func parseUpdateFeedDate(raw string, endOfDay bool) (*time.Time, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
+		return &parsed, nil
+	}
+	parsed, err := time.Parse("2006-01-02", raw)
+	if err != nil {
+		return nil, err
+	}
+	if endOfDay {
+		parsed = parsed.Add(24*time.Hour - time.Nanosecond)
+	}
+	return &parsed, nil
+}
+
+func decodeUpdateFeedCursor(raw string) (*updateFeedCursor, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, err
+	}
+	var cursor updateFeedCursor
+	if err := json.Unmarshal(decoded, &cursor); err != nil {
+		return nil, err
+	}
+	return &cursor, nil
+}
+
+func encodeUpdateFeedCursor(item types.UpdateFeedItem) string {
+	encoded, _ := json.Marshal(updateFeedCursor{
+		CreatedAt: item.FeedCreatedAt,
+		BranchID:  item.BranchID,
+		UpdateID:  mustParseUpdateID(item.UpdateId),
+	})
+	return base64.RawURLEncoding.EncodeToString(encoded)
+}
+
+func mustParseUpdateID(value string) int64 {
+	parsed, _ := strconv.ParseInt(value, 10, 64)
+	return parsed
+}
 
 type UpdateHandler struct {
 	updateService *services.UpdateService
@@ -119,4 +179,65 @@ func (h *UpdateHandler) GetUpdatesHandler(w http.ResponseWriter, r *http.Request
 
 	ttl := 3600
 	cache.Set(cacheKey, string(marshaledResponse), &ttl)
+}
+
+func (h *UpdateHandler) GetUpdateFeedHandler(w http.ResponseWriter, r *http.Request) {
+	appId := mux.Vars(r)["APP_ID"]
+	params := r.URL.Query()
+	limit := defaultUpdateFeedLimit
+	if rawLimit := params.Get("limit"); rawLimit != "" {
+		parsed, err := strconv.Atoi(rawLimit)
+		if err != nil || parsed < 1 || parsed > maxUpdateFeedLimit {
+			handlers.RenderError(w, http.StatusBadRequest, "limit must be between 1 and 100")
+			return
+		}
+		limit = parsed
+	}
+	from, err := parseUpdateFeedDate(params.Get("from"), false)
+	if err != nil {
+		handlers.RenderError(w, http.StatusBadRequest, "from must be an RFC3339 timestamp or YYYY-MM-DD date")
+		return
+	}
+	to, err := parseUpdateFeedDate(params.Get("to"), true)
+	if err != nil {
+		handlers.RenderError(w, http.StatusBadRequest, "to must be an RFC3339 timestamp or YYYY-MM-DD date")
+		return
+	}
+	cursor, err := decodeUpdateFeedCursor(params.Get("cursor"))
+	if err != nil {
+		handlers.RenderError(w, http.StatusBadRequest, "cursor is invalid")
+		return
+	}
+	query := types.UpdateFeedQuery{
+		Branch:         params.Get("branch"),
+		RuntimeVersion: params.Get("runtimeVersion"),
+		Platform:       params.Get("platform"),
+		UpdateUUID:     params.Get("uuid"),
+		PublishGroup:   params.Get("groupId"),
+		CommitHash:     params.Get("commitHash"),
+		From:           from,
+		To:             to,
+		Limit:          limit + 1,
+	}
+	if cursor != nil {
+		query.CursorCreatedAt = &cursor.CreatedAt
+		query.CursorBranchID = cursor.BranchID
+		query.CursorUpdateID = cursor.UpdateID
+	}
+	updates, err := h.updateService.GetUpdateFeed(r.Context(), appId, query)
+	if err != nil {
+		handlers.RenderError(w, http.StatusInternalServerError, "An internal error occurred while fetching the update feed.")
+		return
+	}
+	if updates == nil {
+		updates = []types.UpdateFeedItem{}
+	}
+	page := types.UpdateFeedPage{Items: updates}
+	if len(updates) > limit {
+		page.Items = updates[:limit]
+		page.NextCursor = encodeUpdateFeedCursor(page.Items[len(page.Items)-1])
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(page)
 }

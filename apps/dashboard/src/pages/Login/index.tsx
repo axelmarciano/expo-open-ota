@@ -122,15 +122,21 @@ export const Login = () => {
   }
 
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-muted/50 px-4">
+    <div className="flex min-h-screen w-full items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm">
-        <div className="rounded-2xl border bg-background p-8 shadow-elevated">
+        <div className="rounded-lg border bg-card p-8 shadow-elevated">
           <div className="mb-8 flex flex-col items-center gap-3 text-center">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+            <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-primary">
               <Radio className="h-5 w-5" strokeWidth={2} />
             </div>
             <div className="space-y-1">
-              <h1 className="text-lg font-semibold tracking-tight">Expo Open OTA</h1>
+              <h1 className="font-display text-lg font-semibold tracking-tight text-foreground">
+                Expo Open OTA
+                <span
+                  aria-hidden
+                  className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-primary"
+                />
+              </h1>
               <p className="text-sm text-muted-foreground">
                 Sign in to manage your over-the-air updates
               </p>

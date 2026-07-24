@@ -77,6 +77,32 @@ describe('describePublishGroup', () => {
     expect(description).toContain('abc1234');
   });
 
+  it('truncates long messages so the platforms stay visible', () => {
+    const longMessage =
+      'Fix the crash on startup that happens when the bundle cache is corrupted after an OTA';
+    const { groups } = groupPublishedUpdates([
+      update({ publishGroup: 'group-a', message: longMessage }),
+    ]);
+    const { title } = describePublishGroup(groups[0]);
+    expect(title).toBe('Fix the crash on startup that happens when the… (ios)');
+    expect(title.length).toBeLessThan(longMessage.length);
+  });
+
+  it('describes each sub-update with its platform and release time', () => {
+    const { groups } = groupPublishedUpdates([
+      update({ publishGroup: 'group-a', createdAt: '2026-07-24T10:00:12Z' }),
+      update({
+        platform: 'android',
+        publishGroup: 'group-a',
+        createdAt: '2026-07-24T10:01:47Z',
+      }),
+    ]);
+    const { description } = describePublishGroup(groups[0]);
+    expect(description).toBe(
+      'ios 2026-07-24 10:00 UTC, android 2026-07-24 10:01 UTC (commit abc1234)'
+    );
+  });
+
   it('falls back to the short commit hash when there is no message', () => {
     const { groups } = groupPublishedUpdates([update({ publishGroup: 'group-a' })]);
     expect(describePublishGroup(groups[0]).title).toBe('Commit abc1234 (ios)');

@@ -278,6 +278,10 @@ func (r *fakeUpdateRepo) GetUpdatesByRunTimeVersionAndBranchName(_ context.Conte
 	return nil, nil
 }
 
+func (r *fakeUpdateRepo) GetUpdateFeed(_ context.Context, _ string, _ types.UpdateFeedQuery) ([]types.UpdateFeedItem, error) {
+	return nil, nil
+}
+
 // GetUpdatesByPublishGroup mirrors the SQL: checked members of the group on
 // (branch, rtv), ordered by numeric id.
 func (r *fakeUpdateRepo) GetUpdatesByPublishGroup(_ context.Context, appId, branchName, runtimeVersion, publishGroup string) ([]types.PublishGroupMember, error) {

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type PostgresBranchStore struct {
@@ -91,9 +93,32 @@ func (s *PostgresBranchStore) GetBranches(ctx context.Context, appId string) ([]
 			ReleaseChannel: branch.ChannelName,
 			CreatedAt:      createdAtStr,
 			Protected:      branch.Protected,
+			CurrentUpdate: branchUpdateState(
+				branch.CurrentRuntimeVersion,
+				branch.CurrentCommitHash,
+				branch.CurrentUpdateCreatedAt,
+				branch.CurrentRolloutPercentage,
+			),
 		}
 	}
 	return branches, nil
+}
+
+func branchUpdateState(runtimeVersion *string, commitHash *string, createdAt pgtype.Timestamptz, rolloutPercentage *int32) *types.BranchUpdateState {
+	if runtimeVersion == nil || commitHash == nil || !createdAt.Valid {
+		return nil
+	}
+	var percentage *int
+	if rolloutPercentage != nil {
+		value := int(*rolloutPercentage)
+		percentage = &value
+	}
+	return &types.BranchUpdateState{
+		RuntimeVersion:    *runtimeVersion,
+		CommitHash:        *commitHash,
+		CreatedAt:         createdAt.Time.Format(time.RFC3339),
+		RolloutPercentage: percentage,
+	}
 }
 
 func (s *PostgresBranchStore) UpsertBranchAndRuntimeVersion(ctx context.Context, appId string, branchName string, runtimeVersion string) error {
@@ -143,12 +168,20 @@ func (s *PostgresBranchStore) GetRuntimeVersionsWithUpdateStats(ctx context.Cont
 		} else {
 			createdAtStr = ""
 		}
-		runtimeVersions[i] = types.RuntimeVersionWithStats{
+		runtimeVersion := types.RuntimeVersionWithStats{
 			RuntimeVersion:  row.Version,
 			LastUpdatedAt:   lastUpdatedAtStr,
 			CreatedAt:       createdAtStr,
 			NumberOfUpdates: int(row.UpdateCount),
 		}
+		// sqlc cannot type an aggregate subquery, so RolloutPercentage comes
+		// back as interface{}: pgx yields int32 for a value, nil for SQL NULL.
+		if pct, ok := row.RolloutPercentage.(int32); ok {
+			percentage := int(pct)
+			runtimeVersion.ActiveRollout = true
+			runtimeVersion.RolloutPercentage = &percentage
+		}
+		runtimeVersions[i] = runtimeVersion
 	}
 	return runtimeVersions, nil
 }

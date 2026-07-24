@@ -5,6 +5,8 @@ package store_test
 
 import (
 	"context"
+	"expo-open-ota/internal/types"
+	"strconv"
 	"testing"
 
 	"github.com/google/uuid"
@@ -93,6 +95,61 @@ func TestGetUpdatesByPublishGroupPostgres(t *testing.T) {
 	assert.Empty(t, none)
 }
 
+func TestGetUpdateFeedPostgres(t *testing.T) {
+	fixture := newRolloutFixture(t)
+	ctx := context.Background()
+
+	group := uuid.NewString()
+	fixture.checkedUpdate(t, 100, "ios", &group)
+	fixture.checkedUpdate(t, 200, "android", &group)
+	next, err := fixture.updates.CreateUpdate(ctx, fixture.appId, 300, rolloutTestRolloutBranch, rolloutTestRuntime, "ios", "def456", "next branch", nil)
+	require.NoError(t, err)
+	require.NoError(t, fixture.updates.MarkUpdateAsChecked(ctx, *next))
+	nextUUID := uuid.NewString()
+	require.NoError(t, fixture.updates.StoreUpdateUUIDInMetadata(ctx, *next, nextUUID))
+	_, err = fixture.updates.CreateUpdate(ctx, fixture.appId, 400, rolloutTestDefaultBranch, rolloutTestRuntime, "ios", "unfinished", "", nil)
+	require.NoError(t, err)
+
+	items, err := fixture.updates.GetUpdateFeed(ctx, fixture.appId, types.UpdateFeedQuery{Limit: 100})
+	require.NoError(t, err)
+	require.Len(t, items, 3, "unchecked uploads must stay out of the dashboard feed")
+
+	byID := make(map[string]types.UpdateFeedItem, len(items))
+	for _, item := range items {
+		byID[item.UpdateId] = item
+	}
+	assert.Equal(t, rolloutTestDefaultBranch, byID["100"].Branch)
+	assert.Equal(t, rolloutTestRuntime, byID["100"].RuntimeVersion)
+	require.NotNil(t, byID["100"].PublishGroup)
+	assert.Equal(t, group, *byID["100"].PublishGroup)
+	assert.Equal(t, rolloutTestRolloutBranch, byID["300"].Branch)
+	assert.Equal(t, nextUUID, byID["300"].UpdateUUID)
+	assert.Equal(t, "next branch", byID["300"].Message)
+
+	groupItems, err := fixture.updates.GetUpdateFeed(ctx, fixture.appId, types.UpdateFeedQuery{
+		PublishGroup: group,
+		Limit:        100,
+	})
+	require.NoError(t, err)
+	require.Len(t, groupItems, 2)
+
+	firstPage, err := fixture.updates.GetUpdateFeed(ctx, fixture.appId, types.UpdateFeedQuery{Limit: 2})
+	require.NoError(t, err)
+	require.Len(t, firstPage, 2)
+	cursorUpdateID, err := strconv.ParseInt(firstPage[1].UpdateId, 10, 64)
+	require.NoError(t, err)
+	secondPage, err := fixture.updates.GetUpdateFeed(ctx, fixture.appId, types.UpdateFeedQuery{
+		CursorCreatedAt: &firstPage[1].FeedCreatedAt,
+		CursorBranchID:  firstPage[1].BranchID,
+		CursorUpdateID:  cursorUpdateID,
+		Limit:           2,
+	})
+	require.NoError(t, err)
+	require.Len(t, secondPage, 1)
+	assert.NotEqual(t, firstPage[0].UpdateId, secondPage[0].UpdateId)
+	assert.NotEqual(t, firstPage[1].UpdateId, secondPage[0].UpdateId)
+}
+
 // TestPublishGroupRolloutActivationPostgres pins the sequential worst case of
 // one grouped rollout publish against the real SQL guards: iOS's rollout is
 // already active (checked) when Android's stamp runs. Both the conditional
@@ -125,6 +182,17 @@ func TestPublishGroupRolloutActivationPostgres(t *testing.T) {
 	for _, item := range items {
 		require.NotNil(t, item.PublishGroup)
 		assert.Equal(t, group, *item.PublishGroup)
+		require.NotNil(t, item.RolloutPercentage)
+		assert.Equal(t, 10, *item.RolloutPercentage)
+	}
+
+	feed, err := fixture.updates.GetUpdateFeed(ctx, fixture.appId, types.UpdateFeedQuery{
+		PublishGroup: group,
+		Limit:        10,
+	})
+	require.NoError(t, err)
+	require.Len(t, feed, 2)
+	for _, item := range feed {
 		require.NotNil(t, item.RolloutPercentage)
 		assert.Equal(t, 10, *item.RolloutPercentage)
 	}

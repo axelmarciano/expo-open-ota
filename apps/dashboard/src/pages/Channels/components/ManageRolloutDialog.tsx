@@ -98,7 +98,7 @@ export const ManageRolloutDialog = ({
       <Dialog open={!!channel} onOpenChange={open => !open && !busy && onClose()}>
         <DialogContent className="sm:max-w-[480px]">
           <DialogHeader className="flex flex-col items-start gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-400/25 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300">
               <Split className="h-5 w-5" />
             </div>
             <DialogTitle className="mt-2 text-lg font-semibold tracking-tight">
@@ -131,8 +131,7 @@ export const ManageRolloutDialog = ({
                   type="button"
                   size="sm"
                   onClick={handleSave}
-                  disabled={busy || percentage === rollout?.percentage}
-                  className="bg-emerald-600 text-white hover:bg-emerald-700">
+                  disabled={busy || percentage === rollout?.percentage}>
                   {isSaving ? 'Saving…' : 'Save percentage'}
                 </Button>
               </div>
@@ -145,7 +144,7 @@ export const ManageRolloutDialog = ({
                 disabled={busy}
                 onClick={() => setConfirm('promote')}
                 className="flex w-full items-start gap-3 rounded-lg border px-3 py-3 text-left transition-colors hover:bg-muted/40 disabled:pointer-events-none disabled:opacity-50">
-                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600">
+                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-emerald-400/25 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300">
                   <CheckCircle2 className="h-4 w-4" />
                 </span>
                 <span>
@@ -182,7 +181,7 @@ export const ManageRolloutDialog = ({
         onOpenChange={open => !open && !isEnding && setConfirm(null)}>
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader className="flex flex-col items-start gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-400/25 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300">
               <CheckCircle2 className="h-5 w-5" />
             </div>
             <DialogTitle className="mt-2 text-lg font-semibold tracking-tight">
@@ -208,11 +207,7 @@ export const ManageRolloutDialog = ({
               disabled={isEnding}>
               Cancel
             </Button>
-            <Button
-              type="button"
-              onClick={() => handleEnd('promote')}
-              disabled={isEnding}
-              className="bg-emerald-600 text-white hover:bg-emerald-700">
+            <Button type="button" onClick={() => handleEnd('promote')} disabled={isEnding}>
               {isEnding ? 'Promoting…' : 'Promote'}
             </Button>
           </DialogFooter>

@@ -353,6 +353,10 @@ func (s *BucketUpdateStore) GetUpdatesByPublishGroup(ctx context.Context, appId 
 	return nil, ErrNotSupportedInStatelessMode
 }
 
+func (s *BucketUpdateStore) GetUpdateFeed(ctx context.Context, appId string, query types.UpdateFeedQuery) ([]types.UpdateFeedItem, error) {
+	return nil, ErrNotSupportedInStatelessMode
+}
+
 // GetUpdateByUUID returns (nil, nil) in stateless mode rather than an error so the assets
 // fallback keeps its current path: no Expo-Requested-Update-ID resolution, straight to the
 // latest-update decision, byte-identical to today.

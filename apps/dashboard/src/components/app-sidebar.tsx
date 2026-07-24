@@ -7,13 +7,18 @@ import {
   Fingerprint,
   ScrollText,
   HardDriveDownload,
+  GitBranch,
   Info,
   KeyRound,
   LogOut,
+  Monitor,
+  Moon,
   Plus,
   Radio,
+  Search,
   Settings,
   ShieldCheck,
+  Sun,
   Users,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -25,31 +30,35 @@ import { CreateAppModal } from '@/components/app-creation-modal';
 import { useSettings } from '@/lib/SettingsContext';
 import { useCurrentUser } from '@/lib/CurrentUserContext';
 import { EnterpriseBadge } from '@/ee/components/EnterpriseBadge';
+import { ThemePreference, useTheme } from '@/lib/theme';
 
 const NavLink = ({
   to,
   icon: Icon,
   badge,
+  onNavigate,
   children,
 }: {
   to: string;
   icon: typeof Box;
   badge?: React.ReactNode;
+  onNavigate?: () => void;
   children: React.ReactNode;
 }) => {
   const { pathname } = useLocation();
-  const isActive = pathname === to;
+  const isActive = pathname === to || pathname.startsWith(`${to}/`);
   return (
     <Link
       to={to}
       onClick={e => {
         if (isActive) e.preventDefault();
+        onNavigate?.();
       }}
       className={clsx(
-        'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors',
+        'flex items-center gap-2.5 rounded-md border border-transparent px-3 py-2 text-sm transition-all duration-150 motion-reduce:transition-none',
         isActive
-          ? 'bg-secondary font-medium text-foreground'
-          : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+          ? 'border-primary/20 bg-primary/10 font-medium text-foreground'
+          : 'text-muted-foreground hover:translate-x-0.5 hover:border-border hover:bg-accent/70 hover:text-foreground motion-reduce:hover:translate-x-0'
       )}>
       <Icon className="h-4 w-4" strokeWidth={1.75} />
       <span>{children}</span>
@@ -61,7 +70,7 @@ const NavLink = ({
 // Marks a nav entry as part of the Enterprise edition, with the emerald
 // accent shared by the enterprise UI.
 const EnterpriseNavBadge = () => (
-  <span className="ml-auto rounded-full border border-emerald-200/80 bg-emerald-50/80 px-1.5 py-px text-[10px] font-medium text-emerald-700">
+  <span className="ml-auto rounded-full border border-emerald-400/25 bg-emerald-400/10 px-1.5 py-px text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
     Enterprise
   </span>
 );
@@ -70,19 +79,67 @@ const EnterpriseNavBadge = () => (
 // notices there is anything to approve, and new members sit blocked in silence.
 const PendingUsersBadge = ({ count }: { count: number }) => (
   <span
-    className="ml-auto rounded-full border border-amber-200/80 bg-amber-50/80 px-1.5 py-px text-[10px] font-medium text-amber-700"
+    className="ml-auto rounded-full border border-amber-400/25 bg-amber-400/10 px-1.5 py-px text-[10px] font-medium text-amber-700 dark:text-amber-300"
     title={`${count} account${count > 1 ? 's' : ''} waiting for approval`}>
     {count}
   </span>
 );
 
 const SectionLabel = ({ children }: { children: React.ReactNode }) => (
-  <p className="px-3 pb-1.5 pt-5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground/70">
-    {children}
-  </p>
+  <p className="px-3 pb-1.5 pt-5 text-xs font-medium text-muted-foreground">{children}</p>
 );
 
-export function AppSidebar() {
+const themeOptions: Array<{
+  value: ThemePreference;
+  label: string;
+  icon: typeof Sun;
+}> = [
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'system', label: 'Auto', icon: Monitor },
+  { value: 'dark', label: 'Dark', icon: Moon },
+];
+
+const ThemeSwitcher = () => {
+  const { preference, setPreference } = useTheme();
+  return (
+    <div
+      className="grid shrink-0 grid-cols-3 gap-0.5 rounded-md border bg-secondary/70 p-0.5"
+      aria-label="Color theme">
+      {themeOptions.map(option => {
+        const Icon = option.icon;
+        const active = preference === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={active}
+            aria-label={`${option.label} theme`}
+            title={option.value === 'system' ? 'Automatic theme' : `${option.label} theme`}
+            onClick={() => setPreference(option.value)}
+            className={clsx(
+              'flex h-7 w-7 items-center justify-center rounded text-xs font-medium transition-colors',
+              active
+                ? 'bg-card text-foreground shadow-card'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+            )}>
+            <Icon className="h-3.5 w-3.5" />
+            <span className="sr-only">{option.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+export function AppSidebar({
+  mobile = false,
+  onNavigate,
+  onOpenCommandPalette,
+}: {
+  mobile?: boolean;
+  onNavigate?: () => void;
+  onOpenCommandPalette?: () => void;
+} = {}) {
   const { CONTROL_PLANE_ENABLED } = useSettings();
   const { isAdmin } = useCurrentUser();
   const { apps, selectedAppId, setSelectedAppId, refreshApps, isLoading } = useSelectedApp();
@@ -96,6 +153,10 @@ export function AppSidebar() {
     enabled: CONTROL_PLANE_ENABLED && isAdmin,
   });
   const pendingUsersCount = (usersQuery.data ?? []).filter(user => !user.enabled).length;
+  const commandPaletteShortcut =
+    typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent)
+      ? '⌘ K'
+      : 'Ctrl K';
 
   const handleAppCreated = async (newAppId: string) => {
     await refreshApps();
@@ -104,12 +165,22 @@ export function AppSidebar() {
 
   return (
     <>
-      <aside className="sticky top-0 flex h-screen w-64 shrink-0 flex-col border-r bg-background">
+      <aside
+        className={clsx(
+          'h-screen w-64 shrink-0 flex-col border-r border-border/80 bg-card dark:bg-[#09090b]',
+          mobile ? 'flex w-full' : 'sticky top-0 hidden lg:flex'
+        )}>
         <div className="flex items-center gap-2.5 px-5 pb-2 pt-5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary">
             <Radio className="h-4 w-4" strokeWidth={2} />
           </div>
-          <span className="text-[15px] font-semibold tracking-tight">Expo Open OTA</span>
+          <span className="font-display text-[15px] font-semibold tracking-tight text-foreground">
+            expo-open-ota
+            <span
+              aria-hidden
+              className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-primary align-baseline"
+            />
+          </span>
         </div>
 
         <EnterpriseBadge />
@@ -138,6 +209,17 @@ export function AppSidebar() {
                 : undefined
             }
           />
+          <button
+            type="button"
+            onClick={onOpenCommandPalette}
+            aria-keyshortcuts="Meta+K Control+K"
+            className="mt-2 flex h-9 w-full items-center gap-2.5 rounded-md border border-transparent px-3 text-sm text-muted-foreground transition-all duration-150 hover:border-border hover:bg-accent/70 hover:text-foreground">
+            <Search className="h-4 w-4" />
+            <span>Search</span>
+            <kbd className="ml-auto rounded border border-border bg-secondary px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+              {commandPaletteShortcut}
+            </kbd>
+          </button>
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3">
@@ -148,37 +230,42 @@ export function AppSidebar() {
             <>
               <SectionLabel>Application</SectionLabel>
               <div className="space-y-0.5">
-                <NavLink to="/" icon={HardDriveDownload}>
-                  Branches & updates
-                </NavLink>
-                <NavLink to="/channels" icon={Box}>
+                {CONTROL_PLANE_ENABLED && (
+                  <NavLink to="/updates" icon={HardDriveDownload} onNavigate={onNavigate}>
+                    Updates
+                  </NavLink>
+                )}
+                <NavLink to="/channels" icon={Box} onNavigate={onNavigate}>
                   Channels
                 </NavLink>
-                <NavLink to="/app-info" icon={Info}>
+                <NavLink to="/branches" icon={GitBranch} onNavigate={onNavigate}>
+                  Branches
+                </NavLink>
+                <NavLink to="/app-info" icon={Info} onNavigate={onNavigate}>
                   App info
                 </NavLink>
                 {CONTROL_PLANE_ENABLED && (
-                  <NavLink to="/tokens" icon={KeyRound}>
+                  <NavLink to="/tokens" icon={KeyRound} onNavigate={onNavigate}>
                     API tokens
                   </NavLink>
                 )}
               </div>
 
-              <div className="mx-3 mt-5 border-t" />
+              <div className="mx-3 mt-5 border-t border-border/70" />
             </>
           )}
 
           <SectionLabel>Server</SectionLabel>
           <div className="space-y-0.5">
-            <NavLink to="/settings" icon={Settings}>
+            <NavLink to="/settings" icon={Settings} onNavigate={onNavigate}>
               Settings
             </NavLink>
             {CONTROL_PLANE_ENABLED && (
-              <NavLink to="/license" icon={BadgeCheck}>
+              <NavLink to="/license" icon={BadgeCheck} onNavigate={onNavigate}>
                 License
               </NavLink>
             )}
-            <NavLink to="/account" icon={CircleUser}>
+            <NavLink to="/account" icon={CircleUser} onNavigate={onNavigate}>
               My account
             </NavLink>
           </div>
@@ -192,6 +279,7 @@ export function AppSidebar() {
                 <NavLink
                   to="/users"
                   icon={Users}
+                  onNavigate={onNavigate}
                   badge={
                     pendingUsersCount > 0 ? (
                       <PendingUsersBadge count={pendingUsersCount} />
@@ -199,13 +287,25 @@ export function AppSidebar() {
                   }>
                   Users
                 </NavLink>
-                <NavLink to="/roles" icon={ShieldCheck} badge={<EnterpriseNavBadge />}>
+                <NavLink
+                  to="/roles"
+                  icon={ShieldCheck}
+                  badge={<EnterpriseNavBadge />}
+                  onNavigate={onNavigate}>
                   Roles
                 </NavLink>
-                <NavLink to="/sso" icon={Fingerprint} badge={<EnterpriseNavBadge />}>
+                <NavLink
+                  to="/sso"
+                  icon={Fingerprint}
+                  badge={<EnterpriseNavBadge />}
+                  onNavigate={onNavigate}>
                   SSO
                 </NavLink>
-                <NavLink to="/audit-logs" icon={ScrollText} badge={<EnterpriseNavBadge />}>
+                <NavLink
+                  to="/audit-logs"
+                  icon={ScrollText}
+                  badge={<EnterpriseNavBadge />}
+                  onNavigate={onNavigate}>
                   Audit log
                 </NavLink>
               </div>
@@ -213,13 +313,15 @@ export function AppSidebar() {
           )}
         </nav>
 
-        <div className="border-t p-3">
+        <div className="flex items-center gap-2 border-t border-border/80 p-3">
           <Link
             to="/logout"
-            className="flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground">
+            onClick={onNavigate}
+            className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md border border-transparent px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:border-border hover:bg-accent/70 hover:text-foreground">
             <LogOut className="h-4 w-4" strokeWidth={1.75} />
             <span>Log out</span>
           </Link>
+          <ThemeSwitcher />
         </div>
       </aside>
 

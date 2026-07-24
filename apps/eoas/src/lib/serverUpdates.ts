@@ -124,8 +124,31 @@ export function groupPublishedUpdates(updates: ServerUpdateItem[]): {
   return { groups, ungrouped };
 }
 
-// describePublishGroup renders one picker line: the message (or commit) plus
-// the platforms it covers.
+// A commit message can be a full paragraph; past this length the picker line
+// wraps and drowns the platforms suffix.
+const MAX_TITLE_MESSAGE_LENGTH = 48;
+
+function truncateMessage(message: string): string {
+  if (message.length <= MAX_TITLE_MESSAGE_LENGTH) {
+    return message;
+  }
+  return `${message.slice(0, MAX_TITLE_MESSAGE_LENGTH - 1).trimEnd()}…`;
+}
+
+// Compact deterministic timestamp (no locale, no seconds): publishes made in
+// the same run are seconds apart, minute precision is enough to tell runs
+// apart without flooding the line.
+function formatPublishedAt(createdAt: string): string {
+  const parsed = new Date(createdAt);
+  if (Number.isNaN(parsed.getTime())) {
+    return createdAt;
+  }
+  return `${parsed.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+}
+
+// describePublishGroup renders one picker entry: a truncated message (or
+// commit) plus the platforms as the title, and each sub-update with its
+// platform and release time as the description.
 export function describePublishGroup(group: PublishGroupSummary): {
   title: string;
   description: string;
@@ -134,13 +157,16 @@ export function describePublishGroup(group: PublishGroupSummary): {
   // back to the date so the picker never renders an empty label.
   const shortCommit = group.commitHash.slice(0, 7);
   const label = group.message?.trim()
-    ? group.message
+    ? truncateMessage(group.message.trim())
     : shortCommit
       ? `Commit ${shortCommit}`
-      : `Published ${new Date(group.createdAt).toUTCString()}`;
-  const commitSuffix = shortCommit ? `, commit ${shortCommit}` : '';
+      : `Published ${formatPublishedAt(group.createdAt)}`;
+  const members = group.updates
+    .map(update => `${update.platform} ${formatPublishedAt(update.createdAt)}`)
+    .join(', ');
+  const commitSuffix = shortCommit ? ` (commit ${shortCommit})` : '';
   return {
     title: `${label} (${group.platforms.join(' + ')})`,
-    description: `Published ${new Date(group.createdAt).toUTCString()}${commitSuffix}`,
+    description: `${members}${commitSuffix}`,
   };
 }

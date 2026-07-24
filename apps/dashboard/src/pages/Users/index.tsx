@@ -164,7 +164,7 @@ export const Users = () => {
                     {hasNoAccess && (
                       <Badge
                         variant="outline"
-                        className="border-amber-300/80 bg-amber-50 font-normal text-amber-800"
+                        className="border-amber-400/25 bg-amber-400/10 font-normal text-amber-700 dark:text-amber-300"
                         title="This member holds no grant: they see an empty dashboard. Open Roles to give them access.">
                         No app access
                       </Badge>

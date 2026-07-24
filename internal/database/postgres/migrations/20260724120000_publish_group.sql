@@ -7,9 +7,15 @@
 -- (dashboard grouping, per-publish health) can treat the set as one publish.
 -- NULL for rows created by older CLIs, rollback markers (branch-level
 -- operations, never grouped) and stateless mode, which degrade to the
--- ungrouped per-platform display. No index: readers fetch the branch listing
--- and group in memory; add one when a query filters on it.
+-- ungrouped per-platform display.
 ALTER TABLE updates ADD COLUMN publish_group UUID;
 
+-- Serves the group-republish member resolution (and future group-scoped
+-- reads). Partial on both predicates so the index only holds grouped, served
+-- rows; ungrouped history costs nothing.
+CREATE INDEX idx_updates_publish_group ON updates (publish_group)
+    WHERE publish_group IS NOT NULL AND checked_at IS NOT NULL;
+
 -- +goose Down
+DROP INDEX idx_updates_publish_group;
 ALTER TABLE updates DROP COLUMN publish_group;

@@ -19,14 +19,10 @@ type CreateAppModalProps = {
   onAppCreated?: (appId: string) => void;
 };
 
-export const CreateAppModal = ({
-  isOpen,
-  onClose,
-  onAppCreated,
-} : CreateAppModalProps) => {
+export const CreateAppModal = ({ isOpen, onClose, onAppCreated }: CreateAppModalProps) => {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
+
   const [name, setName] = useState('');
   const [keysMode, setKeysMode] = useState<KeysMode>('database');
   const [publicSecretId, setPublicSecretId] = useState('');
@@ -95,7 +91,7 @@ export const CreateAppModal = ({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
+    <Dialog open={isOpen} onOpenChange={open => !open && handleClose()}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle className="text-lg">New application</DialogTitle>
@@ -110,7 +106,7 @@ export const CreateAppModal = ({
               id="app-name"
               placeholder="e.g. my-mobile-app"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={e => setName(e.target.value)}
               disabled={isSubmitting}
               className="h-9"
               required
@@ -120,17 +116,24 @@ export const CreateAppModal = ({
             <Label>Signing keys</Label>
             <div className="grid grid-cols-1 gap-2">
               {[
-                { id: 'database', label: 'Managed for you', desc: 'Keys are generated, sealed with the master key and stored in the database.' },
-                { id: 'aws-secrets-manager', label: 'AWS Secrets Manager', desc: 'Keys are fetched from secrets you manage in AWS.' }
-              ].map((mode) => (
+                {
+                  id: 'database',
+                  label: 'Managed for you',
+                  desc: 'Keys are generated, sealed with the master key and stored in the database.',
+                },
+                {
+                  id: 'aws-secrets-manager',
+                  label: 'AWS Secrets Manager',
+                  desc: 'Keys are fetched from secrets you manage in AWS.',
+                },
+              ].map(mode => (
                 <label
                   key={mode.id}
                   className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                     keysMode === mode.id
                       ? 'bg-accent/40 border-foreground/30 text-foreground'
                       : 'bg-background/50 border-border text-muted-foreground hover:bg-accent/20'
-                  }`}
-                >
+                  }`}>
                   <input
                     type="radio"
                     name="keysMode"
@@ -159,7 +162,7 @@ export const CreateAppModal = ({
                   id="publicSecretId"
                   placeholder="arn:aws:secretsmanager:..."
                   value={publicSecretId}
-                  onChange={(e) => setPublicSecretId(e.target.value)}
+                  onChange={e => setPublicSecretId(e.target.value)}
                   disabled={isSubmitting}
                   className="h-9 bg-background"
                   required
@@ -173,7 +176,7 @@ export const CreateAppModal = ({
                   id="privateSecretId"
                   placeholder="arn:aws:secretsmanager:..."
                   value={privateSecretId}
-                  onChange={(e) => setPrivateSecretId(e.target.value)}
+                  onChange={e => setPrivateSecretId(e.target.value)}
                   disabled={isSubmitting}
                   className="h-9 bg-background"
                   required
@@ -188,8 +191,7 @@ export const CreateAppModal = ({
               variant="outline"
               onClick={handleClose}
               disabled={isSubmitting}
-              className="h-9 text-xs font-medium"
-            >
+              className="h-9 text-xs font-medium">
               Cancel
             </Button>
             <Button type="submit" disabled={isSubmitting} className="h-9">

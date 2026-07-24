@@ -38,6 +38,7 @@ type UpdateRepository interface {
 	GetUpdatesByPublishGroup(ctx context.Context, appId string, branchName string, runtimeVersion string, publishGroup string) ([]types.PublishGroupMember, error)
 	GetUpdateByBranchNameAndRuntime(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string) (pgdb.GetUpdateByBranchNameAndRuntimeRow, error)
 	GetUpdatesByRunTimeVersionAndBranchName(ctx context.Context, appId string, runtimeVersion string, branchName string) ([]types.UpdateItem, error)
+	GetUpdateFeed(ctx context.Context, appId string, query types.UpdateFeedQuery) ([]types.UpdateFeedItem, error)
 	RetrieveUpdateStoredMetadata(ctx context.Context, update types.Update) (*types.UpdateStoredMetadata, error)
 	StoreUpdateUUIDInMetadata(ctx context.Context, update types.Update, updateUUID string) error
 }
@@ -149,4 +150,8 @@ func (s *UpdateService) GetUpdatesByRunTimeVersionAndBranchName(ctx context.Cont
 		return nil, err
 	}
 	return s.updateRepo.GetUpdatesByRunTimeVersionAndBranchName(ctx, appId, runtimeVersion, branchName)
+}
+
+func (s *UpdateService) GetUpdateFeed(ctx context.Context, appId string, query types.UpdateFeedQuery) ([]types.UpdateFeedItem, error) {
+	return s.updateRepo.GetUpdateFeed(ctx, appId, query)
 }

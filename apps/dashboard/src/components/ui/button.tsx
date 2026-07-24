@@ -5,15 +5,17 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition duration-150 ease-out active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground shadow-card hover:bg-primary/90',
-        destructive: 'bg-destructive text-destructive-foreground shadow-card hover:bg-destructive/90',
+        default: 'bg-primary text-primary-foreground shadow-card hover:brightness-110',
+        destructive:
+          'border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20',
         outline:
-          'border border-border bg-background shadow-card hover:bg-muted/60',
-        secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/70',
+          'border border-input bg-card text-secondary-foreground shadow-card hover:border-primary/40 hover:bg-primary/[0.04] disabled:border-border disabled:bg-muted dark:bg-secondary dark:hover:bg-accent',
+        secondary:
+          'border border-border bg-muted text-secondary-foreground hover:border-input hover:bg-accent',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
         link: 'text-link underline-offset-4 hover:underline',
       },

@@ -17,9 +17,11 @@ import { UpdateRolloutCard } from '@/pages/Updates/components/UpdateRolloutCard'
 export const UpdatesTable = ({
   branch,
   runtimeVersion,
+  showBreadcrumb = true,
 }: {
   branch: string;
   runtimeVersion: string;
+  showBreadcrumb?: boolean;
 }) => {
   const sheetRef = useRef<UpdateDetailsRef>(null);
   const { selectedAppId } = useSelectedApp();
@@ -43,7 +45,7 @@ export const UpdatesTable = ({
 
   return (
     <div className="w-full flex-1">
-      <UpdatesBreadcrumb branch={branch} runtimeVersion={runtimeVersion} />
+      {showBreadcrumb && <UpdatesBreadcrumb branch={branch} runtimeVersion={runtimeVersion} />}
       {!!error && <ApiError error={error} />}
       {!!rolloutQuery.error && <ApiError error={rolloutQuery.error} />}
       {CONTROL_PLANE_ENABLED && activeRollout.length > 0 && (
@@ -80,8 +82,10 @@ export const UpdatesTable = ({
               const isAndroid = row.original.platform === 'android';
               return (
                 <div className="flex items-center gap-2">
-                  {isIos && <img src={apple} className="w-4" alt="iOS" />}
-                  {isAndroid && <img src={android} className="w-4" alt="Android" />}
+                  {isIos && <img src={apple} className="w-4 brightness-0 dark:invert" alt="iOS" />}
+                  {isAndroid && (
+                    <img src={android} className="w-4 brightness-0 dark:invert" alt="Android" />
+                  )}
                 </div>
               );
             },
@@ -120,7 +124,7 @@ export const UpdatesTable = ({
                     const update = row.original;
                     if (update.rolloutPercentage != null) {
                       return (
-                        <Badge className="border-transparent bg-emerald-100 text-emerald-700">
+                        <Badge className="border-emerald-400/25 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300">
                           {update.rolloutPercentage}% rollout
                         </Badge>
                       );

@@ -37,10 +37,10 @@ export const EnterpriseFeatureGate = ({ children }: { children: ReactNode }) => 
         className="pointer-events-none select-none opacity-60">
         {children}
       </div>
-      <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/55 backdrop-blur-[3px]">
-        <div className="flex flex-col items-center gap-3 rounded-2xl border border-emerald-100 bg-white px-8 py-6 text-center shadow-elevated">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-sm">
-            <Lock className="h-5 w-5 text-white" strokeWidth={2.2} />
+      <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/80 backdrop-blur-[3px]">
+        <div className="flex flex-col items-center gap-3 rounded-lg border border-emerald-400/20 bg-card px-8 py-6 text-center shadow-elevated">
+          <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-emerald-400/25 bg-emerald-400/10 shadow-card">
+            <Lock className="h-5 w-5 text-emerald-700 dark:text-white" strokeWidth={2.2} />
           </div>
           <div>
             <p className="text-sm font-semibold">Enterprise feature</p>
@@ -48,10 +48,7 @@ export const EnterpriseFeatureGate = ({ children }: { children: ReactNode }) => 
               Unlock it with an Enterprise license.
             </p>
           </div>
-          <Button
-            size="sm"
-            onClick={() => setIsExplainerOpen(true)}
-            className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-sm hover:from-emerald-700 hover:to-teal-700">
+          <Button size="sm" onClick={() => setIsExplainerOpen(true)}>
             <Sparkles className="h-3.5 w-3.5" />
             Discover Enterprise
           </Button>
