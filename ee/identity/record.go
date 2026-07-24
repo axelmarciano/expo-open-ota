@@ -57,20 +57,23 @@ func RequestFromRecord(appID string, easClientID string, op Op, attributes map[s
 	return req, true
 }
 
-// CoalesceRequests folds ADJACENT same-op requests of the same device into
-// one store transaction: the SDK ships its whole backlog in a single batch,
-// so several $set of one device commonly arrive together. Only adjacent ops
-// merge; folding across a different op in between would reorder the timeline
-// ($set(a) $unset(a) $set(a) must not collapse).
+// CoalesceRequests folds ADJACENT same-op requests of the same installation
+// into one store transaction: the SDK ships its whole backlog in a single
+// batch, so several $set operations commonly arrive together. Only adjacent
+// operations from the same app and device merge; folding across another
+// request would reorder the event timeline.
 func CoalesceRequests(requests []Request) []Request {
 	if len(requests) < 2 {
 		return requests
 	}
 	coalesced := make([]Request, 0, len(requests))
-	lastByDevice := make(map[string]int)
 	for _, req := range requests {
-		if idx, seen := lastByDevice[req.EASClientID]; seen && coalesced[idx].Op == req.Op {
-			previous := &coalesced[idx]
+		if len(coalesced) > 0 {
+			previous := &coalesced[len(coalesced)-1]
+			if previous.AppID != req.AppID || previous.EASClientID != req.EASClientID || previous.Op != req.Op {
+				coalesced = append(coalesced, req)
+				continue
+			}
 			switch req.Op {
 			case OpUnset:
 				previous.UnsetKeys = append(previous.UnsetKeys, req.UnsetKeys...)
@@ -91,7 +94,6 @@ func CoalesceRequests(requests []Request) []Request {
 			}
 		}
 		coalesced = append(coalesced, req)
-		lastByDevice[req.EASClientID] = len(coalesced) - 1
 	}
 	return coalesced
 }

@@ -96,15 +96,23 @@ func TestCoalesceRequests(t *testing.T) {
 		require.Equal(t, []string{"a", "b"}, out[0].UnsetKeys)
 	})
 
-	t.Run("interleaved devices still fold per device", func(t *testing.T) {
+	t.Run("interleaved devices preserve cross-device order", func(t *testing.T) {
 		out := CoalesceRequests([]Request{
 			set("d1", map[string]any{"a": "1"}),
 			set("d2", map[string]any{"a": "x"}),
 			set("d1", map[string]any{"b": "2"}),
 		})
-		// d1's two sets fold even though d2 sits between them: "adjacent" is
-		// per device, order across devices carries no meaning.
+		require.Len(t, out, 3)
+		require.Equal(t, map[string]any{"a": "1"}, out[0].Attributes)
+		require.Equal(t, "d2", out[1].EASClientID)
+		require.Equal(t, map[string]any{"b": "2"}, out[2].Attributes)
+	})
+
+	t.Run("same client id in different apps does not fold", func(t *testing.T) {
+		out := CoalesceRequests([]Request{
+			set("d1", map[string]any{"a": "1"}),
+			{AppID: "other-app", EASClientID: "d1", Op: OpSet, Attributes: map[string]any{"b": "2"}},
+		})
 		require.Len(t, out, 2)
-		require.Equal(t, map[string]any{"a": "1", "b": "2"}, out[0].Attributes)
 	})
 }

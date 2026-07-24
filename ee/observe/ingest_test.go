@@ -32,7 +32,7 @@ func serveIngest(handler *IngestHandler, method, path string, body []byte) *http
 	router := mux.NewRouter()
 	router.HandleFunc("/observe/{APP_ID}/{PROJECT_ID}/v1/logs", handler.HandleLogs).Methods(http.MethodPost)
 	router.HandleFunc("/observe/{APP_ID}/{PROJECT_ID}/v1/metrics", handler.HandleMetrics).Methods(http.MethodPost)
-	req := httptest.NewRequest(method, path, bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), method, path, bytes.NewReader(body))
 	req.RemoteAddr = "203.0.113.9:40000"
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, req)
@@ -47,9 +47,12 @@ type recordingMutator struct {
 	sets   []map[string]any
 	unsets [][]string
 	fail   bool
+	// hadDeadline proves the HTTP handler bounds each store operation.
+	hadDeadline bool
 }
 
-func (m *recordingMutator) ApplySet(_ context.Context, _ string, _ string, raw map[string]any, _ *identity.Geo) (identity.ApplyResult, error) {
+func (m *recordingMutator) ApplySet(ctx context.Context, _ string, _ string, raw map[string]any, _ *identity.Geo) (identity.ApplyResult, error) {
+	_, m.hadDeadline = ctx.Deadline()
 	if m.fail {
 		return identity.ApplyResult{}, fmt.Errorf("database is down")
 	}
@@ -119,6 +122,7 @@ func TestHandleLogsResponseContract(t *testing.T) {
 		handler := NewIngestHandler(identity.NewService(mutator, nil))
 		recorder := serveIngest(handler, http.MethodPost, logsPath, []byte(androidLogsFixture))
 		require.Equal(t, http.StatusNoContent, recorder.Code)
+		require.True(t, mutator.hadDeadline, "each identity apply must have a request-scoped deadline")
 		require.Len(t, mutator.sets, 1)
 		require.Equal(t, "user_42", mutator.sets[0]["userId"])
 		// The envelope attributes were stripped before the store.

@@ -78,7 +78,7 @@ func serve(handler *IdentityHandler, method, path, body string) *httptest.Respon
 	router.HandleFunc("/api/apps/{APP_ID}/identity/values", handler.SearchValuesHandler).Methods(http.MethodGet)
 	router.HandleFunc("/api/apps/{APP_ID}/identity/devices", handler.ListDevicesHandler).Methods(http.MethodGet)
 	router.HandleFunc("/api/apps/{APP_ID}/identity/devices/{EAS_CLIENT_ID}", handler.GetDeviceHandler).Methods(http.MethodGet)
-	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), method, path, strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	return rec

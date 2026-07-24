@@ -5,12 +5,14 @@
 package observe
 
 import (
+	"context"
 	"errors"
 	"expo-open-ota/ee/identity"
 	"expo-open-ota/internal/helpers"
 	"io"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -31,6 +33,10 @@ const (
 // and drops the batch, which is the point: a 5xx would make the device
 // re-send the same oversized poison pill forever.
 const maxLogsBodyBytes = 16 << 20
+
+// identityApplyTimeout keeps a stalled store operation from tying up an
+// ingestion request indefinitely. Each coalesced operation gets its own bound.
+const identityApplyTimeout = 5 * time.Second
 
 // IngestHandler owns the expo-observe ingestion routes. The response contract
 // is dictated by the SDK's classification and every arm of it either destroys
@@ -108,7 +114,10 @@ func (h *IngestHandler) HandleLogs(w http.ResponseWriter, r *http.Request) {
 
 	requests := identityRequestsFromBatch(batch, appID, remoteIP)
 	for _, req := range identity.CoalesceRequests(requests) {
-		if _, err := h.identityService.Apply(r.Context(), req); err != nil {
+		applyContext, cancelApply := context.WithTimeout(r.Context(), identityApplyTimeout)
+		_, err := h.identityService.Apply(applyContext, req)
+		cancelApply()
+		if err != nil {
 			// Store errors are transient (pool exhausted, database down):
 			// 503 keeps the batch on the device for a retry. Re-applying the
 			// already-committed prefix on that retry is idempotent ($set
