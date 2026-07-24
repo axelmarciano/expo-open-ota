@@ -1240,7 +1240,7 @@ func (q *Queries) GetUpdateType(ctx context.Context, arg GetUpdateTypeParams) (i
 }
 
 const getUpdatesByByBranchNameAndRuntimeVersion = `-- name: GetUpdatesByByBranchNameAndRuntimeVersion :many
-SELECT u.id, u.update_uuid, u.update_type, u.created_at, u.commit_hash, u.platform, u.message, u.checked_at, u.rollout_percentage, u.control_update_id
+SELECT u.id, u.update_uuid, u.update_type, u.created_at, u.commit_hash, u.platform, u.message, u.checked_at, u.rollout_percentage, u.control_update_id, u.publish_group
 FROM updates u
 JOIN runtime_versions rv ON u.runtime_version_id = rv.id
 JOIN branches b ON u.branch_id = b.id
@@ -1269,6 +1269,7 @@ type GetUpdatesByByBranchNameAndRuntimeVersionRow struct {
 	CheckedAt         pgtype.Timestamptz `json:"checked_at"`
 	RolloutPercentage *int32             `json:"rollout_percentage"`
 	ControlUpdateID   *int64             `json:"control_update_id"`
+	PublishGroup      pgtype.UUID        `json:"publish_group"`
 }
 
 func (q *Queries) GetUpdatesByByBranchNameAndRuntimeVersion(ctx context.Context, arg GetUpdatesByByBranchNameAndRuntimeVersionParams) ([]GetUpdatesByByBranchNameAndRuntimeVersionRow, error) {
@@ -1291,7 +1292,62 @@ func (q *Queries) GetUpdatesByByBranchNameAndRuntimeVersion(ctx context.Context,
 			&i.CheckedAt,
 			&i.RolloutPercentage,
 			&i.ControlUpdateID,
+			&i.PublishGroup,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getUpdatesByPublishGroup = `-- name: GetUpdatesByPublishGroup :many
+SELECT u.id, u.platform, u.commit_hash
+FROM updates u
+JOIN branches b ON u.branch_id = b.id
+JOIN runtime_versions rv ON u.runtime_version_id = rv.id
+WHERE b.app_id = $1
+  AND b.name = $2
+  AND rv.version = $3
+  AND u.publish_group = $4
+  AND u.checked_at IS NOT NULL
+ORDER BY u.id
+`
+
+type GetUpdatesByPublishGroupParams struct {
+	AppID        pgtype.UUID `json:"app_id"`
+	Name         string      `json:"name"`
+	Version      string      `json:"version"`
+	PublishGroup pgtype.UUID `json:"publish_group"`
+}
+
+type GetUpdatesByPublishGroupRow struct {
+	ID         int64  `json:"id"`
+	Platform   string `json:"platform"`
+	CommitHash string `json:"commit_hash"`
+}
+
+// The members of one publish group on a branch and runtime version, for the
+// group republish (republish every platform of one eoas publish). Only
+// checked rows: an unchecked row is an unfinished upload, not a served update.
+func (q *Queries) GetUpdatesByPublishGroup(ctx context.Context, arg GetUpdatesByPublishGroupParams) ([]GetUpdatesByPublishGroupRow, error) {
+	rows, err := q.db.Query(ctx, getUpdatesByPublishGroup,
+		arg.AppID,
+		arg.Name,
+		arg.Version,
+		arg.PublishGroup,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetUpdatesByPublishGroupRow
+	for rows.Next() {
+		var i GetUpdatesByPublishGroupRow
+		if err := rows.Scan(&i.ID, &i.Platform, &i.CommitHash); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1796,13 +1852,14 @@ WITH resolved_names AS (
       AND b.app_id = $3
 )
 INSERT INTO updates (
-    id, 
-    branch_id, 
-    runtime_version_id, 
-    update_type, 
-    platform, 
-    commit_hash, 
-    message
+    id,
+    branch_id,
+    runtime_version_id,
+    update_type,
+    platform,
+    commit_hash,
+    message,
+    publish_group
 ) VALUES (
     $1,
     (SELECT resolved_branch_id FROM resolved_names),
@@ -1810,13 +1867,14 @@ INSERT INTO updates (
     $5,
     $6,
     $7,
-    $8
+    $8,
+    $9
 )
-RETURNING 
-    id, 
-    platform, 
-    commit_hash, 
-    message, 
+RETURNING
+    id,
+    platform,
+    commit_hash,
+    message,
     created_at,
     (SELECT app_id FROM resolved_names) AS app_id,
     (SELECT branch_name FROM resolved_names) AS branch_name,
@@ -1824,14 +1882,15 @@ RETURNING
 `
 
 type InsertUpdateParams struct {
-	ID         int64       `json:"id"`
-	Name       string      `json:"name"`
-	AppID      pgtype.UUID `json:"app_id"`
-	Version    string      `json:"version"`
-	UpdateType int32       `json:"update_type"`
-	Platform   string      `json:"platform"`
-	CommitHash string      `json:"commit_hash"`
-	Message    *string     `json:"message"`
+	ID           int64       `json:"id"`
+	Name         string      `json:"name"`
+	AppID        pgtype.UUID `json:"app_id"`
+	Version      string      `json:"version"`
+	UpdateType   int32       `json:"update_type"`
+	Platform     string      `json:"platform"`
+	CommitHash   string      `json:"commit_hash"`
+	Message      *string     `json:"message"`
+	PublishGroup pgtype.UUID `json:"publish_group"`
 }
 
 type InsertUpdateRow struct {
@@ -1855,6 +1914,7 @@ func (q *Queries) InsertUpdate(ctx context.Context, arg InsertUpdateParams) (Ins
 		arg.Platform,
 		arg.CommitHash,
 		arg.Message,
+		arg.PublishGroup,
 	)
 	var i InsertUpdateRow
 	err := row.Scan(
@@ -1903,7 +1963,8 @@ INSERT INTO updates (
     commit_hash,
     message,
     rollout_percentage,
-    control_update_id
+    control_update_id,
+    publish_group
 ) VALUES (
     $1,
     (SELECT resolved_branch_id FROM resolved_names),
@@ -1913,7 +1974,8 @@ INSERT INTO updates (
     $7,
     $8,
     $9,
-    (SELECT control_id FROM resolved_control)
+    (SELECT control_id FROM resolved_control),
+    $10
 )
 RETURNING
     id,
@@ -1938,6 +2000,7 @@ type InsertUpdateWithRolloutParams struct {
 	CommitHash        string      `json:"commit_hash"`
 	Message           *string     `json:"message"`
 	RolloutPercentage *int32      `json:"rollout_percentage"`
+	PublishGroup      pgtype.UUID `json:"publish_group"`
 }
 
 type InsertUpdateWithRolloutRow struct {
@@ -1967,6 +2030,7 @@ func (q *Queries) InsertUpdateWithRollout(ctx context.Context, arg InsertUpdateW
 		arg.CommitHash,
 		arg.Message,
 		arg.RolloutPercentage,
+		arg.PublishGroup,
 	)
 	var i InsertUpdateWithRolloutRow
 	err := row.Scan(

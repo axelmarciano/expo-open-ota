@@ -176,21 +176,22 @@ func (s *PostgresUpdateStore) MarkUpdateAsChecked(ctx context.Context, update ty
 	return nil
 }
 
-func (s *PostgresUpdateStore) CreateUpdate(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string) (*types.Update, error) {
+func (s *PostgresUpdateStore) CreateUpdate(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string, publishGroup *string) (*types.Update, error) {
 	messagePtr := &message
 	if message == "" {
 		messagePtr = (*string)(nil)
 	}
 	pgAppID := ToPgUUID(appId)
 	row, err := s.engine.InsertUpdate(ctx, pgdb.InsertUpdateParams{
-		AppID:      pgAppID,
-		ID:         updateId,
-		Name:       branchName,
-		Version:    runtimeVersion,
-		UpdateType: int32(types.NormalUpdate),
-		Platform:   platform,
-		CommitHash: commitHash,
-		Message:    messagePtr,
+		AppID:        pgAppID,
+		ID:           updateId,
+		Name:         branchName,
+		Version:      runtimeVersion,
+		UpdateType:   int32(types.NormalUpdate),
+		Platform:     platform,
+		CommitHash:   commitHash,
+		Message:      messagePtr,
+		PublishGroup: ToPgUUIDPtr(publishGroup),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert update into database: %w", err)
@@ -232,6 +233,27 @@ func (s *PostgresUpdateStore) GetUpdateByBranchNameAndRuntime(ctx context.Contex
 		Name:    branchName,
 		Version: runtimeVersion,
 	})
+}
+
+func (s *PostgresUpdateStore) GetUpdatesByPublishGroup(ctx context.Context, appId string, branchName string, runtimeVersion string, publishGroup string) ([]types.PublishGroupMember, error) {
+	rows, err := s.engine.Queries.GetUpdatesByPublishGroup(ctx, pgdb.GetUpdatesByPublishGroupParams{
+		AppID:        ToPgUUID(appId),
+		Name:         branchName,
+		Version:      runtimeVersion,
+		PublishGroup: ToPgUUID(publishGroup),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve updates by publish group from database: %w", err)
+	}
+	members := make([]types.PublishGroupMember, 0, len(rows))
+	for _, row := range rows {
+		members = append(members, types.PublishGroupMember{
+			UpdateId:   strconv.FormatInt(row.ID, 10),
+			Platform:   row.Platform,
+			CommitHash: row.CommitHash,
+		})
+	}
+	return members, nil
 }
 
 func (s *PostgresUpdateStore) GetUpdatesByRunTimeVersionAndBranchName(ctx context.Context, appId string, runtimeVersion string, branchName string) ([]types.UpdateItem, error) {
@@ -291,6 +313,10 @@ func (s *PostgresUpdateStore) GetUpdatesByRunTimeVersionAndBranchName(ctx contex
 		if row.ControlUpdateID != nil {
 			control := strconv.FormatInt(*row.ControlUpdateID, 10)
 			item.ControlUpdateId = &control
+		}
+		if row.PublishGroup.Valid {
+			group := row.PublishGroup.String()
+			item.PublishGroup = &group
 		}
 		updatesResponse = append(updatesResponse, item)
 	}
@@ -423,7 +449,7 @@ func (s *PostgresUpdateStore) GetUpdateByUUID(ctx context.Context, appId string,
 // CreateUpdateWithRollout inserts a normal update carrying a rollout percentage. The
 // control (previous checked update of the same branch/rtv/platform) is resolved inside
 // the same statement and may be NULL for the first update of a branch.
-func (s *PostgresUpdateStore) CreateUpdateWithRollout(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string, rolloutPercentage int) (*types.Update, error) {
+func (s *PostgresUpdateStore) CreateUpdateWithRollout(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string, rolloutPercentage int, publishGroup *string) (*types.Update, error) {
 	messagePtr := &message
 	if message == "" {
 		messagePtr = (*string)(nil)
@@ -440,6 +466,7 @@ func (s *PostgresUpdateStore) CreateUpdateWithRollout(ctx context.Context, appId
 		CommitHash:        commitHash,
 		Message:           messagePtr,
 		RolloutPercentage: &pct,
+		PublishGroup:      ToPgUUIDPtr(publishGroup),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert update with rollout into database: %w", err)

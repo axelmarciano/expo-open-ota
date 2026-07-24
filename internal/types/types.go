@@ -45,6 +45,20 @@ type UpdateItem struct {
 	// mode and for non-rollout updates, so listings there serialize byte-identically.
 	RolloutPercentage *int    `json:"rolloutPercentage,omitempty"`
 	ControlUpdateId   *string `json:"controlUpdateId,omitempty"`
+	// CLI-minted UUID shared by the per-platform rows of one eoas run
+	// (control-plane mode only); nil for rows created by older CLIs and in
+	// stateless mode, which consumers display ungrouped.
+	PublishGroup *string `json:"publishGroup,omitempty"`
+}
+
+// PublishGroupMember is one update row of a publish group, as needed to fan
+// the group republish out to its per-platform members. No update type here:
+// republishing validates the member (normal, valid, right platform) through
+// the same path as a single republish.
+type PublishGroupMember struct {
+	UpdateId   string
+	Platform   string
+	CommitHash string
 }
 
 type UpdateStoredMetadata struct {

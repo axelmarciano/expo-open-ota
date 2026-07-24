@@ -17,6 +17,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strconv"
+
+	"github.com/google/uuid"
 )
 
 var (
@@ -34,6 +36,9 @@ var (
 	// checked update landed on the same (branch, runtime version, platform) during
 	// its upload: activating it would advertise a rollout that is never served.
 	ErrRolloutSuperseded = errors.New("another update was published on this branch while this one was uploading; the rollout was not started, republish to retry")
+	// ErrPublishGroupNotFound refuses a group operation whose target has no
+	// checked member on this branch and runtime version. Handlers map it to 404.
+	ErrPublishGroupNotFound = errors.New("no published updates found for this publish group on this branch and runtime version")
 )
 
 type ProcessUpdateParams struct {
@@ -66,6 +71,10 @@ type RequestUploadURLParams struct {
 	// Non-nil publishes the update as a progressive rollout served to this share of
 	// devices (1-99, validated by the handler, which also requires a platform).
 	RolloutPercentage *int
+	// Non-nil groups this update row with the other per-platform rows of the
+	// same eoas run (CLI-minted UUID, validated by the handler). Control-plane
+	// only: the bucket store ignores it.
+	PublishGroupID *string
 }
 
 type RequestUploadURLResponse struct {
@@ -340,6 +349,7 @@ func (s *DeploymentService) RequestUploadURLs(ctx context.Context, params Reques
 			params.CommitHash,
 			params.Message,
 			*params.RolloutPercentage,
+			params.PublishGroupID,
 		)
 	} else {
 		newUpdate, err = s.updateRepo.CreateUpdate(
@@ -351,6 +361,7 @@ func (s *DeploymentService) RequestUploadURLs(ctx context.Context, params Reques
 			params.Platform,
 			params.CommitHash,
 			params.Message,
+			params.PublishGroupID,
 		)
 	}
 	if err != nil {
@@ -389,6 +400,45 @@ func (s *DeploymentService) CreateRollback(ctx context.Context, appId, platform,
 	return rollback, nil
 }
 
+// GroupOperationResult carries the outcome of a publish-group-wide republish:
+// the server-minted group shared by the created rows, and the rows themselves
+// (one per acted-on member).
+type GroupOperationResult struct {
+	PublishGroup string
+	Updates      []types.Update
+}
+
+// RepublishPublishGroup republishes every member of one publish group on its
+// own platform, the new rows sharing a new server-minted group. A group of
+// rollback markers is refused member by member through the same validation as
+// a single republish. Fails fast on the first platform error; rows already
+// created by the run stay, the same partial-completion contract as a
+// per-platform CLI loop.
+func (s *DeploymentService) RepublishPublishGroup(ctx context.Context, appId, branchName, runtimeVersion, publishGroup string) (*GroupOperationResult, error) {
+	members, err := s.updateRepo.GetUpdatesByPublishGroup(ctx, appId, branchName, runtimeVersion, publishGroup)
+	if err != nil {
+		return nil, err
+	}
+	if len(members) == 0 {
+		return nil, ErrPublishGroupNotFound
+	}
+	result := &GroupOperationResult{PublishGroup: uuid.NewString()}
+	for _, member := range members {
+		previousUpdate := &types.Update{
+			AppId:          appId,
+			Branch:         branchName,
+			RuntimeVersion: runtimeVersion,
+			UpdateId:       member.UpdateId,
+		}
+		newUpdate, err := s.RepublishUpdate(ctx, previousUpdate, member.Platform, member.CommitHash, &result.PublishGroup)
+		if err != nil {
+			return nil, fmt.Errorf("republish of platform %s failed: %w", member.Platform, err)
+		}
+		result.Updates = append(result.Updates, *newUpdate)
+	}
+	return result, nil
+}
+
 // createRollbackInternal is CreateRollback without the active-rollout guard; the
 // guard-free path exists for RolloutService, whose revert legitimately writes while
 // the rollout is still active.
@@ -418,7 +468,7 @@ type RepublishError struct {
 
 func (e *RepublishError) Error() string { return e.Message }
 
-func (s *DeploymentService) RepublishUpdate(ctx context.Context, previousUpdate *types.Update, platform, commitHash string) (*types.Update, error) {
+func (s *DeploymentService) RepublishUpdate(ctx context.Context, previousUpdate *types.Update, platform, commitHash string, publishGroup *string) (*types.Update, error) {
 	hasActiveRollout, err := s.updateRepo.HasActiveRolloutUpdate(ctx, previousUpdate.AppId, previousUpdate.Branch, previousUpdate.RuntimeVersion)
 	if err != nil {
 		return nil, err
@@ -426,7 +476,7 @@ func (s *DeploymentService) RepublishUpdate(ctx context.Context, previousUpdate 
 	if hasActiveRollout {
 		return nil, ErrActiveRolloutBlocksPublish
 	}
-	newUpdate, err := s.republishUpdateInternal(ctx, previousUpdate, platform, commitHash)
+	newUpdate, err := s.republishUpdateInternal(ctx, previousUpdate, platform, commitHash, publishGroup)
 	if err != nil {
 		return nil, err
 	}
@@ -439,7 +489,7 @@ func (s *DeploymentService) RepublishUpdate(ctx context.Context, previousUpdate 
 
 // republishUpdateInternal is RepublishUpdate without the active-rollout guard; see
 // createRollbackInternal.
-func (s *DeploymentService) republishUpdateInternal(ctx context.Context, previousUpdate *types.Update, platform, commitHash string) (*types.Update, error) {
+func (s *DeploymentService) republishUpdateInternal(ctx context.Context, previousUpdate *types.Update, platform, commitHash string, publishGroup *string) (*types.Update, error) {
 	// Validate the source update before cloning it. Done through the injected
 	// repo so it is correct on both backends: type/metadata/validity come from
 	// Postgres on the DB control plane and from the stored files on the bucket
@@ -483,7 +533,7 @@ func (s *DeploymentService) republishUpdateInternal(ctx context.Context, previou
 	if err != nil {
 		return nil, err
 	}
-	newUpdate, err := s.updateRepo.CreateUpdate(ctx, previousUpdate.AppId, updateId, previousUpdate.Branch, previousUpdate.RuntimeVersion, platform, commitHash, "")
+	newUpdate, err := s.updateRepo.CreateUpdate(ctx, previousUpdate.AppId, updateId, previousUpdate.Branch, previousUpdate.RuntimeVersion, platform, commitHash, "", publishGroup)
 	if err != nil {
 		return nil, err
 	}

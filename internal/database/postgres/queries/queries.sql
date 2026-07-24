@@ -141,7 +141,7 @@ VALUES ($1, $2)
 RETURNING id;
 
 -- name: GetUpdatesByByBranchNameAndRuntimeVersion :many
-SELECT u.id, u.update_uuid, u.update_type, u.created_at, u.commit_hash, u.platform, u.message, u.checked_at, u.rollout_percentage, u.control_update_id
+SELECT u.id, u.update_uuid, u.update_type, u.created_at, u.commit_hash, u.platform, u.message, u.checked_at, u.rollout_percentage, u.control_update_id, u.publish_group
 FROM updates u
 JOIN runtime_versions rv ON u.runtime_version_id = rv.id
 JOIN branches b ON u.branch_id = b.id
@@ -167,6 +167,21 @@ JOIN branches b ON u.branch_id = b.id
 WHERE b.app_id = $1
   AND b.name = $2
   AND u.id = $3;
+
+-- name: GetUpdatesByPublishGroup :many
+-- The members of one publish group on a branch and runtime version, for the
+-- group republish (republish every platform of one eoas publish). Only
+-- checked rows: an unchecked row is an unfinished upload, not a served update.
+SELECT u.id, u.platform, u.commit_hash
+FROM updates u
+JOIN branches b ON u.branch_id = b.id
+JOIN runtime_versions rv ON u.runtime_version_id = rv.id
+WHERE b.app_id = $1
+  AND b.name = $2
+  AND rv.version = $3
+  AND u.publish_group = $4
+  AND u.checked_at IS NOT NULL
+ORDER BY u.id;
 
 -- name: GetUpdateMetadata :one
 SELECT updates.id, update_uuid, platform, commit_hash, message
@@ -306,13 +321,14 @@ WITH resolved_names AS (
       AND b.app_id = $3
 )
 INSERT INTO updates (
-    id, 
-    branch_id, 
-    runtime_version_id, 
-    update_type, 
-    platform, 
-    commit_hash, 
-    message
+    id,
+    branch_id,
+    runtime_version_id,
+    update_type,
+    platform,
+    commit_hash,
+    message,
+    publish_group
 ) VALUES (
     $1,
     (SELECT resolved_branch_id FROM resolved_names),
@@ -320,13 +336,14 @@ INSERT INTO updates (
     $5,
     $6,
     $7,
-    $8
+    $8,
+    $9
 )
-RETURNING 
-    id, 
-    platform, 
-    commit_hash, 
-    message, 
+RETURNING
+    id,
+    platform,
+    commit_hash,
+    message,
     created_at,
     (SELECT app_id FROM resolved_names) AS app_id,
     (SELECT branch_name FROM resolved_names) AS branch_name,
@@ -755,7 +772,8 @@ INSERT INTO updates (
     commit_hash,
     message,
     rollout_percentage,
-    control_update_id
+    control_update_id,
+    publish_group
 ) VALUES (
     $1,
     (SELECT resolved_branch_id FROM resolved_names),
@@ -765,7 +783,8 @@ INSERT INTO updates (
     $7,
     $8,
     $9,
-    (SELECT control_id FROM resolved_control)
+    (SELECT control_id FROM resolved_control),
+    $10
 )
 RETURNING
     id,
