@@ -31,16 +31,55 @@ DELETE FROM channels
 WHERE name = $1 AND app_id = $2;
 
 -- name: GetChannelsByAppID :many
+WITH latest_runtime AS (
+    SELECT DISTINCT ON (u.branch_id)
+        u.branch_id,
+        u.runtime_version_id,
+        rv.version
+    FROM updates u
+    JOIN branches b ON b.id = u.branch_id
+    JOIN runtime_versions rv ON rv.id = u.runtime_version_id
+    WHERE b.app_id = $1 AND u.checked_at IS NOT NULL
+    ORDER BY u.branch_id, rv.created_at DESC, rv.id DESC
+),
+current_updates AS (
+    SELECT DISTINCT ON (u.branch_id)
+        u.branch_id,
+        lr.version AS runtime_version,
+        u.commit_hash,
+        u.created_at,
+        u.rollout_percentage
+    FROM latest_runtime lr
+    JOIN updates u
+      ON u.branch_id = lr.branch_id
+     AND u.runtime_version_id = lr.runtime_version_id
+    WHERE u.checked_at IS NOT NULL
+    ORDER BY
+        u.branch_id,
+        (u.rollout_percentage IS NOT NULL) DESC,
+        u.created_at DESC,
+        u.id DESC
+)
 SELECT channels.*, branches.name as branch_name,
     cr.id AS rollout_id,
     rb.name AS rollout_branch_name,
     cr.percentage AS rollout_percentage,
     cr.created_at AS rollout_created_at,
-    cr.updated_at AS rollout_updated_at
+    cr.updated_at AS rollout_updated_at,
+    bcu.runtime_version AS branch_current_runtime_version,
+    bcu.commit_hash AS branch_current_commit_hash,
+    bcu.created_at AS branch_current_update_created_at,
+    bcu.rollout_percentage AS branch_current_rollout_percentage,
+    rcu.runtime_version AS rollout_branch_current_runtime_version,
+    rcu.commit_hash AS rollout_branch_current_commit_hash,
+    rcu.created_at AS rollout_branch_current_update_created_at,
+    rcu.rollout_percentage AS rollout_branch_current_rollout_percentage
 FROM channels
 LEFT JOIN branches ON channels.branch_id = branches.id AND branches.app_id = channels.app_id
 LEFT JOIN channel_rollouts cr ON cr.channel_id = channels.id
 LEFT JOIN branches rb ON cr.rollout_branch_id = rb.id
+LEFT JOIN current_updates bcu ON bcu.branch_id = channels.branch_id
+LEFT JOIN current_updates rcu ON rcu.branch_id = cr.rollout_branch_id
 WHERE channels.app_id = $1
 ORDER BY channels.created_at ASC;
 
@@ -83,12 +122,47 @@ DELETE FROM branches
 WHERE name = $1 AND app_id = $2 AND NOT protected;
 
 -- name: GetBranchesByAppID :many
+WITH latest_runtime AS (
+    SELECT DISTINCT ON (u.branch_id)
+        u.branch_id,
+        u.runtime_version_id,
+        rv.version
+    FROM updates u
+    JOIN branches b ON b.id = u.branch_id
+    JOIN runtime_versions rv ON rv.id = u.runtime_version_id
+    WHERE b.app_id = $1 AND u.checked_at IS NOT NULL
+    ORDER BY u.branch_id, rv.created_at DESC, rv.id DESC
+),
+current_updates AS (
+    SELECT DISTINCT ON (u.branch_id)
+        u.branch_id,
+        lr.version AS runtime_version,
+        u.commit_hash,
+        u.created_at,
+        u.rollout_percentage
+    FROM latest_runtime lr
+    JOIN updates u
+      ON u.branch_id = lr.branch_id
+     AND u.runtime_version_id = lr.runtime_version_id
+    WHERE u.checked_at IS NOT NULL
+    ORDER BY
+        u.branch_id,
+        (u.rollout_percentage IS NOT NULL) DESC,
+        u.created_at DESC,
+        u.id DESC
+)
 SELECT DISTINCT ON (branches.id) 
     branches.*, 
-    channels.name AS channel_name 
+    channels.name AS channel_name,
+    cu.runtime_version AS current_runtime_version,
+    cu.commit_hash AS current_commit_hash,
+    cu.created_at AS current_update_created_at,
+    cu.rollout_percentage AS current_rollout_percentage
 FROM branches
 LEFT JOIN channels ON branches.id = channels.branch_id AND channels.app_id = branches.app_id
-WHERE branches.app_id = $1;
+LEFT JOIN current_updates cu ON cu.branch_id = branches.id
+WHERE branches.app_id = $1
+ORDER BY branches.id, channels.created_at ASC NULLS LAST;
 
 -- name: UpdateChannelBranchMapping :execresult
 -- The EXISTS clause scopes the *target* branch to the caller's app. fk_channels_branch
@@ -121,7 +195,16 @@ SELECT
         JOIN branches b ON u.branch_id = b.id
         WHERE u.runtime_version_id = rv.id 
           AND b.name = $2 AND u.checked_at IS NOT NULL
-    ) AS update_count
+    ) AS update_count,
+    (
+        SELECT MAX(u.rollout_percentage)
+        FROM updates u
+        JOIN branches b ON u.branch_id = b.id
+        WHERE u.runtime_version_id = rv.id
+          AND b.name = $2
+          AND u.checked_at IS NOT NULL
+          AND u.rollout_percentage IS NOT NULL
+    ) AS rollout_percentage
 FROM runtime_versions rv
 WHERE rv.app_id = $1
   -- Only allow rows where at least one matching update exists
@@ -141,7 +224,7 @@ VALUES ($1, $2)
 RETURNING id;
 
 -- name: GetUpdatesByByBranchNameAndRuntimeVersion :many
-SELECT u.id, u.update_uuid, u.update_type, u.created_at, u.commit_hash, u.platform, u.message, u.checked_at, u.rollout_percentage, u.control_update_id
+SELECT u.id, u.update_uuid, u.update_type, u.created_at, u.commit_hash, u.platform, u.message, u.checked_at, u.rollout_percentage, u.control_update_id, u.publish_group
 FROM updates u
 JOIN runtime_versions rv ON u.runtime_version_id = rv.id
 JOIN branches b ON u.branch_id = b.id
@@ -151,6 +234,31 @@ WHERE a.id = $1
   AND b.name = $3
   AND u.checked_at IS NOT NULL
 ORDER BY u.created_at DESC;
+
+-- name: GetUpdateFeed :many
+SELECT u.id, u.update_uuid, u.update_type, u.created_at, u.commit_hash,
+       u.platform, u.message, u.rollout_percentage, u.control_update_id,
+       u.publish_group, u.branch_id, b.name AS branch_name,
+       rv.version AS runtime_version
+FROM updates u
+JOIN branches b ON u.branch_id = b.id
+JOIN runtime_versions rv ON u.runtime_version_id = rv.id
+WHERE b.app_id = @app_id
+  AND u.checked_at IS NOT NULL
+  AND (@branch::text = '' OR b.name = @branch)
+  AND (@runtime_version::text = '' OR rv.version = @runtime_version)
+  AND (@platform::text = '' OR u.platform = @platform)
+  AND (@update_uuid::text = '' OR u.update_uuid::text ILIKE '%' || @update_uuid || '%')
+  AND (@publish_group::text = '' OR u.publish_group::text ILIKE '%' || @publish_group || '%')
+  AND (@commit_hash::text = '' OR u.commit_hash ILIKE '%' || @commit_hash || '%')
+  AND (@created_from::timestamptz IS NULL OR u.created_at >= @created_from)
+  AND (@created_to::timestamptz IS NULL OR u.created_at <= @created_to)
+  AND (
+    NOT @has_cursor::boolean
+    OR (u.created_at, u.branch_id, u.id) < (@cursor_created_at::timestamptz, @cursor_branch_id::bigint, @cursor_update_id::bigint)
+  )
+ORDER BY u.created_at DESC, u.branch_id DESC, u.id DESC
+LIMIT @row_limit::int;
 
 -- name: GetUpdateType :one
 SELECT u.update_type 
@@ -167,6 +275,21 @@ JOIN branches b ON u.branch_id = b.id
 WHERE b.app_id = $1
   AND b.name = $2
   AND u.id = $3;
+
+-- name: GetUpdatesByPublishGroup :many
+-- The members of one publish group on a branch and runtime version, for the
+-- group republish (republish every platform of one eoas publish). Only
+-- checked rows: an unchecked row is an unfinished upload, not a served update.
+SELECT u.id, u.platform, u.commit_hash
+FROM updates u
+JOIN branches b ON u.branch_id = b.id
+JOIN runtime_versions rv ON u.runtime_version_id = rv.id
+WHERE b.app_id = $1
+  AND b.name = $2
+  AND rv.version = $3
+  AND u.publish_group = $4
+  AND u.checked_at IS NOT NULL
+ORDER BY u.id;
 
 -- name: GetUpdateMetadata :one
 SELECT updates.id, update_uuid, platform, commit_hash, message
@@ -306,13 +429,14 @@ WITH resolved_names AS (
       AND b.app_id = $3
 )
 INSERT INTO updates (
-    id, 
-    branch_id, 
-    runtime_version_id, 
-    update_type, 
-    platform, 
-    commit_hash, 
-    message
+    id,
+    branch_id,
+    runtime_version_id,
+    update_type,
+    platform,
+    commit_hash,
+    message,
+    publish_group
 ) VALUES (
     $1,
     (SELECT resolved_branch_id FROM resolved_names),
@@ -320,13 +444,14 @@ INSERT INTO updates (
     $5,
     $6,
     $7,
-    $8
+    $8,
+    $9
 )
-RETURNING 
-    id, 
-    platform, 
-    commit_hash, 
-    message, 
+RETURNING
+    id,
+    platform,
+    commit_hash,
+    message,
     created_at,
     (SELECT app_id FROM resolved_names) AS app_id,
     (SELECT branch_name FROM resolved_names) AS branch_name,
@@ -755,7 +880,8 @@ INSERT INTO updates (
     commit_hash,
     message,
     rollout_percentage,
-    control_update_id
+    control_update_id,
+    publish_group
 ) VALUES (
     $1,
     (SELECT resolved_branch_id FROM resolved_names),
@@ -765,7 +891,8 @@ INSERT INTO updates (
     $7,
     $8,
     $9,
-    (SELECT control_id FROM resolved_control)
+    (SELECT control_id FROM resolved_control),
+    $10
 )
 RETURNING
     id,

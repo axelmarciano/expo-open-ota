@@ -3,14 +3,17 @@ import { api } from '@/lib/api.ts';
 import { ApiError } from '@/components/APIError';
 import { DataTable } from '@/components/DataTable';
 import { Milestone } from 'lucide-react';
-import { useSearchParams } from 'react-router';
 import { Badge } from '@/components/ui/badge.tsx';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
 import { TimestampCell } from '@/components/ui/timestamp-cell';
-import { UpdatesBreadcrumb } from '@/pages/Updates/components/UpdatesBreadcrumb';
 
-export const RuntimeVersionsTable = ({ branch }: { branch: string }) => {
-  const [, setSearchParams] = useSearchParams();
+export const RuntimeVersionsTable = ({
+  branch,
+  onSelectRuntime,
+}: {
+  branch: string;
+  onSelectRuntime: (runtimeVersion: string) => void;
+}) => {
   const { selectedAppId } = useSelectedApp();
   const { data, isLoading, error } = useQuery({
     queryKey: ['runtimeVersions', selectedAppId, branch],
@@ -20,7 +23,6 @@ export const RuntimeVersionsTable = ({ branch }: { branch: string }) => {
 
   return (
     <div className="w-full flex-1">
-      <UpdatesBreadcrumb branch={branch} />
       {!!error && <ApiError error={error} />}
       <DataTable
         loading={isLoading}
@@ -34,9 +36,11 @@ export const RuntimeVersionsTable = ({ branch }: { branch: string }) => {
                   <Milestone className="h-3.5 w-3.5" />
                 </span>
                 <span className="font-medium">{row.original.runtimeVersion}</span>
-                {row.original.activeRollout && (
-                  <Badge className="border-transparent bg-emerald-100 text-emerald-700">
-                    Rollout
+                {(row.original.rolloutPercentage != null || row.original.activeRollout) && (
+                  <Badge className="border-emerald-400/25 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300">
+                    {row.original.rolloutPercentage != null
+                      ? `${row.original.rolloutPercentage}% rollout`
+                      : 'Rollout'}
                   </Badge>
                 )}
               </span>
@@ -45,9 +49,7 @@ export const RuntimeVersionsTable = ({ branch }: { branch: string }) => {
           {
             header: 'Created',
             accessorKey: 'createdAt',
-            cell: ({ row }) => (
-              <TimestampCell dateString={row.original.createdAt} showSeconds />
-            ),
+            cell: ({ row }) => <TimestampCell dateString={row.original.createdAt} showSeconds />,
           },
           {
             header: 'Last update',
@@ -67,7 +69,7 @@ export const RuntimeVersionsTable = ({ branch }: { branch: string }) => {
         data={data ?? []}
         defaultSorting={[{ id: 'createdAt', desc: true }]}
         emptyMessage="No runtime versions on this branch yet."
-        onRowClick={row => setSearchParams({ branch, runtimeVersion: row.runtimeVersion })}
+        onRowClick={row => onSelectRuntime(row.runtimeVersion)}
       />
     </div>
   );

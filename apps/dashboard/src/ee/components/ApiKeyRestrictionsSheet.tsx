@@ -5,12 +5,7 @@
 
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  api,
-  ApiKeyRecord,
-  ApiKeyRestrictionsRecord,
-  describeApiError,
-} from '@/lib/api';
+import { api, ApiKeyRecord, ApiKeyRestrictionsRecord, describeApiError } from '@/lib/api';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -155,8 +150,8 @@ const RestrictionsForm = ({
       <div className="space-y-2">
         <p className="text-sm font-medium">IP allowlist</p>
         <p className="text-xs text-muted-foreground">
-          One address or CIDR range per line, for example 203.0.113.7 or 203.0.113.0/24. Leave
-          empty to allow any source address.
+          One address or CIDR range per line, for example 203.0.113.7 or 203.0.113.0/24. Leave empty
+          to allow any source address.
         </p>
         <textarea
           value={allowedIpsText}

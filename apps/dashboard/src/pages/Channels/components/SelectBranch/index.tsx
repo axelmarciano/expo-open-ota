@@ -12,6 +12,7 @@ export const SelectBranch = ({
   currentBranch,
   onChange,
   loading,
+  disabled,
   className,
   excludeBranchIds,
 }: {
@@ -19,6 +20,7 @@ export const SelectBranch = ({
   // creating a channel, which takes a branch name).
   onChange: (branchId?: string | null, branchName?: string) => void;
   loading?: boolean;
+  disabled?: boolean;
   currentBranch?: string | null;
   className?: string;
   // Branch ids to leave out of the list, e.g. the channel's own default
@@ -55,6 +57,7 @@ export const SelectBranch = ({
       <Combobox
         className={className}
         loading={isLoading || loading}
+        disabled={disabled}
         options={allBranches.map(b => {
           return {
             label: b.branchName,

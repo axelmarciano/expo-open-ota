@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Check, ChevronsUpDown } from 'lucide-react';
+import { Check, ChevronsUpDown, X } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -31,13 +31,15 @@ interface ComboboxProps {
   // Optional action pinned under the options (e.g. "New Application"). Stays
   // visible whatever the search input, since it is not one of the options.
   action?: { label: string; icon?: React.ReactNode; onSelect: () => void };
+  clearable?: boolean;
   // Extra classes for the trigger button; pass "w-full" to make the combobox
   // fill its container (the popover always matches the trigger width).
   className?: string;
 }
 
 export function Combobox(props: ComboboxProps) {
-  const { options, value, onChange, loading, label, disabled, action, className } = props;
+  const { options, value, onChange, loading, label, disabled, action, clearable, className } =
+    props;
   const [open, setOpen] = React.useState(false);
   // Disabling only blocks the trigger: a popover already open when disabled
   // flips to true (e.g. the surrounding form starts saving) would stay
@@ -54,9 +56,28 @@ export function Combobox(props: ComboboxProps) {
           aria-expanded={disabled ? false : open}
           disabled={disabled}
           className={cn('w-max justify-between font-normal', className)}>
-          <span className="truncate">
-            {value ? options.find(opt => opt.value === value)?.label : label || 'Select option'}
+          <span className="min-w-0 flex-1 truncate text-left">
+            {value
+              ? options.find(opt => opt.value === value)?.label || value
+              : label || 'Select option'}
           </span>
+          {clearable && value && (
+            // Pointer-only shortcut: a focusable control nested in the trigger
+            // <button> would be invalid HTML with browser-dependent keyboard
+            // behavior. Keyboard users clear by re-selecting the selected
+            // option (onSelect toggles it to '').
+            <span
+              aria-hidden="true"
+              className="ml-2 rounded-sm p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={event => {
+                event.preventDefault();
+                event.stopPropagation();
+                onChange('');
+                setOpen(false);
+              }}>
+              <X className="h-3.5 w-3.5" />
+            </span>
+          )}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -67,8 +88,7 @@ export function Combobox(props: ComboboxProps) {
             const matchedOption = options.find(opt => opt.value === itemValue);
             const textToSearch = matchedOption ? matchedOption.label : itemValue;
             return textToSearch.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
-          }}
-        >
+          }}>
           <CommandInput placeholder="Search..." />
           <CommandList>
             <CommandEmpty>No option found.</CommandEmpty>
@@ -102,7 +122,7 @@ export function Combobox(props: ComboboxProps) {
                       action.onSelect();
                       setOpen(false);
                     }}
-                    className="text-gray-600">
+                    className="text-muted-foreground">
                     {action.icon}
                     {action.label}
                   </CommandItem>

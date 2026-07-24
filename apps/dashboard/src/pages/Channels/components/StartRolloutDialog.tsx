@@ -63,7 +63,7 @@ export const StartRolloutDialog = ({
     <Dialog open={!!channel} onOpenChange={open => !open && !isStarting && onClose()}>
       <DialogContent className="sm:max-w-[460px]">
         <DialogHeader className="flex flex-col items-start gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-400/25 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300">
             <Split className="h-5 w-5" />
           </div>
           <DialogTitle className="mt-2 text-lg font-semibold tracking-tight">
@@ -75,10 +75,7 @@ export const StartRolloutDialog = ({
               "{channel?.releaseChannelName}"
             </strong>
             . The rest keep receiving{' '}
-            <strong className="font-semibold text-foreground">
-              "{channel?.branchName}"
-            </strong>
-            .
+            <strong className="font-semibold text-foreground">"{channel?.branchName}"</strong>.
           </DialogDescription>
         </DialogHeader>
 
@@ -108,11 +105,7 @@ export const StartRolloutDialog = ({
           <Button type="button" variant="outline" onClick={onClose} disabled={isStarting}>
             Cancel
           </Button>
-          <Button
-            type="button"
-            onClick={handleStart}
-            disabled={isStarting || !rolloutBranch}
-            className="bg-emerald-600 text-white hover:bg-emerald-700">
+          <Button type="button" onClick={handleStart} disabled={isStarting || !rolloutBranch}>
             {isStarting ? 'Starting…' : 'Start rollout'}
           </Button>
         </DialogFooter>

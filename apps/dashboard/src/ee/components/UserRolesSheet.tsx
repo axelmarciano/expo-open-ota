@@ -171,7 +171,7 @@ export const UserRolesSheet = ({
           ) : (
             <div className="space-y-4">
               {draft.length === 0 && (
-                <div className="flex items-start gap-2.5 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                <div className="flex items-start gap-2.5 rounded-lg border border-amber-400/25 bg-amber-400/10 px-4 py-3 text-xs text-amber-700 dark:text-amber-300">
                   <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span>
                     This member has no app access: they will see an empty dashboard. Grant them an

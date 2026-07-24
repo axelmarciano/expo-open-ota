@@ -4,6 +4,20 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/dashboard.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (() => {
+        const stored = localStorage.getItem('expo-open-ota-theme');
+        const preference = ['light', 'system', 'dark'].includes(stored) ? stored : 'system';
+        const theme =
+          preference === 'system'
+            ? matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light'
+            : preference;
+        document.documentElement.classList.add(theme);
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
     <script type="module" src="/env.js"></script>
     <title>Expo Open OTA</title>
   </head>

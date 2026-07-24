@@ -27,11 +27,18 @@ export const EnterpriseBadge = () => {
   }
 
   return (
-    <div className="mx-5 mt-2 flex items-center gap-2 rounded-lg border border-emerald-200/80 bg-gradient-to-r from-emerald-50/80 to-teal-50/60 px-2.5 py-1.5 shadow-sm">
-      <BadgeCheck className="h-4 w-4 shrink-0 text-emerald-600" strokeWidth={2} />
+    <div className="mx-5 mt-2 flex items-center gap-2 rounded-lg border border-emerald-400/20 bg-emerald-400/[0.07] px-2.5 py-1.5 shadow-card">
+      <BadgeCheck
+        className="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-300"
+        strokeWidth={2}
+      />
       <div className="min-w-0 leading-tight">
-        <div className="text-[11px] font-semibold text-emerald-900">Enterprise</div>
-        <div className="truncate font-mono text-[10px] text-emerald-700/70" title={license.licenseId}>
+        <div className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-200">
+          Enterprise
+        </div>
+        <div
+          className="truncate font-mono text-[10px] text-emerald-700/70 dark:text-emerald-300/60"
+          title={license.licenseId}>
           {license.licenseId?.split('-')[0]}
         </div>
       </div>

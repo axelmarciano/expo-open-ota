@@ -85,7 +85,7 @@ func TestCliRollbackAndRepublishEmitAuditEvents(t *testing.T) {
 	}, rolledBack.Metadata)
 
 	_, err = h.deploymentService.RepublishUpdate(cliPublishCtx(),
-		&types.Update{AppId: h.appId, Branch: "main", RuntimeVersion: "1", UpdateId: "100"}, "ios", "def5678")
+		&types.Update{AppId: h.appId, Branch: "main", RuntimeVersion: "1", UpdateId: "100"}, "ios", "def5678", nil)
 	require.NoError(t, err)
 	require.Len(t, recorder.events, 2)
 	republished := recorder.events[1]

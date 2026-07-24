@@ -1,0 +1,181 @@
+// End-to-end flow of the republish command, prompts included: the oclif
+// command runs for real, with the project/auth/network seams mocked. Pins the
+// mode question (publish group vs single update), the group POST wire format,
+// and the fallbacks that skip the question.
+import path from 'path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { fetchWithRetries } from '../../lib/fetch';
+import { promptAsync } from '../../lib/prompts';
+import { fetchRuntimeVersions, fetchUpdates } from '../../lib/serverUpdates';
+import Republish from '../republish';
+
+vi.mock('../../lib/fetch', () => ({
+  fetchWithRetries: vi.fn(),
+}));
+vi.mock('../../lib/prompts', () => ({
+  promptAsync: vi.fn(),
+}));
+vi.mock('../../lib/auth', () => ({
+  retrieveCredentials: () => ({ token: 'test-token' }),
+  validateCredentials: () => true,
+  getAuthHeaders: () => ({ Authorization: 'Bearer test-token' }),
+}));
+vi.mock('../../lib/vcs', () => ({
+  resolveVcsClient: () => ({ ensureRepoExistsAsync: async () => {} }),
+}));
+vi.mock('../../lib/package', () => ({
+  isExpoInstalled: () => true,
+}));
+vi.mock('../../lib/expoConfig', () => ({
+  getPrivateExpoConfigAsync: async () => ({}),
+  getExpoConfigUpdateUrl: () => 'https://ota.example.com/manifest',
+  requireExpoAppId: () => 'app-1',
+}));
+vi.mock('../../lib/serverUpdates', async importOriginal => {
+  const original = await importOriginal<typeof import('../../lib/serverUpdates')>();
+  return {
+    ...original,
+    fetchRuntimeVersions: vi.fn(),
+    fetchUpdates: vi.fn(),
+  };
+});
+
+const eoasRoot = path.resolve(__dirname, '../../..');
+
+const runtimeVersionsPayload = [
+  {
+    runtimeVersion: '1.0.0',
+    lastUpdatedAt: '2026-07-24T10:00:00Z',
+    createdAt: '2026-07-01T10:00:00Z',
+    numberOfUpdates: 3,
+  },
+];
+
+function serverUpdate(overrides: Record<string, unknown>): any {
+  return {
+    updateUUID: 'a0000000-0000-0000-0000-000000000001',
+    createdAt: '2026-07-24T10:00:00Z',
+    updateId: '100',
+    platform: 'ios',
+    commitHash: 'abc1234def',
+    message: 'Fix crash',
+    ...overrides,
+  };
+}
+
+// Answers each prompt by name; a function receives the question (with its
+// choices) and returns the value, mimicking a user selection.
+type PromptAnswer = unknown | ((question: any) => unknown);
+function answerPrompts(answers: Record<string, PromptAnswer>): void {
+  vi.mocked(promptAsync).mockImplementation(async (questions: any) => {
+    const question = Array.isArray(questions) ? questions[0] : questions;
+    if (!(question.name in answers)) {
+      throw new Error(`Unexpected prompt: ${question.name}`);
+    }
+    const answer = answers[question.name];
+    const value = typeof answer === 'function' ? (answer as (q: any) => unknown)(question) : answer;
+    return { [question.name]: value };
+  });
+}
+
+function promptedNames(): string[] {
+  return vi
+    .mocked(promptAsync)
+    .mock.calls.map(([questions]) => (Array.isArray(questions) ? questions[0] : questions).name);
+}
+
+function lastPostUrl(): URL {
+  const calls = vi.mocked(fetchWithRetries).mock.calls;
+  return new URL(String(calls[calls.length - 1][0]));
+}
+
+describe('republish command flow', () => {
+  beforeEach(() => {
+    vi.mocked(fetchRuntimeVersions).mockResolvedValue(runtimeVersionsPayload);
+    vi.mocked(fetchWithRetries).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ publishGroup: 'new-group', updates: [] }),
+    } as Response);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('offers the publish group mode and republishes the group in one call', async () => {
+    vi.mocked(fetchUpdates).mockResolvedValue([
+      serverUpdate({ updateId: '100', platform: 'ios', publishGroup: 'group-a' }),
+      serverUpdate({ updateId: '200', platform: 'android', publishGroup: 'group-a' }),
+      serverUpdate({ updateId: '300', platform: 'ios', publishGroup: undefined }),
+    ]);
+    answerPrompts({
+      runtimeVersion: '1.0.0',
+      mode: 'group',
+      group: (question: any) => question.choices[0].value,
+    });
+
+    await Republish.run(['--branch', 'main'], eoasRoot);
+
+    expect(promptedNames()).toEqual(['runtimeVersion', 'mode', 'group']);
+    const url = lastPostUrl();
+    expect(url.pathname).toBe('/app-1/republish/main');
+    expect(url.searchParams.get('publishGroup')).toBe('group-a');
+    expect(url.searchParams.get('runtimeVersion')).toBe('1.0.0');
+    expect(url.searchParams.has('updateId')).toBe(false);
+    expect(url.searchParams.has('platform')).toBe(false);
+  });
+
+  it('republishes a single update through the historical wire format', async () => {
+    vi.mocked(fetchUpdates).mockResolvedValue([
+      serverUpdate({ updateId: '100', platform: 'ios', publishGroup: 'group-a' }),
+      serverUpdate({ updateId: '200', platform: 'android', publishGroup: 'group-a' }),
+    ]);
+    answerPrompts({
+      runtimeVersion: '1.0.0',
+      mode: 'single',
+      update: (question: any) => question.choices[0].value,
+    });
+
+    await Republish.run(['--branch', 'main'], eoasRoot);
+
+    const url = lastPostUrl();
+    expect(url.searchParams.get('updateId')).toBe('100');
+    expect(url.searchParams.get('platform')).toBe('ios');
+    expect(url.searchParams.get('commitHash')).toBe('abc1234def');
+    expect(url.searchParams.has('publishGroup')).toBe(false);
+  });
+
+  it('skips the mode question when --platform narrows the run', async () => {
+    vi.mocked(fetchUpdates).mockResolvedValue([
+      serverUpdate({ updateId: '100', platform: 'ios', publishGroup: 'group-a' }),
+      serverUpdate({ updateId: '200', platform: 'android', publishGroup: 'group-a' }),
+    ]);
+    answerPrompts({
+      runtimeVersion: '1.0.0',
+      update: (question: any) => question.choices[0].value,
+    });
+
+    await Republish.run(['--branch', 'main', '--platform', 'android'], eoasRoot);
+
+    expect(promptedNames()).toEqual(['runtimeVersion', 'update']);
+    // The platform filter reached the picker: only the android update remained.
+    expect(lastPostUrl().searchParams.get('updateId')).toBe('200');
+  });
+
+  it('skips the mode question when the branch has no publish groups', async () => {
+    vi.mocked(fetchUpdates).mockResolvedValue([
+      serverUpdate({ updateId: '100', platform: 'ios', publishGroup: undefined }),
+    ]);
+    answerPrompts({
+      runtimeVersion: '1.0.0',
+      update: (question: any) => question.choices[0].value,
+    });
+
+    await Republish.run(['--branch', 'main'], eoasRoot);
+
+    expect(promptedNames()).toEqual(['runtimeVersion', 'update']);
+    expect(lastPostUrl().searchParams.get('updateId')).toBe('100');
+  });
+});

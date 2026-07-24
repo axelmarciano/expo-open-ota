@@ -105,6 +105,13 @@ export type CreateAppPayload = {
   keysConfig: KeysConfig;
 };
 
+export type BranchUpdateState = {
+  runtimeVersion: string;
+  commitHash: string;
+  createdAt: string;
+  rolloutPercentage?: number | null;
+};
+
 export type BranchRecord = {
   branchName: string;
   branchId: string;
@@ -112,6 +119,7 @@ export type BranchRecord = {
   createdAt: string | null;
   // Enterprise branch protection; always false in stateless mode.
   protected: boolean;
+  currentUpdate?: BranchUpdateState | null;
 };
 
 // An active channel rollout. Serves `rolloutBranchName` to `percentage`% of
@@ -136,6 +144,8 @@ export type ChannelRecord = {
   // Set while a progressive rollout is active on the channel; null/absent
   // otherwise. The channels list carries it so the table needs no extra call.
   rollout?: ChannelRolloutRecord | null;
+  branchCurrentUpdate?: BranchUpdateState | null;
+  rolloutBranchCurrentUpdate?: BranchUpdateState | null;
 };
 
 export type RuntimeVersionRecord = {
@@ -146,6 +156,7 @@ export type RuntimeVersionRecord = {
   // True when a per-update rollout is active on any update of this runtime
   // version. Optional: only shipped by the control plane.
   activeRollout?: boolean;
+  rolloutPercentage?: number | null;
 };
 
 // A published update. `rolloutPercentage` is set only while this exact update
@@ -161,6 +172,30 @@ export type UpdateRecord = {
   message?: string;
   rolloutPercentage?: number | null;
   controlUpdateId?: string | null;
+  publishGroup?: string | null;
+};
+
+export type UpdateFeedRecord = UpdateRecord & {
+  branch: string;
+  runtimeVersion: string;
+};
+
+export type UpdateFeedQuery = {
+  branch?: string;
+  runtimeVersion?: string;
+  platform?: string;
+  uuid?: string;
+  groupId?: string;
+  commitHash?: string;
+  from?: string;
+  to?: string;
+  cursor?: string;
+  limit?: number;
+};
+
+export type UpdateFeedPage = {
+  items: UpdateFeedRecord[];
+  nextCursor?: string;
 };
 
 // One active per-update rollout row (eoas publishes one per platform, so a
@@ -833,6 +868,20 @@ export class ApiClient {
         method: 'GET',
       }
     );
+  }
+  public async getUpdateFeed(query: UpdateFeedQuery = {}) {
+    const search = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== '') search.set(key, String(value));
+    }
+    // Not URLSearchParams.size: it needs Safari 17+/Chrome 113+, above our
+    // build target, and on older browsers `undefined > 0` silently drops
+    // every param (filters AND the pagination cursor).
+    const queryString = search.toString();
+    const suffix = queryString ? `?${queryString}` : '';
+    return this.request<UpdateFeedPage>(`${this.appScope()}/updates${suffix}`, {
+      method: 'GET',
+    });
   }
   public async getUpdateDetails(branch: string, runtimeVersion: string, updateId: string) {
     return this.request<UpdateDetailsRecord>(

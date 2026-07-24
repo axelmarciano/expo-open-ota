@@ -130,7 +130,9 @@ func updateMetadataReader(platform, commitHash, message string) (*bytes.Reader, 
 	return bytes.NewReader(marshalledMetadata), nil
 }
 
-func (s *BucketUpdateStore) CreateUpdate(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string) (*types.Update, error) {
+// publishGroup is ignored: stateless mode has no publish grouping, rows always
+// list ungrouped there.
+func (s *BucketUpdateStore) CreateUpdate(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string, publishGroup *string) (*types.Update, error) {
 	metadataReader, err := updateMetadataReader(platform, commitHash, message)
 	if err != nil {
 		return nil, err
@@ -343,7 +345,15 @@ func (s *BucketUpdateStore) HasActiveRolloutUpdate(ctx context.Context, appId st
 	return false, nil
 }
 
-func (s *BucketUpdateStore) CreateUpdateWithRollout(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string, rolloutPercentage int) (*types.Update, error) {
+func (s *BucketUpdateStore) CreateUpdateWithRollout(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string, rolloutPercentage int, publishGroup *string) (*types.Update, error) {
+	return nil, ErrNotSupportedInStatelessMode
+}
+
+func (s *BucketUpdateStore) GetUpdatesByPublishGroup(ctx context.Context, appId string, branchName string, runtimeVersion string, publishGroup string) ([]types.PublishGroupMember, error) {
+	return nil, ErrNotSupportedInStatelessMode
+}
+
+func (s *BucketUpdateStore) GetUpdateFeed(ctx context.Context, appId string, query types.UpdateFeedQuery) ([]types.UpdateFeedItem, error) {
 	return nil, ErrNotSupportedInStatelessMode
 }
 

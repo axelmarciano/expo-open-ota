@@ -10,6 +10,7 @@ import (
 	update2 "expo-open-ota/internal/update"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -176,21 +177,22 @@ func (s *PostgresUpdateStore) MarkUpdateAsChecked(ctx context.Context, update ty
 	return nil
 }
 
-func (s *PostgresUpdateStore) CreateUpdate(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string) (*types.Update, error) {
+func (s *PostgresUpdateStore) CreateUpdate(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string, publishGroup *string) (*types.Update, error) {
 	messagePtr := &message
 	if message == "" {
 		messagePtr = (*string)(nil)
 	}
 	pgAppID := ToPgUUID(appId)
 	row, err := s.engine.InsertUpdate(ctx, pgdb.InsertUpdateParams{
-		AppID:      pgAppID,
-		ID:         updateId,
-		Name:       branchName,
-		Version:    runtimeVersion,
-		UpdateType: int32(types.NormalUpdate),
-		Platform:   platform,
-		CommitHash: commitHash,
-		Message:    messagePtr,
+		AppID:        pgAppID,
+		ID:           updateId,
+		Name:         branchName,
+		Version:      runtimeVersion,
+		UpdateType:   int32(types.NormalUpdate),
+		Platform:     platform,
+		CommitHash:   commitHash,
+		Message:      messagePtr,
+		PublishGroup: ToPgUUIDPtr(publishGroup),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert update into database: %w", err)
@@ -232,6 +234,27 @@ func (s *PostgresUpdateStore) GetUpdateByBranchNameAndRuntime(ctx context.Contex
 		Name:    branchName,
 		Version: runtimeVersion,
 	})
+}
+
+func (s *PostgresUpdateStore) GetUpdatesByPublishGroup(ctx context.Context, appId string, branchName string, runtimeVersion string, publishGroup string) ([]types.PublishGroupMember, error) {
+	rows, err := s.engine.Queries.GetUpdatesByPublishGroup(ctx, pgdb.GetUpdatesByPublishGroupParams{
+		AppID:        ToPgUUID(appId),
+		Name:         branchName,
+		Version:      runtimeVersion,
+		PublishGroup: ToPgUUID(publishGroup),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve updates by publish group from database: %w", err)
+	}
+	members := make([]types.PublishGroupMember, 0, len(rows))
+	for _, row := range rows {
+		members = append(members, types.PublishGroupMember{
+			UpdateId:   strconv.FormatInt(row.ID, 10),
+			Platform:   row.Platform,
+			CommitHash: row.CommitHash,
+		})
+	}
+	return members, nil
 }
 
 func (s *PostgresUpdateStore) GetUpdatesByRunTimeVersionAndBranchName(ctx context.Context, appId string, runtimeVersion string, branchName string) ([]types.UpdateItem, error) {
@@ -292,9 +315,111 @@ func (s *PostgresUpdateStore) GetUpdatesByRunTimeVersionAndBranchName(ctx contex
 			control := strconv.FormatInt(*row.ControlUpdateID, 10)
 			item.ControlUpdateId = &control
 		}
+		if row.PublishGroup.Valid {
+			group := row.PublishGroup.String()
+			item.PublishGroup = &group
+		}
 		updatesResponse = append(updatesResponse, item)
 	}
 	return updatesResponse, nil
+}
+
+// escapeLikePattern neutralizes the ILIKE escape character in user-supplied
+// search terms: a term ending in "\" makes Postgres reject the whole pattern
+// ("LIKE pattern must not end with escape character"), surfacing as a 500.
+// "%" and "_" stay live wildcards on purpose (search semantics).
+func escapeLikePattern(term string) string {
+	return strings.ReplaceAll(term, `\`, `\\`)
+}
+
+func (s *PostgresUpdateStore) GetUpdateFeed(ctx context.Context, appId string, query types.UpdateFeedQuery) ([]types.UpdateFeedItem, error) {
+	from := pgtype.Timestamptz{}
+	if query.From != nil {
+		from = pgtype.Timestamptz{Time: *query.From, Valid: true}
+	}
+	to := pgtype.Timestamptz{}
+	if query.To != nil {
+		to = pgtype.Timestamptz{Time: *query.To, Valid: true}
+	}
+	cursorCreatedAt := pgtype.Timestamptz{}
+	if query.CursorCreatedAt != nil {
+		cursorCreatedAt = pgtype.Timestamptz{Time: *query.CursorCreatedAt, Valid: true}
+	}
+	rows, err := s.engine.Queries.GetUpdateFeed(ctx, pgdb.GetUpdateFeedParams{
+		AppID:           ToPgUUID(appId),
+		Branch:          query.Branch,
+		RuntimeVersion:  query.RuntimeVersion,
+		Platform:        query.Platform,
+		UpdateUuid:      escapeLikePattern(query.UpdateUUID),
+		PublishGroup:    escapeLikePattern(query.PublishGroup),
+		CommitHash:      escapeLikePattern(query.CommitHash),
+		CreatedFrom:     from,
+		CreatedTo:       to,
+		HasCursor:       query.CursorCreatedAt != nil,
+		CursorCreatedAt: cursorCreatedAt,
+		CursorBranchID:  query.CursorBranchID,
+		CursorUpdateID:  query.CursorUpdateID,
+		RowLimit:        int32(query.Limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve update feed from database: %w", err)
+	}
+	items := make([]types.UpdateFeedItem, 0, len(rows))
+	for _, row := range rows {
+		updateUUID := "Rollback to embedded"
+		if row.UpdateType == int32(types.NormalUpdate) {
+			if row.UpdateUuid.Valid {
+				updateUUID = row.UpdateUuid.String()
+			} else {
+				metadata, metadataErr := update2.GetMetadata(types.Update{
+					Branch:         row.BranchName,
+					RuntimeVersion: row.RuntimeVersion,
+					UpdateId:       strconv.FormatInt(row.ID, 10),
+					CreatedAt:      time.Duration(row.CreatedAt.Time.UnixNano()),
+					AppId:          appId,
+				})
+				if metadataErr != nil && !errors.Is(metadataErr, update2.ErrUpdateMetadataMissing) {
+					// Dropping the row here would shrink the page below the
+					// handler's limit+1 sentinel and silently end pagination.
+					return nil, fmt.Errorf("failed to resolve metadata for update ID %d: %w", row.ID, metadataErr)
+				}
+				updateUUID = crypto.ConvertSHA256HashToUUID(metadata.ID)
+			}
+		} else if row.UpdateType != int32(types.Rollback) {
+			return nil, fmt.Errorf("unknown update type %d for update ID %d", row.UpdateType, row.ID)
+		}
+
+		item := types.UpdateFeedItem{
+			UpdateItem: types.UpdateItem{
+				UpdateUUID: updateUUID,
+				UpdateId:   strconv.FormatInt(row.ID, 10),
+				CreatedAt:  row.CreatedAt.Time.Format(time.RFC3339),
+				CommitHash: row.CommitHash,
+				Platform:   row.Platform,
+			},
+			Branch:         row.BranchName,
+			RuntimeVersion: row.RuntimeVersion,
+			BranchID:       row.BranchID,
+			FeedCreatedAt:  row.CreatedAt.Time,
+		}
+		if row.Message != nil {
+			item.Message = *row.Message
+		}
+		if row.RolloutPercentage != nil {
+			percentage := int(*row.RolloutPercentage)
+			item.RolloutPercentage = &percentage
+		}
+		if row.ControlUpdateID != nil {
+			controlID := strconv.FormatInt(*row.ControlUpdateID, 10)
+			item.ControlUpdateId = &controlID
+		}
+		if row.PublishGroup.Valid {
+			group := row.PublishGroup.String()
+			item.PublishGroup = &group
+		}
+		items = append(items, item)
+	}
+	return items, nil
 }
 
 func (s *PostgresUpdateStore) RetrieveUpdateStoredMetadata(ctx context.Context, update types.Update) (*types.UpdateStoredMetadata, error) {
@@ -423,7 +548,7 @@ func (s *PostgresUpdateStore) GetUpdateByUUID(ctx context.Context, appId string,
 // CreateUpdateWithRollout inserts a normal update carrying a rollout percentage. The
 // control (previous checked update of the same branch/rtv/platform) is resolved inside
 // the same statement and may be NULL for the first update of a branch.
-func (s *PostgresUpdateStore) CreateUpdateWithRollout(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string, rolloutPercentage int) (*types.Update, error) {
+func (s *PostgresUpdateStore) CreateUpdateWithRollout(ctx context.Context, appId string, updateId int64, branchName string, runtimeVersion string, platform string, commitHash string, message string, rolloutPercentage int, publishGroup *string) (*types.Update, error) {
 	messagePtr := &message
 	if message == "" {
 		messagePtr = (*string)(nil)
@@ -440,6 +565,7 @@ func (s *PostgresUpdateStore) CreateUpdateWithRollout(ctx context.Context, appId
 		CommitHash:        commitHash,
 		Message:           messagePtr,
 		RolloutPercentage: &pct,
+		PublishGroup:      ToPgUUIDPtr(publishGroup),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert update with rollout into database: %w", err)

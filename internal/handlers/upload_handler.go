@@ -34,6 +34,44 @@ type FileNamesRequest struct {
 	Message   string   `json:"message,omitempty"`
 }
 
+// parsePublishGroup reads the optional CLI-minted id grouping the per-platform
+// rows of one eoas publish run. In stateless mode the parameter is ignored
+// entirely: the feature does not exist there, and the missing acknowledgment
+// (echo or header) is how the CLI knows. In control-plane mode a malformed
+// value is rejected so a buggy CLI cannot silently create ungrouped rows.
+func parsePublishGroup(r *http.Request) (*string, error) {
+	raw := r.URL.Query().Get("publishGroup")
+	if raw == "" || !config.IsDBMode() {
+		return nil, nil
+	}
+	parsed, err := uuid.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid publishGroup: must be a UUID")
+	}
+	normalized := parsed.String()
+	return &normalized, nil
+}
+
+// parsePublishGroupTarget reads the publish group TARGETED by a group-wide
+// republish. Unlike the stamp above, a target cannot be ignored in stateless
+// mode: it selects what the operation acts on, so without the control plane
+// it is rejected outright rather than silently degraded.
+func parsePublishGroupTarget(r *http.Request) (*string, error) {
+	raw := r.URL.Query().Get("publishGroup")
+	if raw == "" {
+		return nil, nil
+	}
+	if !config.IsDBMode() {
+		return nil, fmt.Errorf("publish groups require the database control plane")
+	}
+	parsed, err := uuid.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid publishGroup: must be a UUID")
+	}
+	normalized := parsed.String()
+	return &normalized, nil
+}
+
 func (h *UploadHandler) MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	vars := mux.Vars(r)
@@ -245,6 +283,13 @@ func (h *UploadHandler) RequestUploadUrlHandler(w http.ResponseWriter, r *http.R
 		}
 	}
 
+	publishGroup, err := parsePublishGroup(r)
+	if err != nil {
+		log.Printf("[RequestID: %s] %v", requestID, err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	var bodyReq FileNamesRequest
 	if err := json.NewDecoder(r.Body).Decode(&bodyReq); err != nil {
 		log.Printf("[RequestID: %s] Error decoding JSON body: %v", requestID, err)
@@ -269,6 +314,7 @@ func (h *UploadHandler) RequestUploadUrlHandler(w http.ResponseWriter, r *http.R
 		FileNames:         bodyReq.FileNames,
 		Message:           bodyReq.Message,
 		RolloutPercentage: rolloutPercentage,
+		PublishGroupID:    publishGroup,
 	}
 
 	result, err := h.deploymentService.RequestUploadURLs(r.Context(), params)
@@ -290,6 +336,12 @@ func (h *UploadHandler) RequestUploadUrlHandler(w http.ResponseWriter, r *http.R
 	// old server silently ignores it and would publish to every device).
 	if rolloutPercentage != nil {
 		response["rolloutPercentage"] = *rolloutPercentage
+	}
+	// Same detection contract for grouping: no echo means the group was not
+	// stored (old server or stateless mode) and the CLI warns instead of
+	// pretending the rows are grouped.
+	if publishGroup != nil {
+		response["publishGroup"] = *publishGroup
 	}
 
 	w.Header().Set("Content-Type", "application/json")

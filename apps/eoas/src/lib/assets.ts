@@ -114,6 +114,7 @@ export async function requestUploadUrls({
   commitHash,
   message,
   rolloutPercentage,
+  publishGroup,
   branch,
 }: {
   body: { fileNames: string[] };
@@ -124,11 +125,16 @@ export async function requestUploadUrls({
   commitHash?: string;
   message?: string;
   rolloutPercentage?: number;
+  // One UUID minted per publish run and shared by every platform call, so the
+  // server can group the resulting updates as a single publish. Control plane
+  // servers echo it back; a missing echo means the rows were not grouped.
+  publishGroup?: string;
   branch: string;
 }): Promise<{
   uploadRequests: RequestUploadUrlItem[];
   updateId: string;
   rolloutPercentage?: number;
+  publishGroup?: string;
 }> {
   const uploadUrl = new URL(requestUploadUrl);
   uploadUrl.searchParams.set('runtimeVersion', runtimeVersion);
@@ -136,6 +142,9 @@ export async function requestUploadUrls({
   uploadUrl.searchParams.set('commitHash', commitHash ?? '');
   if (rolloutPercentage !== undefined) {
     uploadUrl.searchParams.set('rolloutPercentage', String(rolloutPercentage));
+  }
+  if (publishGroup) {
+    uploadUrl.searchParams.set('publishGroup', publishGroup);
   }
 
   const requestBody: { fileNames: string[]; message?: string } = { ...body };

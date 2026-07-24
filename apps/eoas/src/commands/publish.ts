@@ -1,6 +1,7 @@
 import { Env, Platform } from '@expo/eas-build-job';
 import spawnAsync from '@expo/spawn-async';
 import { Command, Flags } from '@oclif/core';
+import { randomUUID } from 'crypto';
 import FormData from 'form-data';
 import fs from 'fs-extra';
 import mime from 'mime';
@@ -300,7 +301,11 @@ export default class Publish extends Command {
       platform: string;
       runtimeVersion: string;
       rolloutPercentage?: number;
+      publishGroup?: string;
     }[] = [];
+    // One group id for the whole run: every platform update of this publish
+    // shares it, so control plane servers list them as a single publish.
+    const publishGroupId = randomUUID();
     try {
       uploadUrls = await Promise.all(
         runtimeVersions.map(async ({ runtimeVersion, platform }) => {
@@ -319,6 +324,7 @@ export default class Publish extends Command {
               commitHash,
               message: resolvedMessage,
               rolloutPercentage,
+              publishGroup: publishGroupId,
               branch,
             })),
             runtimeVersion,
@@ -461,6 +467,16 @@ export default class Publish extends Command {
     if (hasSuccess) {
       Log.withInfo(`🌿 Branch: \`${branch}\``);
       Log.withInfo(`⏳ Deployed at: \`${new Date().toUTCString()}\`\n`);
+      const groupAcknowledged = uploadUrls.every(u => u.publishGroup === publishGroupId);
+      if (groupAcknowledged) {
+        Log.withInfo(`📦 Publish group: \`${publishGroupId}\``);
+      } else if (uploadUrls.length > 1) {
+        // Only worth a note when several platforms were published: a single
+        // update has nothing to group anyway.
+        Log.withInfo(
+          'ℹ️ Platform updates were published without grouping (publish groups require a server in control plane mode).'
+        );
+      }
       Log.withInfo('🔥 Your users will receive the latest update automatically!');
     }
   }

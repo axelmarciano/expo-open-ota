@@ -1,442 +1,510 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { api, ChannelRecord, ApiProblemError } from '@/lib/api.ts';
-import { ApiError } from '@/components/APIError';
-import { DataTable } from '@/components/DataTable';
-import { SelectBranch } from '@/pages/Channels/components/SelectBranch';
-import { useCallback, useMemo, useState } from 'react';
-import { useToast } from '@/hooks/use-toast.ts';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, Copy, GitBranch, Plus, Search, Split, Trash2 } from 'lucide-react';
+import { Link, useNavigate, useParams } from 'react-router';
+import { api, ChannelRecord, describeApiError } from '@/lib/api';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { PageHeader } from '@/components/PageHeader';
-import { DeleteDialog } from '@/components/ui/delete-dialog';
-import { AdminOnlyNote } from '@/components/ui/admin-only-note';
-import { TimestampCell } from '@/components/ui/timestamp-cell';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Trash2, Plus, Split, Lock } from 'lucide-react';
 import { useSettings } from '@/lib/SettingsContext';
 import { useAppPermission } from '@/ee/lib/PermissionsContext';
-import { RolloutBar } from '@/components/rollout/RolloutBar';
+import { useToast } from '@/hooks/use-toast';
+import { useBranchCurrentStatus } from '@/hooks/use-branch-current-status';
+import { toBranchStatus } from '@/lib/branch-status';
+import { PageHeader } from '@/components/PageHeader';
+import { ApiError } from '@/components/APIError';
+import { DataTable } from '@/components/DataTable';
+import { ChannelBranchMapping } from '@/components/ChannelBranchMapping';
+import { SelectBranch } from '@/pages/Channels/components/SelectBranch';
 import { StartRolloutDialog } from '@/pages/Channels/components/StartRolloutDialog';
 import { ManageRolloutDialog } from '@/pages/Channels/components/ManageRolloutDialog';
+import { RolloutBar } from '@/components/rollout/RolloutBar';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { DeleteDialog } from '@/components/ui/delete-dialog';
 
-interface TableColumnConfig {
-  header: string;
-  accessorKey?: keyof ChannelRecord;
-  id?: string;
-  cell: (props: { row: { original: ChannelRecord } }) => React.ReactNode;
-}
+const CreateChannelDialog = ({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: () => Promise<void>;
+}) => {
+  const { toast } = useToast();
+  const [name, setName] = useState('');
+  const [branch, setBranch] = useState<{ id: string; name: string } | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const close = () => {
+    setName('');
+    setBranch(null);
+    onClose();
+  };
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const channelName = name.trim();
+    if (!channelName) return;
+    setSubmitting(true);
+    try {
+      await api.createChannel({
+        channelName,
+        ...(branch && { branchName: branch.name }),
+      });
+      await onCreated();
+      toast({ title: 'Channel created', description: `"${channelName}" is ready.` });
+      close();
+    } catch (error) {
+      const message = describeApiError(error, 'Could not create channel');
+      toast({ title: message.title, description: message.description, variant: 'destructive' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={next => !next && close()}>
+      <DialogContent>
+        <form onSubmit={submit}>
+          <DialogHeader>
+            <DialogTitle>Create channel</DialogTitle>
+            <DialogDescription>
+              Create the channel, then map it to the branch that should serve updates.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-5">
+            <div className="space-y-1.5">
+              <Label htmlFor="channel-name">Channel name</Label>
+              <Input
+                id="channel-name"
+                value={name}
+                onChange={event => setName(event.target.value)}
+                placeholder="production"
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Branch (optional)</Label>
+              <SelectBranch
+                className="w-full"
+                currentBranch={branch?.id ?? ''}
+                disabled={submitting}
+                onChange={(id, branchName) =>
+                  setBranch(id && branchName ? { id, name: branchName } : null)
+                }
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={close} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={submitting || !name.trim()}>
+              {submitting ? 'Creating...' : 'Create channel'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+};
 
 export const Channels = () => {
+  const { channelName } = useParams();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { selectedAppId } = useSelectedApp();
   const { CONTROL_PLANE_ENABLED } = useSettings();
-  // Display gating only: the server re-checks each permission on its route.
   const canCreateChannel = useAppPermission('channel:create');
   const canDeleteChannel = useAppPermission('channel:delete');
   const canEditChannelBranch = useAppPermission('channel:edit-branch');
   const canManageRollout = useAppPermission('channel-rollout:manage');
-  const { selectedAppId } = useSelectedApp();
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['channels', selectedAppId],
-    enabled: !!selectedAppId,
-    queryFn: () => api.getChannels(),
-  });
-  const { toast } = useToast();
-  const [loading, setLoading] = useState(false);
-  const [newChannelName, setNewChannelName] = useState('');
-  const [newChannelBranch, setNewChannelBranch] = useState<{ id: string; name: string } | null>(
-    null
-  );
-  const [isCreating, setIsCreating] = useState(false);
+  const [search, setSearch] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editingMapping, setEditingMapping] = useState(false);
   const [channelToDelete, setChannelToDelete] = useState<ChannelRecord | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [rolloutAction, setRolloutAction] = useState<{
-    type: 'start' | 'manage';
-    channel: ChannelRecord;
-  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [rolloutAction, setRolloutAction] = useState<'start' | 'manage' | null>(null);
 
-  const handleRolloutDone = useCallback(async () => {
-    await refetch();
-  }, [refetch]);
+  const channelsQuery = useQuery({
+    queryKey: ['channels', selectedAppId],
+    queryFn: () => api.getChannels(),
+    enabled: !!selectedAppId,
+  });
+  const selectedChannel = channelName
+    ? channelsQuery.data?.find(
+        channel => channel.releaseChannelName === decodeURIComponent(channelName)
+      )
+    : undefined;
+  const statelessBranchStatus = useBranchCurrentStatus(
+    CONTROL_PLANE_ENABLED ? undefined : selectedChannel?.branchName
+  );
+  const branchStatus = CONTROL_PLANE_ENABLED
+    ? toBranchStatus(selectedChannel?.branchCurrentUpdate)
+    : statelessBranchStatus;
+  const rolloutBranchStatus = toBranchStatus(selectedChannel?.rolloutBranchCurrentUpdate);
 
-  // The dialogs must render the live record, not the snapshot captured when the
-  // action was opened: after "Save percentage" the refetched channels list is the
-  // source of truth, and a stale snapshot would show the pre-save value.
-  const rolloutActionChannel = useMemo(() => {
-    if (!rolloutAction) return null;
-    return (
-      data?.find(channel => channel.releaseChannelId === rolloutAction.channel.releaseChannelId) ??
-      rolloutAction.channel
-    );
-  }, [rolloutAction, data]);
-
-  const updateBranchMutation = useMutation({
-    mutationKey: ['update-branch'],
-    mutationFn: async ({
-      branchId,
-      releaseChannelId,
-      releaseChannelName,
-    }: {
-      branchId: string;
-      releaseChannelId: string;
-      releaseChannelName: string;
-    }) => {
-      return api.updateChannelBranchMapping(branchId, {
-        releaseChannelId,
-        releaseChannelName,
-      });
-    },
+  const mappingMutation = useMutation({
+    mutationFn: ({ branchId, channel }: { branchId: string; channel: ChannelRecord }) =>
+      api.updateChannelBranchMapping(branchId, {
+        releaseChannelId: channel.releaseChannelId,
+        releaseChannelName: channel.releaseChannelName,
+      }),
   });
 
-  const onBranchChange = useCallback(
-    (channel: ChannelRecord) => async (branchId?: string | null) => {
-      if (!branchId) return;
-      setLoading(true);
-      try {
-        await updateBranchMutation.mutateAsync({
-          branchId,
-          releaseChannelId: channel.releaseChannelId,
-          releaseChannelName: channel.releaseChannelName,
-        });
-        await refetch();
-        toast({
-          title: 'Channel updated',
-          description: `Branch mapping synchronized successfully.`,
-          duration: 2000,
-        });
-      } catch (error) {
-        let errorTitle = 'Error updating channel mapping';
-        let errorMessage = 'An unexpected error occurred.';
-        if (error instanceof ApiProblemError) {
-          errorTitle = error.title;
-          errorMessage = error.detail;
-        } else if (error instanceof Error) {
-          errorMessage = error.message;
-        }
-        toast({
-          title: errorTitle,
-          description: errorMessage,
-          variant: 'destructive',
-        });
-      } finally {
-        setLoading(false);
-      }
-    },
-    [updateBranchMutation, toast, refetch]
-  );
-
-  const handleCreateChannel = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newChannelName.trim()) return;
-    setIsCreating(true);
+  const remap = async (branchId?: string | null) => {
+    if (!selectedChannel || !branchId) return;
     try {
-      await api.createChannel({
-        channelName: newChannelName.trim(),
-        ...(newChannelBranch && { branchName: newChannelBranch.name }),
-      });
-      setNewChannelName('');
-      setNewChannelBranch(null);
-      await refetch();
+      await mappingMutation.mutateAsync({ branchId, channel: selectedChannel });
+      await queryClient.invalidateQueries({ queryKey: ['channels', selectedAppId] });
+      setEditingMapping(false);
       toast({
-        title: 'Channel created',
-        description: newChannelBranch
-          ? `"${newChannelName.trim()}" now serves the "${newChannelBranch.name}" branch.`
-          : `"${newChannelName.trim()}" created. Map it to a branch to start serving updates.`,
+        title: 'Channel updated',
+        description: `"${selectedChannel.releaseChannelName}" now uses the selected branch.`,
       });
     } catch (error) {
-      let errorTitle = 'Error creating channel';
-      let errorMessage = 'An unexpected error occurred.';
-      if (error instanceof ApiProblemError) {
-        errorTitle = error.title;
-        errorMessage = error.detail;
-      } else if (error instanceof Error) {
-        errorMessage = error.message;
-      }
-      toast({
-        title: errorTitle,
-        description: errorMessage,
-        variant: 'destructive',
-      });
-    } finally {
-      setIsCreating(false);
+      const message = describeApiError(error, 'Could not update channel mapping');
+      toast({ title: message.title, description: message.description, variant: 'destructive' });
     }
   };
 
-  const handleExecuteDeletion = async () => {
+  const deleteChannel = async () => {
     if (!channelToDelete) return;
-    setIsDeleting(true);
+    setDeleting(true);
     try {
       await api.deleteChannel(channelToDelete.releaseChannelName);
-      await refetch();
+      await queryClient.invalidateQueries({ queryKey: ['channels', selectedAppId] });
+      if (selectedChannel?.releaseChannelId === channelToDelete.releaseChannelId) {
+        navigate('/channels');
+      }
       toast({
         title: 'Channel deleted',
         description: `"${channelToDelete.releaseChannelName}" was removed.`,
       });
       setChannelToDelete(null);
     } catch (error) {
-      let errorTitle = 'Deletion Failed';
-      let errorMessage = 'Could not clean up the requested release channel.';
-      if (error instanceof ApiProblemError) {
-        errorTitle = error.title;
-        errorMessage = error.detail;
-      } else if (error instanceof Error) {
-        errorMessage = error.message;
-      }
-      toast({
-        title: errorTitle,
-        description: errorMessage,
-        variant: 'destructive',
-      });
+      const message = describeApiError(error, 'Could not delete channel');
+      toast({ title: message.title, description: message.description, variant: 'destructive' });
     } finally {
-      setIsDeleting(false);
+      setDeleting(false);
     }
   };
 
-  const tableColumns = useMemo<TableColumnConfig[]>(() => {
-    return [
+  const filteredChannels = useMemo(() => {
+    const normalized = search.trim().toLowerCase();
+    return (channelsQuery.data ?? []).filter(
+      channel =>
+        !normalized ||
+        channel.releaseChannelName.toLowerCase().includes(normalized) ||
+        channel.branchName?.toLowerCase().includes(normalized)
+    );
+  }, [channelsQuery.data, search]);
+
+  const columns = useMemo(
+    () => [
       {
         header: 'Channel',
         accessorKey: 'releaseChannelName',
-        cell: ({ row }) => <span className="font-medium">{row.original.releaseChannelName}</span>,
+        cell: ({ row }: { row: { original: ChannelRecord } }) => (
+          <span className="font-medium">{row.original.releaseChannelName}</span>
+        ),
       },
       {
-        header: 'Branch',
-        accessorKey: 'branchId',
-        // Remapping a live channel is an admin action (the server enforces
-        // it); everyone else sees the mapping read-only. While a rollout is
-        // active the mapping is locked for everyone: it can only change by
-        // promoting or reverting the rollout.
-        cell: ({ row }) => {
-          if (row.original.rollout) {
-            return (
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-                      <Lock className="h-3.5 w-3.5" />
-                      {row.original.branchName || 'No branch'}
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    The branch mapping is locked while a rollout is in progress. Promote or revert
-                    the rollout to change it.
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            );
-          }
-          return canEditChannelBranch ? (
-            <SelectBranch
-              currentBranch={row.original.branchId || ''}
-              loading={isLoading || loading}
-              onChange={onBranchChange(row.original)}
-            />
+        header: 'Status',
+        id: 'status',
+        cell: ({ row }: { row: { original: ChannelRecord } }) => (
+          <Badge
+            variant="outline"
+            className={
+              row.original.branchName
+                ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300'
+                : 'text-muted-foreground'
+            }>
+            {row.original.branchName ? 'Active' : 'Unmapped'}
+          </Badge>
+        ),
+      },
+      {
+        header: 'Linked branch',
+        accessorKey: 'branchName',
+        cell: ({ row }: { row: { original: ChannelRecord } }) =>
+          row.original.branchName ? (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 font-medium hover:text-link"
+              onClick={event => {
+                event.stopPropagation();
+                navigate(`/branches/${encodeURIComponent(row.original.branchName as string)}`);
+              }}>
+              <GitBranch className="h-4 w-4 text-muted-foreground" />
+              {row.original.branchName}
+            </button>
           ) : (
-            <span className="text-muted-foreground">{row.original.branchName || 'No branch'}</span>
-          );
-        },
+            <span className="text-muted-foreground/60">None</span>
+          ),
       },
       ...(CONTROL_PLANE_ENABLED
         ? [
             {
               header: 'Rollout',
               id: 'rollout',
-              cell: ({ row }) => {
-                const channel = row.original;
-                if (channel.rollout) {
-                  return (
-                    <div className="flex items-center gap-2.5">
-                      <RolloutBar value={channel.rollout.percentage} />
-                      <span className="text-xs text-muted-foreground">
-                        to {channel.rollout.rolloutBranchName}
-                      </span>
-                      {canManageRollout && (
-                        <button
-                          type="button"
-                          onClick={() => setRolloutAction({ type: 'manage', channel })}
-                          className="text-sm font-medium text-link hover:underline">
-                          Manage
-                        </button>
-                      )}
-                    </div>
-                  );
-                }
-                // Nothing to roll out until the channel serves a branch.
-                if (!channel.branchId) {
-                  return <span className="text-muted-foreground/60">None</span>;
-                }
-                if (canManageRollout) {
-                  return (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setRolloutAction({ type: 'start', channel })}
-                      className="text-muted-foreground hover:text-foreground">
-                      <Split className="h-4 w-4" />
-                      Start rollout
-                    </Button>
-                  );
-                }
-                return <span className="text-muted-foreground/60">None</span>;
-              },
-            } satisfies TableColumnConfig,
-            {
-              header: 'Created',
-              accessorKey: 'createdAt',
-              cell: ({ row }) => <TimestampCell dateString={row.original.createdAt} />,
-            } satisfies TableColumnConfig,
+              cell: ({ row }: { row: { original: ChannelRecord } }) =>
+                row.original.rollout ? (
+                  <div className="flex items-center gap-2">
+                    <RolloutBar value={row.original.rollout.percentage} />
+                    <span className="text-xs text-muted-foreground">
+                      to {row.original.rollout.rolloutBranchName}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground/60">None</span>
+                ),
+            },
           ]
         : []),
-      // Deleting a channel needs its permission (the server enforces it).
+      {
+        header: 'ID',
+        accessorKey: 'releaseChannelId',
+        cell: ({ row }: { row: { original: ChannelRecord } }) => (
+          <div className="flex items-center gap-1">
+            <code className="max-w-32 truncate font-mono text-xs text-muted-foreground">
+              {row.original.releaseChannelId}
+            </code>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              title="Copy channel ID"
+              onClick={event => {
+                event.stopPropagation();
+                void navigator.clipboard.writeText(row.original.releaseChannelId);
+              }}>
+              <Copy className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        ),
+      },
       ...(CONTROL_PLANE_ENABLED && canDeleteChannel
         ? [
             {
               header: '',
               id: 'actions',
-              cell: ({ row }) => (
-                <div className="text-right pr-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setChannelToDelete(row.original)}
-                    className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                    title="Delete Release Channel">
-                    <Trash2 />
-                  </Button>
-                </div>
+              cell: ({ row }: { row: { original: ChannelRecord } }) => (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  title="Delete channel"
+                  onClick={event => {
+                    event.stopPropagation();
+                    setChannelToDelete(row.original);
+                  }}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               ),
-            } satisfies TableColumnConfig,
+            },
           ]
         : []),
-    ];
-  }, [
-    CONTROL_PLANE_ENABLED,
-    canDeleteChannel,
-    canEditChannelBranch,
-    canManageRollout,
-    isLoading,
-    loading,
-    onBranchChange,
-  ]);
+    ],
+    [CONTROL_PLANE_ENABLED, canDeleteChannel, navigate]
+  );
+
+  if (channelName) {
+    const decodedChannel = decodeURIComponent(channelName);
+    return (
+      <div className="w-full">
+        <Link
+          to="/channels"
+          className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="h-4 w-4" />
+          All channels
+        </Link>
+        <PageHeader
+          title={decodedChannel}
+          actions={
+            CONTROL_PLANE_ENABLED && canDeleteChannel && selectedChannel ? (
+              <Button variant="outline" onClick={() => setChannelToDelete(selectedChannel)}>
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </Button>
+            ) : undefined
+          }
+        />
+        {!!channelsQuery.error && <ApiError error={channelsQuery.error} />}
+        {!channelsQuery.isLoading && !selectedChannel && !channelsQuery.error && (
+          <div className="rounded-lg border border-dashed p-10 text-center text-muted-foreground">
+            Channel not found.
+          </div>
+        )}
+        {selectedChannel && (
+          <div className="space-y-6">
+            <ChannelBranchMapping
+              branchName={selectedChannel.branchName}
+              channelNames={[selectedChannel.releaseChannelName]}
+              branchStatus={branchStatus}
+              rolloutStatus={rolloutBranchStatus}
+              rollout={
+                selectedChannel.rollout
+                  ? {
+                      branchName: selectedChannel.rollout.rolloutBranchName,
+                      percentage: selectedChannel.rollout.percentage,
+                    }
+                  : undefined
+              }
+              onEdit={
+                canEditChannelBranch && !selectedChannel.rollout
+                  ? () => setEditingMapping(true)
+                  : undefined
+              }
+            />
+            {editingMapping && (
+              <section className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-end">
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <Label>Branch</Label>
+                  <SelectBranch
+                    className="w-full"
+                    currentBranch={selectedChannel.branchId ?? ''}
+                    loading={mappingMutation.isPending}
+                    onChange={branchId => void remap(branchId)}
+                  />
+                </div>
+                <Button variant="ghost" onClick={() => setEditingMapping(false)}>
+                  Cancel
+                </Button>
+              </section>
+            )}
+            {CONTROL_PLANE_ENABLED && (
+              <section className="rounded-lg border p-5">
+                <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                  <div>
+                    <h2 className="text-sm font-semibold">Progressive rollout</h2>
+                    {selectedChannel.rollout ? (
+                      <div className="mt-2 flex items-center gap-3">
+                        <RolloutBar value={selectedChannel.rollout.percentage} />
+                        <span className="text-sm text-muted-foreground">
+                          to {selectedChannel.rollout.rolloutBranchName}
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-sm text-muted-foreground">No active rollout</p>
+                    )}
+                  </div>
+                  {canManageRollout && selectedChannel.branchId && (
+                    <Button
+                      variant={selectedChannel.rollout ? 'outline' : 'default'}
+                      onClick={() =>
+                        setRolloutAction(selectedChannel.rollout ? 'manage' : 'start')
+                      }>
+                      <Split className="h-4 w-4" />
+                      {selectedChannel.rollout ? 'Manage rollout' : 'Start rollout'}
+                    </Button>
+                  )}
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+        {selectedChannel && canManageRollout && (
+          <>
+            <StartRolloutDialog
+              channel={rolloutAction === 'start' ? selectedChannel : null}
+              onClose={() => setRolloutAction(null)}
+              onStarted={async () => {
+                await channelsQuery.refetch();
+              }}
+            />
+            <ManageRolloutDialog
+              channel={rolloutAction === 'manage' ? selectedChannel : null}
+              onClose={() => setRolloutAction(null)}
+              onDone={async () => {
+                await channelsQuery.refetch();
+              }}
+            />
+          </>
+        )}
+        {CONTROL_PLANE_ENABLED && canDeleteChannel && (
+          <DeleteDialog
+            isOpen={!!channelToDelete}
+            onClose={() => setChannelToDelete(null)}
+            onConfirm={deleteChannel}
+            isDeleting={deleting}
+            title="Delete channel"
+            resourceName={channelToDelete?.releaseChannelName}
+            descriptionText="Builds configured with this channel will stop receiving updates. This cannot be undone."
+            confirmButtonText="Delete channel"
+            isDeletingButtonText="Deleting..."
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="w-full">
       <PageHeader
         title="Channels"
-        description={
-          <>
-            <p>
-              A <span className="font-medium text-foreground">branch</span> is a line of updates you
-              publish to, much like a git branch. A{' '}
-              <span className="font-medium text-foreground">release channel</span> is the name your
-              app asks for when it checks for updates. It is baked into the build and never changes.
-            </p>
-            <p className="mt-2">
-              Mapping a channel to a branch decides which updates an app actually receives. Point{' '}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
-                production
-              </code>{' '}
-              at a new branch to roll out, or back at the previous one to roll back, without
-              shipping a new build. Or start a progressive rollout to serve a branch to a fraction
-              of devices first.
-            </p>
-          </>
+        actions={
+          CONTROL_PLANE_ENABLED && canCreateChannel ? (
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" />
+              Create channel
+            </Button>
+          ) : undefined
         }
       />
-      {!!error && <ApiError error={error} />}
-
-      <div className="space-y-4">
-        {CONTROL_PLANE_ENABLED &&
-          !canCreateChannel &&
-          !canDeleteChannel &&
-          !canEditChannelBranch &&
-          !canManageRollout && (
-            <AdminOnlyNote>
-              You do not have permission to manage channels on this app. Ask an admin to grant you
-              access.
-            </AdminOnlyNote>
-          )}
-        {CONTROL_PLANE_ENABLED && canCreateChannel && (
-          <Card>
-            <CardContent className="p-5">
-              <form
-                onSubmit={handleCreateChannel}
-                className="grid items-end gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                <div className="space-y-1.5">
-                  <Label htmlFor="channel-name">Channel name</Label>
-                  <Input
-                    id="channel-name"
-                    placeholder="production, staging…"
-                    value={newChannelName}
-                    onChange={e => setNewChannelName(e.target.value)}
-                    disabled={isCreating}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>
-                    Branch to serve{' '}
-                    <span className="font-normal text-muted-foreground">(optional)</span>
-                  </Label>
-                  <SelectBranch
-                    className="w-full"
-                    currentBranch={newChannelBranch?.id ?? ''}
-                    loading={isCreating}
-                    onChange={(branchId, branchName) =>
-                      setNewChannelBranch(
-                        branchId && branchName ? { id: branchId, name: branchName } : null
-                      )
-                    }
-                  />
-                </div>
-                <Button type="submit" disabled={isCreating || !newChannelName.trim()}>
-                  <Plus className="h-4 w-4" />
-                  {isCreating ? 'Creating…' : 'Create channel'}
-                </Button>
-              </form>
-              <p className="mt-3 text-xs text-muted-foreground">
-                Pick an existing branch or create one on the fly. You can also leave it empty and
-                map a branch later from the table below.
-              </p>
-            </CardContent>
-          </Card>
-        )}
-
-        <DataTable
-          loading={isLoading}
-          columns={tableColumns}
-          data={data ?? []}
-          emptyMessage="No channels yet. Create one to start serving updates to your builds."
-        />
+      {!!channelsQuery.error && <ApiError error={channelsQuery.error} />}
+      <div className="mb-4 max-w-sm">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            aria-label="Search channels"
+            placeholder="Search channels"
+            value={search}
+            onChange={event => setSearch(event.target.value)}
+            className="pl-9"
+          />
+        </div>
       </div>
-
+      <DataTable
+        loading={channelsQuery.isLoading}
+        columns={columns}
+        data={filteredChannels}
+        emptyMessage={search ? 'No channels match this search.' : 'No channels yet.'}
+        onRowClick={channel =>
+          navigate(`/channels/${encodeURIComponent(channel.releaseChannelName)}`)
+        }
+      />
+      {CONTROL_PLANE_ENABLED && canCreateChannel && (
+        <CreateChannelDialog
+          open={createOpen}
+          onClose={() => setCreateOpen(false)}
+          onCreated={async () => {
+            await queryClient.invalidateQueries({ queryKey: ['channels', selectedAppId] });
+          }}
+        />
+      )}
       {CONTROL_PLANE_ENABLED && canDeleteChannel && (
         <DeleteDialog
           isOpen={!!channelToDelete}
           onClose={() => setChannelToDelete(null)}
-          onConfirm={handleExecuteDeletion}
-          isDeleting={isDeleting}
+          onConfirm={deleteChannel}
+          isDeleting={deleting}
           title="Delete channel"
           resourceName={channelToDelete?.releaseChannelName}
           descriptionText="Builds configured with this channel will stop receiving updates. This cannot be undone."
           confirmButtonText="Delete channel"
-          isDeletingButtonText="Deleting…"
+          isDeletingButtonText="Deleting..."
         />
-      )}
-
-      {CONTROL_PLANE_ENABLED && canManageRollout && (
-        <>
-          <StartRolloutDialog
-            channel={rolloutAction?.type === 'start' ? rolloutActionChannel : null}
-            onClose={() => setRolloutAction(null)}
-            onStarted={handleRolloutDone}
-          />
-          <ManageRolloutDialog
-            channel={rolloutAction?.type === 'manage' ? rolloutActionChannel : null}
-            onClose={() => setRolloutAction(null)}
-            onDone={handleRolloutDone}
-          />
-        </>
       )}
     </div>
   );

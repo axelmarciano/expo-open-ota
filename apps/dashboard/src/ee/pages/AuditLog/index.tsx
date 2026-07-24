@@ -35,13 +35,25 @@ const selectClassName =
 
 const OutcomeBadge = ({ outcome }: { outcome: AuditEventRecord['outcome'] }) => {
   if (outcome === 'success') {
-    return <Badge className="border-transparent bg-emerald-100 text-emerald-700">success</Badge>;
+    return (
+      <Badge className="border-emerald-400/25 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300">
+        success
+      </Badge>
+    );
   }
   if (outcome === 'denied') {
-    return <Badge className="border-transparent bg-red-100 text-red-700">denied</Badge>;
+    return (
+      <Badge className="border-red-400/25 bg-red-400/10 text-red-700 dark:text-red-300">
+        denied
+      </Badge>
+    );
   }
   if (outcome === 'failure') {
-    return <Badge className="border-transparent bg-amber-100 text-amber-700">failure</Badge>;
+    return (
+      <Badge className="border-amber-400/25 bg-amber-400/10 text-amber-700 dark:text-amber-300">
+        failure
+      </Badge>
+    );
   }
   // An empty outcome is an incomplete call site the server refused to paper
   // over; show it honestly.

@@ -61,7 +61,11 @@ export const RoleFormDialog = ({
 
   const handleSave = async () => {
     if (!name.trim()) {
-      toast({ title: 'Name required', description: 'Give the role a name.', variant: 'destructive' });
+      toast({
+        title: 'Name required',
+        description: 'Give the role a name.',
+        variant: 'destructive',
+      });
       return;
     }
     setIsSaving(true);

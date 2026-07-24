@@ -5,27 +5,77 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --radius: 0.75rem;
-    --background: 0 0% 100%;
-    --foreground: 210 24% 10%;
-    --card: 0 0% 100%;
-    --card-foreground: 210 24% 10%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 210 24% 10%;
-    --primary: 210 24% 10%;
+  :root,
+  .dark {
+    --radius: 0.5rem;
+    --background: 240 6% 6%;
+    --foreground: 240 8% 95%;
+    --card: 240 5% 9%;
+    --card-foreground: 240 8% 95%;
+    --popover: 240 5% 11%;
+    --popover-foreground: 240 8% 95%;
+    --primary: 217 87% 62%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 210 17% 96%;
-    --secondary-foreground: 210 24% 10%;
-    --muted: 210 17% 96%;
-    --muted-foreground: 210 8% 43%;
-    --accent: 210 17% 95%;
-    --accent-foreground: 210 24% 10%;
+    --secondary: 240 5% 13%;
+    --secondary-foreground: 240 8% 95%;
+    --muted: 240 5% 12%;
+    --muted-foreground: 240 6% 70%;
+    --accent: 240 5% 16%;
+    --accent-foreground: 240 8% 95%;
+    --destructive: 0 83% 69%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 5% 19%;
+    --input: 240 5% 25%;
+    --ring: 217 87% 62%;
+    --link: 215 87% 69%;
+    --graph-dot: 240 5% 32%;
+  }
+
+  .light {
+    --background: 240 20% 98%;
+    --foreground: 240 10% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 10%;
+    --primary: 221 68% 48%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 12% 95%;
+    --secondary-foreground: 240 10% 15%;
+    --muted: 240 12% 95%;
+    --muted-foreground: 240 5% 42%;
+    --accent: 240 12% 92%;
+    --accent-foreground: 240 10% 12%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 210 16% 91%;
-    --input: 210 14% 86%;
-    --ring: 208 100% 47%;
+    --border: 240 8% 86%;
+    --input: 240 8% 76%;
+    --ring: 221 68% 48%;
+    --link: 221 68% 45%;
+    --graph-dot: 221 20% 78%;
+  }
+}
+
+@layer utilities {
+  @keyframes dashboard-page-enter {
+    from {
+      opacity: 0;
+      transform: translateY(5px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .dashboard-page-enter {
+    animation: dashboard-page-enter 180ms ease-out both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dashboard-page-enter {
+      animation: none;
+    }
   }
 }
 
@@ -39,5 +89,15 @@
   body {
     @apply bg-background text-foreground;
     font-feature-settings: 'cv11';
+    min-height: 100dvh;
+    color: hsl(var(--foreground));
+  }
+  ::selection {
+    background: rgb(76 141 242 / 35%);
+    color: hsl(var(--foreground));
+  }
+  * {
+    scrollbar-color: hsl(var(--input)) hsl(var(--background));
+    scrollbar-width: thin;
   }
 }

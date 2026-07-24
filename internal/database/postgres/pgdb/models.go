@@ -146,6 +146,7 @@ type Update struct {
 	CheckedAt         pgtype.Timestamptz `json:"checked_at"`
 	RolloutPercentage *int32             `json:"rollout_percentage"`
 	ControlUpdateID   *int64             `json:"control_update_id"`
+	PublishGroup      pgtype.UUID        `json:"publish_group"`
 }
 
 type User struct {
